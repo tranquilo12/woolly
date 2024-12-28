@@ -16,6 +16,24 @@ export function Chat({ chatId }: ChatProps) {
   const [initialMessages, setInitialMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  const saveMessage = async (message: Message) => {
+    if (!chatId) return;
+    try {
+      const response = await fetch(`/api/chat/${chatId}/messages/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(message),
+      });
+
+      if (!response.ok) throw new Error('Failed to save message');
+    } catch (error) {
+      console.error('Failed to save message:', error);
+      toast.error('Failed to save message');
+    }
+  };
+
   useEffect(() => {
     const fetchMessages = async () => {
       if (!chatId) return;
@@ -38,6 +56,9 @@ export function Chat({ chatId }: ChatProps) {
     api: chatId ? `/api/chat/${chatId}` : "/api/chat",
     id: chatId,
     initialMessages,
+    onFinish: async (message) => {
+      await saveMessage(message);
+    },
   });
 
   const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();

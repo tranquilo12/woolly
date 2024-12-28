@@ -111,8 +111,9 @@ class Message(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id"))
-    role = Column(String(50))
+    role = Column(String)
     content = Column(Text)
+    tool_invocations = Column(Text, nullable=True)  # Store as JSON string
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     chat = relationship("Chat", back_populates="messages")

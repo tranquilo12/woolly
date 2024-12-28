@@ -1,6 +1,6 @@
 import os
 import json
-from typing import List
+from typing import List, Optional
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -33,6 +33,16 @@ client = OpenAI(
 
 class Request(BaseModel):
     messages: List[ClientMessage]
+
+
+class ChatTitleUpdate(BaseModel):
+    title: str
+
+
+class MessageCreate(BaseModel):
+    role: str
+    content: str
+    toolInvocations: Optional[List[dict]] = None
 
 
 available_tools = {
@@ -149,28 +159,16 @@ def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = "dat
             )
 
 
-@app.post("/api/chat")
-async def handle_chat_legacy(request: Request, protocol: str = Query("data")):
-    """Legacy endpoint maintained for backward compatibility"""
-    messages = request.messages
-    openai_messages = convert_to_openai_messages(messages)
-
-    response = StreamingResponse(stream_text(openai_messages, protocol))
-    response.headers["x-vercel-ai-data-stream"] = "v1"
-    return response
-
-
+# Chat CRUD Operations
 @app.post("/api/chat/create")
 async def create_chat(db: Session = Depends(get_db)):
     """Create a new chat and return its ID"""
     try:
-        # Add debugging
         print("Creating new chat...")
-
         new_chat = Chat(
             id=uuid.uuid4(),
-            created_at=datetime.now(timezone.utc),  # This should work now
-            updated_at=datetime.now(timezone.utc),  # This should work now
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         db.add(new_chat)
@@ -187,43 +185,6 @@ async def create_chat(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to create chat: {str(e)}")
 
 
-@app.post("/api/chat/{chat_id}")
-async def handle_chat_with_storage(
-    chat_id: uuid.UUID,
-    request: Request,
-    db: Session = Depends(get_db),
-    protocol: str = Query("data"),
-):
-    """New endpoint that includes database storage"""
-    # Verify chat exists
-    chat = db.query(Chat).filter(Chat.id == chat_id).first()
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
-
-    messages = request.messages
-    openai_messages = convert_to_openai_messages(messages)
-
-    # Store incoming message
-    user_message = Message(
-        chat_id=chat_id,
-        role="user",
-        content=messages[-1].content if messages else "",
-        created_at=datetime.now(timezone.utc),
-    )
-    db.add(user_message)
-    db.commit()
-
-    # Use existing streaming functionality
-    response = StreamingResponse(stream_text(openai_messages, protocol))
-    response.headers["x-vercel-ai-data-stream"] = "v1"
-
-    # Update chat's updated_at timestamp
-    chat.updated_at = datetime.now(timezone.utc)
-    db.commit()
-
-    return response
-
-
 @app.get("/api/chats")
 async def get_chats(db: Session = Depends(get_db)):
     """Fetch all chats ordered by last updated"""
@@ -233,14 +194,13 @@ async def get_chats(db: Session = Depends(get_db)):
             "id": str(chat.id),
             "created_at": chat.created_at.isoformat(),
             "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
-            # Get the last message content to use as title
             "title": (
                 db.query(Message)
                 .filter(Message.chat_id == chat.id)
                 .order_by(Message.created_at.asc())
                 .first()
                 .content[:50]
-                + "..."  # Truncate long messages
+                + "..."
                 if db.query(Message).filter(Message.chat_id == chat.id).first()
                 else "New Chat"
             ),
@@ -249,10 +209,24 @@ async def get_chats(db: Session = Depends(get_db)):
     ]
 
 
-class ChatTitleUpdate(BaseModel):
-    title: str
+@app.delete("/api/chat/{chat_id}")
+async def delete_chat(chat_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Delete a chat and its messages"""
+    try:
+        db.query(Message).filter(Message.chat_id == chat_id).delete()
+        result = db.query(Chat).filter(Chat.id == chat_id).delete()
+        if not result:
+            raise HTTPException(status_code=404, detail="Chat not found")
+
+        db.commit()
+        return {"success": True}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete chat: {str(e)}")
 
 
+# Chat Title Operations
 @app.patch("/api/chat/{chat_id}/title")
 async def update_chat_title(
     chat_id: uuid.UUID, title_update: ChatTitleUpdate, db: Session = Depends(get_db)
@@ -263,7 +237,6 @@ async def update_chat_title(
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
 
-        # Create a new message for the title
         new_message = Message(
             chat_id=chat_id,
             role="system",
@@ -271,7 +244,6 @@ async def update_chat_title(
             created_at=datetime.now(timezone.utc),
         )
 
-        # Delete old title message if exists
         db.query(Message).filter(Message.chat_id == chat_id).filter(
             Message.role == "system"
         ).delete()
@@ -288,6 +260,7 @@ async def update_chat_title(
         )
 
 
+# Message Operations
 @app.get("/api/chat/{chat_id}/messages")
 async def get_chat_messages(chat_id: uuid.UUID, db: Session = Depends(get_db)):
     """Fetch all messages for a specific chat"""
@@ -309,21 +282,74 @@ async def get_chat_messages(chat_id: uuid.UUID, db: Session = Depends(get_db)):
     ]
 
 
-@app.delete("/api/chat/{chat_id}")
-async def delete_chat(chat_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Delete a chat and its messages"""
+@app.post("/api/chat/{chat_id}/messages/save")
+async def save_chat_message(
+    chat_id: uuid.UUID, message: MessageCreate, db: Session = Depends(get_db)
+):
     try:
-        # Delete associated messages first (due to foreign key constraint)
-        db.query(Message).filter(Message.chat_id == chat_id).delete()
+        tool_invocations = None
+        if message.toolInvocations:
+            tool_invocations = json.dumps([t for t in message.toolInvocations])
 
-        # Delete the chat
-        result = db.query(Chat).filter(Chat.id == chat_id).delete()
-        if not result:
-            raise HTTPException(status_code=404, detail="Chat not found")
+        db_message = Message(
+            chat_id=chat_id,
+            role=message.role,
+            content=message.content,
+            tool_invocations=tool_invocations,
+            created_at=datetime.now(timezone.utc),
+        )
 
+        db.add(db_message)
         db.commit()
-        return {"success": True}
+        db.refresh(db_message)
 
+        return {"success": True, "message_id": str(db_message.id)}
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to delete chat: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save message: {str(e)}")
+
+
+# Chat Interaction Endpoints
+@app.post("/api/chat/{chat_id}")
+async def handle_chat_with_storage(
+    chat_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    protocol: str = Query("data"),
+):
+    """New endpoint that includes database storage"""
+    chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    messages = request.messages
+    openai_messages = convert_to_openai_messages(messages)
+
+    user_message = Message(
+        chat_id=chat_id,
+        role="user",
+        content=messages[-1].content if messages else "",
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(user_message)
+    db.commit()
+
+    response = StreamingResponse(stream_text(openai_messages, protocol))
+    response.headers["x-vercel-ai-data-stream"] = "v1"
+
+    chat.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return response
+
+
+# Legacy Endpoint (Consider deprecating)
+@app.post("/api/chat")
+async def handle_chat_legacy(request: Request, protocol: str = Query("data")):
+    """Legacy endpoint maintained for backward compatibility"""
+    messages = request.messages
+    openai_messages = convert_to_openai_messages(messages)
+
+    response = StreamingResponse(stream_text(openai_messages, protocol))
+    response.headers["x-vercel-ai-data-stream"] = "v1"
+    return response
