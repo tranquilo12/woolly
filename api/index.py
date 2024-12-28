@@ -1,6 +1,5 @@
 import os
 import json
-from time import timezone
 from typing import List
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from pydantic import BaseModel
@@ -20,7 +19,7 @@ from .utils.models import (
 import uuid
 from sqlalchemy.orm import Session
 from .utils.database import get_db
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 load_dotenv(".env.local")
@@ -48,27 +47,6 @@ def do_stream(messages: List[ChatCompletionMessageParam]):
         model="gpt-4o",
         stream=True,
         tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": "get_current_weather",
-                    "description": "Get the current weather at a location",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "latitude": {
-                                "type": "number",
-                                "description": "The latitude of the location",
-                            },
-                            "longitude": {
-                                "type": "number",
-                                "description": "The longitude of the location",
-                            },
-                        },
-                        "required": ["latitude", "longitude"],
-                    },
-                },
-            },
             {
                 "type": "function",
                 "function": {
@@ -100,27 +78,6 @@ def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = "dat
         model="gpt-4o",
         stream=True,
         tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": "get_current_weather",
-                    "description": "Get the current weather at a location",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "latitude": {
-                                "type": "number",
-                                "description": "The latitude of the location",
-                            },
-                            "longitude": {
-                                "type": "number",
-                                "description": "The longitude of the location",
-                            },
-                        },
-                        "required": ["latitude", "longitude"],
-                    },
-                },
-            },
             {
                 "type": "function",
                 "function": {
@@ -203,6 +160,33 @@ async def handle_chat_legacy(request: Request, protocol: str = Query("data")):
     return response
 
 
+@app.post("/api/chat/create")
+async def create_chat(db: Session = Depends(get_db)):
+    """Create a new chat and return its ID"""
+    try:
+        # Add debugging
+        print("Creating new chat...")
+
+        new_chat = Chat(
+            id=uuid.uuid4(),
+            created_at=datetime.now(timezone.utc),  # This should work now
+            updated_at=datetime.now(timezone.utc),  # This should work now
+        )
+
+        db.add(new_chat)
+        db.commit()
+        db.refresh(new_chat)
+
+        chat_id = str(new_chat.id)
+        print(f"Successfully created chat with ID: {chat_id}")
+
+        return {"id": chat_id}
+    except Exception as e:
+        db.rollback()
+        print(f"Error creating chat: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create chat: {str(e)}")
+
+
 @app.post("/api/chat/{chat_id}")
 async def handle_chat_with_storage(
     chat_id: uuid.UUID,
@@ -238,3 +222,108 @@ async def handle_chat_with_storage(
     db.commit()
 
     return response
+
+
+@app.get("/api/chats")
+async def get_chats(db: Session = Depends(get_db)):
+    """Fetch all chats ordered by last updated"""
+    chats = db.query(Chat).order_by(Chat.updated_at.desc()).all()
+    return [
+        {
+            "id": str(chat.id),
+            "created_at": chat.created_at.isoformat(),
+            "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
+            # Get the last message content to use as title
+            "title": (
+                db.query(Message)
+                .filter(Message.chat_id == chat.id)
+                .order_by(Message.created_at.asc())
+                .first()
+                .content[:50]
+                + "..."  # Truncate long messages
+                if db.query(Message).filter(Message.chat_id == chat.id).first()
+                else "New Chat"
+            ),
+        }
+        for chat in chats
+    ]
+
+
+class ChatTitleUpdate(BaseModel):
+    title: str
+
+
+@app.patch("/api/chat/{chat_id}/title")
+async def update_chat_title(
+    chat_id: uuid.UUID, title_update: ChatTitleUpdate, db: Session = Depends(get_db)
+):
+    """Update chat title"""
+    try:
+        chat = db.query(Chat).filter(Chat.id == chat_id).first()
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+
+        # Create a new message for the title
+        new_message = Message(
+            chat_id=chat_id,
+            role="system",
+            content=title_update.title,
+            created_at=datetime.now(timezone.utc),
+        )
+
+        # Delete old title message if exists
+        db.query(Message).filter(Message.chat_id == chat_id).filter(
+            Message.role == "system"
+        ).delete()
+
+        db.add(new_message)
+        db.commit()
+
+        return {"success": True}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update chat title: {str(e)}"
+        )
+
+
+@app.get("/api/chat/{chat_id}/messages")
+async def get_chat_messages(chat_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Fetch all messages for a specific chat"""
+    messages = (
+        db.query(Message)
+        .filter(Message.chat_id == chat_id)
+        .order_by(Message.created_at.asc())
+        .all()
+    )
+
+    return [
+        {
+            "id": str(message.id),
+            "content": message.content,
+            "role": message.role,
+            "created_at": message.created_at.isoformat(),
+        }
+        for message in messages
+    ]
+
+
+@app.delete("/api/chat/{chat_id}")
+async def delete_chat(chat_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Delete a chat and its messages"""
+    try:
+        # Delete associated messages first (due to foreign key constraint)
+        db.query(Message).filter(Message.chat_id == chat_id).delete()
+
+        # Delete the chat
+        result = db.query(Chat).filter(Chat.id == chat_id).delete()
+        if not result:
+            raise HTTPException(status_code=404, detail="Chat not found")
+
+        db.commit()
+        return {"success": True}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete chat: {str(e)}")
