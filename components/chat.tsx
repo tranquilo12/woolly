@@ -11,12 +11,13 @@ import { motion } from "framer-motion";
 import { ToolInvocationDisplay } from "./tool-invocation";
 
 interface ChatProps {
-  chatId?: string;
+  chatId: string;
+  userId: string;
 }
 
-export function Chat({ chatId }: ChatProps) {
-  const [initialMessages, setInitialMessages] = useState<Message[]>([]);
+export function Chat({ chatId, userId }: ChatProps) {
   const [isLoading, setIsLoading] = useState(true);
+  const [initialMessages, setInitialMessages] = useState<Message[]>([]);
 
   const saveMessage = async (message: Message) => {
     if (!chatId) return;
@@ -24,7 +25,8 @@ export function Chat({ chatId }: ChatProps) {
       const messageToSave = {
         role: message.role,
         content: message.content,
-        toolInvocations: message.toolInvocations || null
+        toolInvocations: message.toolInvocations || null,
+        userId,
       };
 
       const response = await fetch(`/api/chat/${chatId}/messages/save`, {
@@ -51,33 +53,36 @@ export function Chat({ chatId }: ChatProps) {
 
   useEffect(() => {
     const fetchMessages = async () => {
-      if (!chatId) return;
       try {
-        const response = await fetch(`/api/chat/${chatId}/messages`);
+        if (!chatId) return;
+        const response = await fetch(`/api/chat/${chatId}/messages?userId=${userId}`);
         if (!response.ok) throw new Error('Failed to fetch messages');
-        const messages = await response.json();
-        setInitialMessages(messages);
+        const data = await response.json();
+        setInitialMessages(Array.isArray(data) ? data : []);
       } catch (error) {
-        toast.error('Failed to load chat history');
+        console.error('Error fetching messages:', error);
+        toast.error('Failed to load messages');
+        setInitialMessages([]);
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchMessages();
-  }, [chatId]);
+  }, [chatId, userId]);
 
-  const { messages, append, stop, input, setInput, setMessages, handleSubmit } = useChat({
+  const { messages = [], append, stop, input, setInput, setMessages, handleSubmit } = useChat({
     api: chatId ? `/api/chat/${chatId}` : "/api/chat",
     id: chatId,
     initialMessages,
+    body: { userId },
     onFinish: async (message) => {
       try {
         await saveMessage(message);
-        const response = await fetch(`/api/chat/${chatId}/messages`);
+        const response = await fetch(`/api/chat/${chatId}/messages?userId=${userId}`);
         if (!response.ok) throw new Error('Failed to refresh messages');
         const refreshedMessages = await response.json();
-        setMessages(refreshedMessages);
+        setMessages(Array.isArray(refreshedMessages) ? refreshedMessages : []);
       } catch (error) {
         console.error('Error in onFinish:', error);
         toast.error('Failed to save or refresh messages');
@@ -87,37 +92,73 @@ export function Chat({ chatId }: ChatProps) {
 
   const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();
 
+  if (isLoading) {
+    return (
+      <div className="flex flex-col w-full h-[calc(100vh-4rem)] max-w-4xl mx-auto">
+        <div className="flex-1 overflow-y-auto px-4 pb-36">
+          <div className="flex flex-col w-full gap-4 py-4">
+            {[...Array(3)].map((_, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 50 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: i * 0.1 }}
+                className={cn(
+                  "p-4 rounded-lg max-w-[80%]",
+                  i % 2 === 0 ? "ml-auto" : "mr-auto"
+                )}
+              >
+                <div className="animate-pulse">
+                  <div className="h-4 bg-primary/10 rounded w-3/4 mb-2"></div>
+                  <div className="h-4 bg-primary/10 rounded w-1/2"></div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+        <div className="border-t fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-sm">
+          <div className="max-w-4xl mx-auto p-4">
+            <div className="animate-pulse">
+              <div className="h-10 bg-primary/10 rounded"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col w-full h-[calc(100vh-4rem)]">
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col w-full max-w-4xl mx-auto p-4 gap-4">
-          {messages.map((message: Message) => (
-            <motion.div
-              key={message.id}
-              initial={{ opacity: 0, y: 50 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
-              className={cn(
-                "p-4 rounded-lg max-w-[80%] whitespace-pre-wrap",
-                message.role === "user"
-                  ? "bg-primary/10 ml-auto text-right"
-                  : "bg-muted mr-auto",
-                message.role === "assistant"
-                  ? "prose dark:prose-invert"
-                  : null
-              )}
-            >
-              {message.content}
-              {message.toolInvocations?.map((tool, i) => (
-                <ToolInvocationDisplay key={i} toolInvocation={tool} />
-              ))}
-            </motion.div>
-          ))}
+    <div className="flex flex-col w-full h-[calc(100vh-4rem)] max-w-4xl mx-auto">
+      <div className="flex-1 overflow-y-auto px-4 pb-36">
+        <div className="flex flex-col w-full gap-4 py-4">
+          {Array.isArray(messages) && messages.length > 0 ? (
+            messages.map((message: Message) => (
+              <motion.div
+                key={message.id}
+                initial={{ opacity: 0, y: 50 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                className={cn(
+                  "p-4 rounded-lg max-w-[80%]",
+                  message.role === "user" ? "ml-auto" : "mr-auto"
+                )}
+              >
+                {message.content}
+                {message.toolInvocations?.map((tool, i) => (
+                  <ToolInvocationDisplay key={i} toolInvocation={tool} />
+                ))}
+              </motion.div>
+            ))
+          ) : (
+            <div className="text-center text-gray-500 py-8">
+              No messages yet. Start a conversation!
+            </div>
+          )}
           <div ref={endRef} />
         </div>
       </div>
 
-      <div className="border-t p-4 sticky bottom-0 bg-background">
+      <div className="border-t fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto">
           <MultimodalInput
             chatId={chatId || ''}

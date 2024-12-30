@@ -3,7 +3,6 @@ from enum import Enum
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from pydantic import BaseModel
 from typing import List, Optional, Any
-from .attachment import ClientAttachment
 
 
 class ToolInvocationState(str, Enum):
@@ -20,10 +19,26 @@ class ToolInvocation(BaseModel):
     result: Any
 
 
+class ImageUrl(BaseModel):
+    type: str = "image_url"
+    image_url: dict
+
+
+class MessageData(BaseModel):
+    imageUrls: Optional[List[ImageUrl]] = None
+
+
+class Attachment(BaseModel):
+    url: str
+    contentType: str
+    name: str
+
+
 class ClientMessage(BaseModel):
     role: str
     content: str
-    experimental_attachments: Optional[List[ClientAttachment]] = None
+    data: Optional[MessageData] = None
+    experimental_attachments: Optional[List[Attachment]] = None
     toolInvocations: Optional[List[ToolInvocation]] = None
 
     class Config:

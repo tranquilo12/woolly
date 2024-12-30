@@ -122,9 +122,22 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Azure AD specific fields
+    azure_id = Column(String, unique=True, index=True)  # Azure's unique identifier
     email = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
+    name = Column(String)  # User's display name
+
+    # OAuth related
+    access_token = Column(String, nullable=True)
+    refresh_token = Column(String, nullable=True)
+    token_expires_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Remove hashed_password as we're using OAuth
+    # hashed_password = Column(String)
 
     chats = relationship("Chat", back_populates="user")
 
@@ -133,13 +146,13 @@ class Chat(Base):
     __tablename__ = "chats"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     title = Column(String, default="New Chat")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    user = relationship("User", back_populates="chats")
     messages = relationship("Message", back_populates="chat")
+    user = relationship("User", back_populates="chats")
 
 
 class Message(Base):

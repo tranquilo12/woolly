@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { signOut } from "next-auth/react";
 
 export default function Page() {
   const router = useRouter();
@@ -12,9 +13,20 @@ export default function Page() {
         console.log("Attempting to create chat...");
         const response = await fetch("/api/chat/create", {
           method: "POST",
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            messages: []
+          })
         });
 
-        console.log("Response status:", response.status);
+        if (response.status === 401) {
+          // Handle unauthorized - sign out and redirect to login
+          await signOut({ callbackUrl: '/auth/signin' });
+          return;
+        }
 
         if (!response.ok) {
           const errorText = await response.text();
