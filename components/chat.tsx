@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
+import { ToolInvocationDisplay } from "./tool-invocation";
 
 interface ChatProps {
   chatId?: string;
@@ -88,7 +89,7 @@ export function Chat({ chatId }: ChatProps) {
 
   return (
     <div className="flex flex-col w-full h-[calc(100vh-4rem)]">
-      <div ref={containerRef} className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col w-full max-w-4xl mx-auto p-4 gap-4">
           {messages.map((message: Message) => (
             <motion.div
@@ -108,31 +109,27 @@ export function Chat({ chatId }: ChatProps) {
             >
               {message.content}
               {message.toolInvocations?.map((tool, i) => (
-                <div key={i} className="mt-2 text-sm text-muted-foreground">
-                  <code className="bg-muted-foreground/20 rounded p-1">
-                    {tool.args}
-                  </code>
-                </div>
+                <ToolInvocationDisplay key={i} toolInvocation={tool} />
               ))}
             </motion.div>
           ))}
           <div ref={endRef} />
         </div>
+      </div>
 
-        <div className="p-4 border-t">
-          <div className="max-w-4xl mx-auto">
-            <MultimodalInput
-              chatId={chatId || ''}
-              input={input}
-              setInput={setInput}
-              append={append}
-              stop={stop}
-              isLoading={isLoading}
-              messages={messages}
-              setMessages={setMessages}
-              handleSubmit={handleSubmit}
-            />
-          </div>
+      <div className="border-t p-4 sticky bottom-0 bg-background">
+        <div className="max-w-4xl mx-auto">
+          <MultimodalInput
+            chatId={chatId || ''}
+            input={input}
+            setInput={setInput}
+            append={append}
+            stop={stop}
+            isLoading={isLoading}
+            messages={messages}
+            setMessages={setMessages}
+            handleSubmit={handleSubmit}
+          />
         </div>
       </div>
     </div>
