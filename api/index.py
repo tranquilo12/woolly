@@ -48,6 +48,7 @@ available_tools = {
 }
 
 
+
 def do_stream(messages: List[ChatCompletionMessageParam]):
     stream = client.chat.completions.create(
         messages=messages,
@@ -435,5 +436,6 @@ async def handle_chat_legacy(request: Request, protocol: str = Query("data")):
     openai_messages = convert_to_openai_messages(messages)
 
     response = StreamingResponse(stream_text(openai_messages, protocol))
+    response.headers["x-vercel-ai-data-stream"] = "v1"
     response.headers["x-vercel-ai-data-stream"] = "v1"
     return response
