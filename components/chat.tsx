@@ -88,9 +88,9 @@ export function Chat({ chatId }: ChatProps) {
   const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();
 
   return (
-    <div className="flex flex-col w-full h-[calc(100vh-4rem)]">
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col w-full max-w-4xl mx-auto p-4 gap-4">
+    <div className="flex flex-col w-full h-[calc(100vh-4rem)] max-w-4xl mx-auto">
+      <div className="flex-1 overflow-y-auto px-4 pb-36">
+        <div className="flex flex-col w-full gap-4 py-4">
           {messages.map((message: Message) => (
             <motion.div
               key={message.id}
@@ -117,7 +117,7 @@ export function Chat({ chatId }: ChatProps) {
         </div>
       </div>
 
-      <div className="border-t p-4 sticky bottom-0 bg-background">
+      <div className="border-t fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto">
           <MultimodalInput
             chatId={chatId || ''}

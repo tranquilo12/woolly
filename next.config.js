@@ -7,11 +7,7 @@ const nextConfig = {
         destination:
           process.env.NODE_ENV === "development"
             ? "http://127.0.0.1:3001/api/:path*"
-<<<<<<< HEAD
-            : "/api/:path*",
-=======
             : "/api/",
->>>>>>> origin/master
       },
       {
         source: "/docs",

@@ -1,6 +1,6 @@
 "use client";
 
-import { ToolInvocation, type ChatRequestOptions, type CreateMessage, type Message } from "ai";
+import { type ChatRequestOptions, type CreateMessage, type Message, type Attachment } from "ai";
 import { motion } from "framer-motion";
 import type React from "react";
 import {
@@ -9,15 +9,18 @@ import {
   useCallback,
   type Dispatch,
   type SetStateAction,
+  useState,
 } from "react";
 import { toast } from "sonner";
 import { useLocalStorage, useWindowSize } from "usehooks-ts";
 
 import { cn, sanitizeUIMessages } from "@/lib/utils";
 
-import { ArrowUpIcon, StopIcon } from "./icons";
+import { ArrowUpIcon, StopIcon, MenuIcon, AttachmentIcon } from "./icons";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
+import { useSidebar } from "./sidebar-provider";
+import { PreviewAttachment } from "./preview-attachment";
 
 const suggestedActions = [
   {
@@ -32,18 +35,7 @@ const suggestedActions = [
   },
 ];
 
-export function MultimodalInput({
-  chatId,
-  input,
-  setInput,
-  isLoading,
-  stop,
-  messages,
-  setMessages,
-  append,
-  handleSubmit,
-  className,
-}: {
+interface MultimodalInputProps {
   chatId: string;
   input: string;
   setInput: (value: string) => void;
@@ -56,15 +48,31 @@ export function MultimodalInput({
     chatRequestOptions?: ChatRequestOptions,
   ) => Promise<string | null | undefined>;
   handleSubmit: (
-    event?: {
-      preventDefault?: () => void;
-    },
+    event?: { preventDefault?: () => void },
     chatRequestOptions?: ChatRequestOptions,
   ) => void;
   className?: string;
-}) {
+}
+
+export function MultimodalInput({
+  chatId,
+  input,
+  setInput,
+  isLoading,
+  stop,
+  messages,
+  setMessages,
+  append,
+  handleSubmit,
+  className,
+}: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
+  const { toggle, setIsOpen } = useSidebar();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isMobile = width < 1024;
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -105,109 +113,200 @@ export function MultimodalInput({
     adjustHeight();
   };
 
-  const submitForm = useCallback(() => {
-    const core_messages = messages.map((message) => {
-      return {
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        toolInvocations: message.toolInvocations,
-      };
-    });
-    // replace the last assistant's toolInvocations with []
-    // const toolInvocations: ToolInvocation[] = core_messages[core_messages.length - 1].toolInvocations || [];
-    // core_messages[core_messages.length - 1].toolInvocations = [toolInvocations[toolInvocations.length - 1]];
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
 
-    console.log(core_messages);
-    setMessages(core_messages);
-    handleSubmit(undefined, {});
-    setLocalStorageInput("");
+    const newAttachments: Attachment[] = Array.from(files).map(file => ({
+      name: file.name,
+      url: URL.createObjectURL(file),
+      contentType: file.type
+    }));
 
-    if (width && width > 768) {
-      textareaRef.current?.focus();
+    setAttachments(prev => [...prev, ...newAttachments]);
+  };
+
+  const submitForm = useCallback((event?: React.FormEvent) => {
+    if (event) {
+      event.preventDefault();
     }
-  }, [handleSubmit, setLocalStorageInput, width, messages, setMessages]);
+
+    handleSubmit(event, {
+      experimental_attachments: fileInputRef.current?.files || undefined,
+    });
+
+    setAttachments([]);
+    setLocalStorageInput("");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, [handleSubmit, setLocalStorageInput]);
+
+  useEffect(() => {
+    if (!containerRef.current || !isMobile) return;
+
+    // Get the sidebar element
+    const sidebar = document.querySelector('[data-sidebar]');
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          // If there's significant overlap, close the sidebar
+          if (entry.intersectionRatio > 0.1) {
+            setIsOpen(false);
+          }
+        });
+      },
+      {
+        threshold: [0, 0.1, 0.5, 1],
+        root: sidebar || null,
+      }
+    );
+
+    // Start observing
+    observer.observe(containerRef.current);
+
+    // Force a recalculation of intersections
+    requestAnimationFrame(() => {
+      if (containerRef.current) {
+        // Trigger a reflow
+        containerRef.current.style.display = 'none';
+        containerRef.current.offsetHeight; // Force reflow
+        containerRef.current.style.display = '';
+      }
+    });
+
+    return () => observer.disconnect();
+  }, [setIsOpen, isMobile]);
 
   return (
-    <div className="relative w-full flex flex-col gap-4">
-      {messages.length === 0 && (
-        <div className="grid sm:grid-cols-2 gap-2 w-full">
-          {suggestedActions.map((suggestedAction, index) => (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              transition={{ delay: 0.05 * index }}
-              key={`suggested-action-${suggestedAction.title}-${index}`}
-              className={index > 1 ? "hidden sm:block" : "block"}
+    <div ref={containerRef} className="relative z-20">
+      <div className="fixed inset-x-0 bottom-0 bg-gradient-to-t from-background to-background/30 p-4 backdrop-blur-sm">
+        <div className="mx-auto max-w-3xl space-y-4">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="outline"
+              size="icon"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-md"
+              onClick={toggle}
             >
-              <Button
-                variant="ghost"
-                onClick={async () => {
-                  append({
-                    role: "user",
-                    content: suggestedAction.action,
-                  });
-                }}
-                className="text-left border rounded-xl px-4 py-3.5 text-sm flex-1 gap-1 sm:flex-col w-full h-auto justify-start items-start"
-              >
-                <span className="font-medium">{suggestedAction.title}</span>
-                <span className="text-muted-foreground">
-                  {suggestedAction.label}
-                </span>
-              </Button>
-            </motion.div>
-          ))}
+              <MenuIcon size={14} />
+            </Button>
+
+            <div className="relative w-full flex flex-col gap-4">
+              {messages.length === 0 && (
+                <div className="grid sm:grid-cols-2 gap-2 w-full">
+                  {suggestedActions.map((suggestedAction, index) => (
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 20 }}
+                      transition={{ delay: 0.05 * index }}
+                      key={`suggested-action-${suggestedAction.title}-${index}`}
+                      className={index > 1 ? "hidden sm:block" : "block"}
+                    >
+                      <Button
+                        variant="ghost"
+                        onClick={async () => {
+                          append({
+                            role: "user",
+                            content: suggestedAction.action,
+                          });
+                        }}
+                        className="text-left border rounded-xl px-4 py-3.5 text-sm flex-1 gap-1 sm:flex-col w-full h-auto justify-start items-start"
+                      >
+                        <span className="font-medium">{suggestedAction.title}</span>
+                        <span className="text-muted-foreground">
+                          {suggestedAction.label}
+                        </span>
+                      </Button>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+
+              {attachments.length > 0 && (
+                <div className="flex flex-row gap-2 mb-2">
+                  {attachments.map((attachment) => (
+                    <PreviewAttachment
+                      key={attachment.url}
+                      attachment={attachment}
+                    />
+                  ))}
+                </div>
+              )}
+
+              <div className="relative">
+                <input
+                  title="file-input"
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-2 z-10 hover:bg-background/50"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <AttachmentIcon />
+                </Button>
+
+                <Textarea
+                  ref={textareaRef}
+                  placeholder="Send a message..."
+                  value={input}
+                  onChange={handleInput}
+                  className={cn(
+                    "min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-xl !text-base bg-muted pr-12",
+                    className,
+                  )}
+                  rows={3}
+                  autoFocus
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      if (isLoading) {
+                        toast.error("Please wait for the model to finish its response!");
+                      } else {
+                        submitForm();
+                      }
+                    }
+                  }}
+                />
+              </div>
+
+              {isLoading ? (
+                <Button
+                  className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 border dark:border-zinc-600"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    stop();
+                    setMessages((messages) => sanitizeUIMessages(messages));
+                  }}
+                >
+                  <StopIcon size={14} />
+                </Button>
+              ) : (
+                <Button
+                  className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 border dark:border-zinc-600"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    submitForm();
+                  }}
+                  disabled={input.length === 0}
+                >
+                  <ArrowUpIcon size={14} />
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
-      )}
-
-      <Textarea
-        ref={textareaRef}
-        placeholder="Send a message..."
-        value={input}
-        onChange={handleInput}
-        className={cn(
-          "min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-xl !text-base bg-muted",
-          className,
-        )}
-        rows={3}
-        autoFocus
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-
-            if (isLoading) {
-              toast.error("Please wait for the model to finish its response!");
-            } else {
-              submitForm();
-            }
-          }
-        }}
-      />
-
-      {isLoading ? (
-        <Button
-          className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 border dark:border-zinc-600"
-          onClick={(event) => {
-            event.preventDefault();
-            stop();
-            setMessages((messages) => sanitizeUIMessages(messages));
-          }}
-        >
-          <StopIcon size={14} />
-        </Button>
-      ) : (
-        <Button
-          className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 border dark:border-zinc-600"
-          onClick={(event) => {
-            event.preventDefault();
-            submitForm();
-          }}
-          disabled={input.length === 0}
-        >
-          <ArrowUpIcon size={14} />
-        </Button>
-      )}
+      </div>
     </div>
   );
 }
