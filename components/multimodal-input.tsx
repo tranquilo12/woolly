@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatRequestOptions, CreateMessage, Message } from "ai";
+import { ToolInvocation, type ChatRequestOptions, type CreateMessage, type Message } from "ai";
 import { motion } from "framer-motion";
 import type React from "react";
 import {
@@ -106,13 +106,27 @@ export function MultimodalInput({
   };
 
   const submitForm = useCallback(() => {
+    const core_messages = messages.map((message) => {
+      return {
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        toolInvocations: message.toolInvocations,
+      };
+    });
+    // replace the last assistant's toolInvocations with []
+    // const toolInvocations: ToolInvocation[] = core_messages[core_messages.length - 1].toolInvocations || [];
+    // core_messages[core_messages.length - 1].toolInvocations = [toolInvocations[toolInvocations.length - 1]];
+
+    console.log(core_messages);
+    setMessages(core_messages);
     handleSubmit(undefined, {});
     setLocalStorageInput("");
 
     if (width && width > 768) {
       textareaRef.current?.focus();
     }
-  }, [handleSubmit, setLocalStorageInput, width]);
+  }, [handleSubmit, setLocalStorageInput, width, messages, setMessages]);
 
   return (
     <div className="relative w-full flex flex-col gap-4">

@@ -2,20 +2,36 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Attach to FastAPI",
+      "name": "Python Debugger: FastAPI",
       "type": "debugpy",
-      "request": "attach",
-      "connect": {
-        "host": "localhost",
-        "port": 5678
-      },
-      "pathMappings": [
-        {
-          "localRoot": "${workspaceFolder}",
-          "remoteRoot": "."
-        }
-      ],
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["api.index:app", "--reload", "--port", "3001"], // python3 -m uvicorn api.index:app --reload --port 3001
+      "jinja": true,
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "${workspaceFolder}",
       "justMyCode": true
+    },
+    {
+      "name": "Python: FastAPI",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/api/index.py",
+      "args": ["--reload", "--port", "3001"],
+      "module": "uvicorn",
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
+    },
+    {
+      "name": "Next.js",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/node_modules/.bin/next",
+      "args": ["dev"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "runtimeExecutable": "node"
     }
   ]
 }
