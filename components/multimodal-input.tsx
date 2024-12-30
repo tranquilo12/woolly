@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChatRequestOptions, type CreateMessage, type Message } from "ai";
+import { type ChatRequestOptions, type CreateMessage, type Message, type Attachment } from "ai";
 import { motion } from "framer-motion";
 import type React from "react";
 import {
@@ -9,16 +9,18 @@ import {
   useCallback,
   type Dispatch,
   type SetStateAction,
+  useState,
 } from "react";
 import { toast } from "sonner";
 import { useLocalStorage, useWindowSize } from "usehooks-ts";
 
 import { cn, sanitizeUIMessages } from "@/lib/utils";
 
-import { ArrowUpIcon, StopIcon, MenuIcon } from "./icons";
+import { ArrowUpIcon, StopIcon, MenuIcon, AttachmentIcon } from "./icons";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { useSidebar } from "./sidebar-provider";
+import { PreviewAttachment } from "./preview-attachment";
 
 const suggestedActions = [
   {
@@ -33,18 +35,7 @@ const suggestedActions = [
   },
 ];
 
-export function MultimodalInput({
-  chatId,
-  input,
-  setInput,
-  isLoading,
-  stop,
-  messages,
-  setMessages,
-  append,
-  handleSubmit,
-  className,
-}: {
+interface MultimodalInputProps {
   chatId: string;
   input: string;
   setInput: (value: string) => void;
@@ -57,18 +48,31 @@ export function MultimodalInput({
     chatRequestOptions?: ChatRequestOptions,
   ) => Promise<string | null | undefined>;
   handleSubmit: (
-    event?: {
-      preventDefault?: () => void;
-    },
+    event?: { preventDefault?: () => void },
     chatRequestOptions?: ChatRequestOptions,
   ) => void;
   className?: string;
-}) {
+}
+
+export function MultimodalInput({
+  chatId,
+  input,
+  setInput,
+  isLoading,
+  stop,
+  messages,
+  setMessages,
+  append,
+  handleSubmit,
+  className,
+}: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
   const { toggle, setIsOpen } = useSidebar();
   const containerRef = useRef<HTMLDivElement>(null);
   const isMobile = width < 1024;
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -109,24 +113,29 @@ export function MultimodalInput({
     adjustHeight();
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+
+    const newAttachments: Attachment[] = Array.from(files).map(file => ({
+      name: file.name,
+      url: URL.createObjectURL(file),
+      contentType: file.type
+    }));
+
+    setAttachments(prev => [...prev, ...newAttachments]);
+  };
+
   const submitForm = useCallback(() => {
-    const core_messages = messages.map((message) => {
-      return {
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        toolInvocations: message.toolInvocations,
-      };
+    handleSubmit(undefined, {
+      experimental_attachments: attachments
     });
-
-    setMessages(core_messages);
-    handleSubmit(undefined, {});
+    setAttachments([]);
     setLocalStorageInput("");
-
-    if (width && width > 1024) {
-      textareaRef.current?.focus();
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
-  }, [handleSubmit, setLocalStorageInput, width, messages, setMessages]);
+  }, [handleSubmit, attachments, setLocalStorageInput]);
 
   useEffect(() => {
     if (!containerRef.current || !isMobile) return;
@@ -137,11 +146,6 @@ export function MultimodalInput({
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          console.log("Intersection:", {
-            isIntersecting: entry.isIntersecting,
-            intersectionRatio: entry.intersectionRatio
-          });
-
           // If there's significant overlap, close the sidebar
           if (entry.intersectionRatio > 0.1) {
             setIsOpen(false);
@@ -216,29 +220,60 @@ export function MultimodalInput({
                 </div>
               )}
 
-              <Textarea
-                ref={textareaRef}
-                placeholder="Send a message..."
-                value={input}
-                onChange={handleInput}
-                className={cn(
-                  "min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-xl !text-base bg-muted",
-                  className,
-                )}
-                rows={3}
-                autoFocus
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
+              {attachments.length > 0 && (
+                <div className="flex flex-row gap-2 mb-2">
+                  {attachments.map((attachment) => (
+                    <PreviewAttachment
+                      key={attachment.url}
+                      attachment={attachment}
+                    />
+                  ))}
+                </div>
+              )}
 
-                    if (isLoading) {
-                      toast.error("Please wait for the model to finish its response!");
-                    } else {
-                      submitForm();
+              <div className="relative">
+                <input
+                  title="file-input"
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-2 z-10 hover:bg-background/50"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <AttachmentIcon />
+                </Button>
+
+                <Textarea
+                  ref={textareaRef}
+                  placeholder="Send a message..."
+                  value={input}
+                  onChange={handleInput}
+                  className={cn(
+                    "min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-xl !text-base bg-muted pr-12",
+                    className,
+                  )}
+                  rows={3}
+                  autoFocus
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      if (isLoading) {
+                        toast.error("Please wait for the model to finish its response!");
+                      } else {
+                        submitForm();
+                      }
                     }
-                  }
-                }}
-              />
+                  }}
+                />
+              </div>
 
               {isLoading ? (
                 <Button
