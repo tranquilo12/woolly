@@ -12,7 +12,17 @@ DATABASE_URL = os.environ.get(
     "postgresql://default:zmNuXOkn14TJ@ep-proud-sound-a4rerowu-pooler.us-east-1.aws.neon.tech:5432/verceldb?sslmode=require",
 )
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    connect_args={
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+    },
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()

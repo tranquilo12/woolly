@@ -7,6 +7,7 @@ import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
 
 interface ChatProps {
   chatId?: string;
@@ -19,18 +20,31 @@ export function Chat({ chatId }: ChatProps) {
   const saveMessage = async (message: Message) => {
     if (!chatId) return;
     try {
+      const messageToSave = {
+        role: message.role,
+        content: message.content,
+        toolInvocations: message.toolInvocations || null
+      };
+
       const response = await fetch(`/api/chat/${chatId}/messages/save`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(message),
+        body: JSON.stringify(messageToSave),
       });
 
-      if (!response.ok) throw new Error('Failed to save message');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Save message error:', errorText);
+        throw new Error('Failed to save message');
+      }
+
+      return await response.json();
     } catch (error) {
       console.error('Failed to save message:', error);
       toast.error('Failed to save message');
+      throw error;
     }
   };
 
@@ -52,12 +66,21 @@ export function Chat({ chatId }: ChatProps) {
     fetchMessages();
   }, [chatId]);
 
-  const { messages, append, reload, stop, input, setInput, setMessages, handleSubmit } = useChat({
+  const { messages, append, stop, input, setInput, setMessages, handleSubmit } = useChat({
     api: chatId ? `/api/chat/${chatId}` : "/api/chat",
     id: chatId,
     initialMessages,
     onFinish: async (message) => {
-      await saveMessage(message);
+      try {
+        await saveMessage(message);
+        const response = await fetch(`/api/chat/${chatId}/messages`);
+        if (!response.ok) throw new Error('Failed to refresh messages');
+        const refreshedMessages = await response.json();
+        setMessages(refreshedMessages);
+      } catch (error) {
+        console.error('Error in onFinish:', error);
+        toast.error('Failed to save or refresh messages');
+      }
     },
   });
 
@@ -68,35 +91,48 @@ export function Chat({ chatId }: ChatProps) {
       <div ref={containerRef} className="flex-1 overflow-y-auto">
         <div className="flex flex-col w-full max-w-4xl mx-auto p-4 gap-4">
           {messages.map((message: Message) => (
-            <div
+            <motion.div
               key={message.id}
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
               className={cn(
-                "p-4 rounded-lg",
+                "p-4 rounded-lg max-w-[80%] whitespace-pre-wrap",
                 message.role === "user"
-                  ? "bg-primary/10 ml-auto"
-                  : "bg-muted"
+                  ? "bg-primary/10 ml-auto text-right"
+                  : "bg-muted mr-auto",
+                message.role === "assistant"
+                  ? "prose dark:prose-invert"
+                  : null
               )}
             >
               {message.content}
-            </div>
+              {message.toolInvocations?.map((tool, i) => (
+                <div key={i} className="mt-2 text-sm text-muted-foreground">
+                  <code className="bg-muted-foreground/20 rounded p-1">
+                    {tool.args}
+                  </code>
+                </div>
+              ))}
+            </motion.div>
           ))}
           <div ref={endRef} />
         </div>
-      </div>
 
-      <div className="p-4 border-t">
-        <div className="max-w-4xl mx-auto">
-          <MultimodalInput
-            chatId={chatId || ''}
-            input={input}
-            setInput={setInput}
-            append={append}
-            stop={stop}
-            isLoading={isLoading}
-            messages={messages}
-            setMessages={setMessages}
-            handleSubmit={handleSubmit}
-          />
+        <div className="p-4 border-t">
+          <div className="max-w-4xl mx-auto">
+            <MultimodalInput
+              chatId={chatId || ''}
+              input={input}
+              setInput={setInput}
+              append={append}
+              stop={stop}
+              isLoading={isLoading}
+              messages={messages}
+              setMessages={setMessages}
+              handleSubmit={handleSubmit}
+            />
+          </div>
         </div>
       </div>
     </div>
