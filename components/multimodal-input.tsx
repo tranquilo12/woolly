@@ -126,16 +126,21 @@ export function MultimodalInput({
     setAttachments(prev => [...prev, ...newAttachments]);
   };
 
-  const submitForm = useCallback(() => {
-    handleSubmit(undefined, {
-      experimental_attachments: attachments
+  const submitForm = useCallback((event?: React.FormEvent) => {
+    if (event) {
+      event.preventDefault();
+    }
+
+    handleSubmit(event, {
+      experimental_attachments: fileInputRef.current?.files || undefined,
     });
+
     setAttachments([]);
     setLocalStorageInput("");
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
-  }, [handleSubmit, attachments, setLocalStorageInput]);
+  }, [handleSubmit, setLocalStorageInput]);
 
   useEffect(() => {
     if (!containerRef.current || !isMobile) return;

@@ -48,30 +48,37 @@ available_tools = {
 }
 
 
-
 def do_stream(messages: List[ChatCompletionMessageParam]):
+    # Convert messages to the format expected by OpenAI Vision API
+    formatted_messages = []
+
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("experimental_attachments"):
+            # Handle messages with attachments
+            attachments = msg["experimental_attachments"]
+            content = [
+                {"type": "text", "text": msg.get("content", "")},
+            ]
+
+            # Add each attachment as an image URL
+            for attachment in attachments:
+                if attachment.get("contentType", "").startswith("image/"):
+                    content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": attachment["url"], "detail": "auto"},
+                        }
+                    )
+
+            formatted_messages.append({"role": msg["role"], "content": content})
+        else:
+            # Handle regular text messages
+            formatted_messages.append(msg)
+
     stream = client.chat.completions.create(
-        messages=messages,
+        messages=formatted_messages,
         model="gpt-4o",
         stream=True,
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": "execute_python_code",
-                    "description": "Execute Python code and return the output",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "code": {"type": "string"},
-                            "output_format": {"type": "string"},
-                            "timeout": {"type": "number"},
-                        },
-                        "required": ["code", "output_format"],
-                    },
-                },
-            },
-        ],
     )
 
     return stream
