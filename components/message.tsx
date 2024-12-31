@@ -3,7 +3,7 @@
 import type { Message } from "ai";
 import { motion } from "framer-motion";
 import { useSession } from "next-auth/react";
-
+import Image from "next/image";
 import { SparklesIcon, UserIcon } from "./icons";
 import { Markdown } from "./markdown";
 import { PreviewAttachment } from "./preview-attachment";
@@ -52,10 +52,12 @@ export const PreviewMessage = ({
           <SparklesIcon size={14} />
         ) : (
           session?.user?.image ? (
-            <img
+            <Image
               src={session.user.image}
               alt={session.user.name || 'User'}
-              className="rounded-full size-8"
+              width={32}
+              height={32}
+              className="rounded-full"
             />
           ) : (
             <UserIcon />
