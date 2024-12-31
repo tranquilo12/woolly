@@ -1,30 +1,24 @@
-import os
+import base64
 import json
+import os
+import re
+import uuid
+from datetime import datetime, timezone
 from typing import List, Optional
-from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
-from pydantic import BaseModel
+
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query, Depends, HTTPException, Request, Body, Header
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openai import OpenAI
+from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
+from pydantic import BaseModel, ValidationError
+from sqlalchemy.orm import Session
+
+from .utils.database import get_db
+from .utils.models import Chat, Message, User
 from .utils.prompt import ClientMessage, convert_to_openai_messages
 from .utils.tools import execute_python_code
-from .utils.models import (
-    Chat,
-    Message,
-    User,
-)
-import uuid
-from sqlalchemy.orm import Session
-from .utils.database import get_db
-from datetime import datetime, timezone
-from pydantic import ValidationError
-import base64
-import jwt
-from jwt.exceptions import JWTException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import re
-
 
 load_dotenv(".env.local")
 
@@ -65,7 +59,7 @@ async def validate_headers(
     return {"token": authorization.credentials}
 
 
-class Request(BaseModel):
+class ChatRequest(BaseModel):
     messages: List[ClientMessage]
 
 
@@ -235,16 +229,40 @@ def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = "dat
         })}\n\n"
 
 
+def base64_to_uuid(base64_string):
+    """Converts a base64 encoded UUID string back to a UUID object.
+
+    Args:
+      base64_string: The base64 encoded UUID string.
+
+    Returns:
+      A UUID object.
+    """
+    try:
+        decoded_bytes = base64.b64decode(base64_string)
+        return uuid.UUID(bytes=decoded_bytes)
+    except (ValueError, TypeError):
+        return None  # or raise an exception, depending on your needs
+
+
 # Chat CRUD Operations
 @app.post("/api/chat/create")
-async def create_chat(db: Session = Depends(get_db)):
+async def create_chat(
+    request: Request, chat_data: ChatCreateRequest, db: Session = Depends(get_db)
+):
     """Create a new chat and return its ID"""
     try:
-        print("Creating new chat...")
+        print("Creating new chat - Starting process...")
+
+        # Get the JSON body
+        body = chat_data.model_dump()
+        user_id_uuid = base64_to_uuid(body.get("userId"))
+
         new_chat = Chat(
             id=uuid.uuid4(),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
+            user_id=user_id_uuid,
         )
 
         db.add(new_chat)
@@ -256,6 +274,8 @@ async def create_chat(db: Session = Depends(get_db)):
 
         return {"id": chat_id}
     except Exception as e:
+        print(f"Error creating chat: {str(e)}")
+        print(f"Error type: {type(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -474,8 +494,6 @@ async def chat(
 @app.post("/api/users/sync")
 async def sync_user(user_data: UserSync, db: Session = Depends(get_db)):
     """Create or update user from Azure AD login"""
-    print(f"User data: {user_data}")
-    print(f"User data type: {type(user_data)}")
     try:
         # Try to find existing user
         user = db.query(User).filter(User.azure_id == user_data.azure_id).first()

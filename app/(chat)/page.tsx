@@ -1,11 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
+import { toast } from "sonner";
 
 export default function Page() {
   const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const createChat = async () => {
@@ -23,34 +26,52 @@ export default function Page() {
         });
 
         if (response.status === 401) {
-          // Handle unauthorized - sign out and redirect to login
           await signOut({ callbackUrl: '/auth/signin' });
           return;
         }
 
+        const data = await response.json();
+
         if (!response.ok) {
-          const errorText = await response.text();
-          console.error("Error response:", errorText);
-          throw new Error(`Failed to create chat: ${response.status} ${errorText}`);
+          throw new Error(data.message || 'Failed to create chat');
         }
 
-        const data = await response.json();
         console.log("Created chat with ID:", data.id);
-
         router.push(`/chat/${data.id}`);
       } catch (error) {
         console.error("Error creating chat:", error);
+        setError("Failed to create chat. Please try again.");
+        toast.error("Failed to create chat");
+      } finally {
+        setIsLoading(false);
       }
     };
 
     createChat();
   }, [router]);
 
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-screen flex-col gap-4">
+        <div className="text-red-500">{error}</div>
+        <button
+          onClick={() => window.location.reload()}
+          className="text-sm text-blue-500 hover:underline"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center justify-center h-screen flex-col gap-4">
-      <div>Creating new chat...</div>
+      <div className="flex items-center gap-2">
+        <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-primary"></div>
+        <div>Creating new chat...</div>
+      </div>
       <div className="text-sm text-gray-500">
-        (Check browser console for debugging information)
+        This may take a few seconds
       </div>
     </div>
   );

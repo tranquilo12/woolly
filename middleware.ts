@@ -1,18 +1,18 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { getToken } from 'next-auth/jwt'
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
 	const path = request.nextUrl.pathname
 
 	// Define public paths that don't require authentication
 	const isPublicPath = path === '/auth/signin' || path === '/auth/signup' || path === '/auth/verify'
 
-	// Get the token from the NextAuth.js session token cookie
-	// Check both possible cookie names (development and production)
-	const token =
-		request.cookies.get('next-auth.session-token')?.value ||
-		request.cookies.get('__Secure-next-auth.session-token')?.value ||
-		''
+	// Get the token from NextAuth.js
+	const token = await getToken({
+		req: request,
+		secret: process.env.NEXTAUTH_SECRET
+	})
 
 	// Add a small delay before redirecting to allow token to be set
 	if (!token && !isPublicPath) {
@@ -23,8 +23,8 @@ export function middleware(request: NextRequest) {
 		return NextResponse.redirect(new URL('/auth/signin', request.url))
 	}
 
-	// Only redirect away from auth pages if we're certain we have a token
-	if (token && isPublicPath && token.length > 0) {
+	// Redirect authenticated users away from auth pages
+	if (token && isPublicPath) {
 		return NextResponse.redirect(new URL('/chat', request.url))
 	}
 

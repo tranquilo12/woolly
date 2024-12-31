@@ -1,7 +1,7 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { useWindowSize } from 'usehooks-ts';
+import { createContext, useContext, useState } from 'react';
+import type { ReactNode } from 'react';
 
 interface SidebarContextType {
 	isOpen: boolean;
@@ -13,13 +13,8 @@ const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
 	const [isOpen, setIsOpen] = useState(false);
-	const { width } = useWindowSize();
 
-	useEffect(() => {
-		setIsOpen(false);
-	}, [width]);
-
-	const toggle = () => setIsOpen(!isOpen);
+	const toggle = () => setIsOpen(prev => !prev);
 
 	return (
 		<SidebarContext.Provider value={{ isOpen, toggle, setIsOpen }}>

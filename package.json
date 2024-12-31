@@ -15,6 +15,7 @@
     "@ai-sdk/ui-utils": "^0.0.20",
     "@auth/core": "^0.37.4",
     "@auth/nextjs": "0.0.0-380f8d56",
+    "@radix-ui/react-navigation-menu": "^1.2.3",
     "@radix-ui/react-slot": "^1.1.0",
     "@types/node": "20.2.4",
     "@types/react": "18.2.7",

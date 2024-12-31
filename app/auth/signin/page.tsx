@@ -3,34 +3,61 @@
 import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 
 export default function SignIn() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const [error, setError] = useState<string | null>(null);
+	const { data: session, status } = useSession();
 
 	useEffect(() => {
-		const error = searchParams?.get('error');
-		if (error) {
-			setError(
-				error === 'AccessDenied'
-					? 'Access denied. Please try again.'
-					: 'An error occurred. Please try again.'
-			);
-		}
-	}, [searchParams]);
+		const redirectAfterAuth = async () => {
+			if (status === 'authenticated' && session) {
+				try {
+					// First try to get user's chats
+					const response = await fetch('/api/chats');
+					const data = await response.json();
+
+					if (data.chats && data.chats.length > 0) {
+						// Redirect to most recent chat
+						const latestChat = data.chats[0]; // Assuming chats are sorted by date
+						router.push(`/chat/${latestChat.id}`);
+					} else {
+						// No existing chats, redirect to create new chat
+						router.push('/chat');
+					}
+				} catch (error) {
+					console.error('Error fetching chats:', error);
+					// On error, default to creating new chat
+					router.push('/chat');
+				}
+			}
+		};
+
+		redirectAfterAuth();
+	}, [searchParams, session, status, router]);
 
 	const handleSignIn = async () => {
 		try {
-			await signIn('azure-ad', {
+			const result = await signIn('azure-ad', {
 				callbackUrl: '/chat',
-				redirect: true,
+				redirect: false,
 			});
+
+			if (result?.error) {
+				setError('Failed to sign in. Please try again.');
+			}
 		} catch (error) {
 			console.error('Sign in error:', error);
 			setError('Failed to sign in. Please try again.');
 		}
 	};
+
+	// If still loading, show nothing or a loading state
+	if (status === 'loading') {
+		return <div>Loading...</div>;
+	}
 
 	return (
 		<div className="flex min-h-screen items-center justify-center">

@@ -1,21 +1,31 @@
 "use client";
 
 import { Button } from "./ui/button";
-import { GitIcon, VercelIcon } from "./icons";
+import { GitIcon, VercelIcon, MenuIcon } from "./icons";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
+import { useSidebar } from "./sidebar-provider";
 
 export const Navbar = () => {
   const { data: session } = useSession();
+  const { toggle } = useSidebar();
 
   return (
     <div className="p-2 flex flex-row gap-2 justify-between items-center">
-      <div className="flex gap-2">
+      <div className="flex gap-2 items-center">
         <Link href="https://github.com/vercel-labs/ai-sdk-preview-python-streaming">
           <Button variant="outline">
             <GitIcon /> View Source Code
           </Button>
         </Link>
+        <Button
+          onClick={toggle}
+          variant="default"
+          size="icon"
+          className="shadow-md hover:shadow-lg"
+        >
+          <MenuIcon />
+        </Button>
       </div>
 
       <div className="flex gap-2 items-center">

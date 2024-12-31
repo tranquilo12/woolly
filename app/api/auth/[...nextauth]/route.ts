@@ -1,6 +1,12 @@
 import NextAuth from "next-auth";
 import { NextAuthOptions } from "next-auth";
+import { JWT } from "next-auth/jwt";
 import AzureADProvider from "next-auth/providers/azure-ad";
+
+interface ExtendedJWT extends JWT {
+	accessToken?: string;
+	expiresAt?: number;
+}
 
 const apiUrl = process.env.NODE_ENV === 'development'
 	? 'http://127.0.0.1:3001'
@@ -14,7 +20,7 @@ export const authOptions: NextAuthOptions = {
 			tenantId: process.env.AZURE_AD_TENANT_ID!,
 			authorization: {
 				params: {
-					scope: "openid profile email offline_access",
+					scope: "openid profile email",
 					response_type: "code",
 					response_mode: "query"
 				}
@@ -26,12 +32,11 @@ export const authOptions: NextAuthOptions = {
 	],
 	pages: {
 		signIn: '/auth/signin',
-		signOut: '/auth/signin',
-		error: '/auth/error',
+		error: '/auth/signin',
 	},
 	session: {
-		strategy: "jwt",
-		maxAge: 30 * 24 * 60 * 60, // 30 days
+		strategy: 'jwt',
+		maxAge: 12 * 60 * 60, // 12 hours
 	},
 	callbacks: {
 		async signIn({ user, account }) {
@@ -69,40 +74,48 @@ export const authOptions: NextAuthOptions = {
 				return false;
 			}
 		},
-		async jwt({ token, account, trigger }) {
+		async jwt({ token, account }) {
 			if (account) {
-				// Initial sign in
+				// Minimal token data
 				return {
-					...token,
+					sub: token.sub,
 					accessToken: account.access_token,
-					refreshToken: account.refresh_token,
 					expiresAt: account.expires_at,
-					azureId: account.providerAccountId,
 				};
-			} else if (
-				token.expiresAt &&
-				Date.now() >= (token.expiresAt as number) * 1000 - 60000
-			) {
-				// Token is about to expire (within 1 minute), should implement refresh here
-				// For now, we'll just return the existing token
-				console.log("Token needs refresh - implementing soon");
 			}
 			return token;
 		},
 		async session({ session, token }) {
+			// Minimal session data
 			return {
-				...session,
-				accessToken: token.accessToken,
-				azureId: token.azureId,
+				expires: session.expires,
+				accessToken: (token as ExtendedJWT).accessToken,
 				user: {
-					...session.user,
 					id: token.sub,
-				},
-				error: null
+					email: session.user?.email,
+				}
 			};
+		},
+		async redirect({ url, baseUrl }) {
+			// Allows relative callback URLs
+			if (url.startsWith("/")) return `${baseUrl}${url}`
+			// Allows callback URLs on the same origin
+			else if (new URL(url).origin === baseUrl) return url
+			return baseUrl
 		}
 	},
-	debug: process.env.NODE_ENV === 'development',
+	debug: false, // Disable debug messages
+	cookies: {
+		sessionToken: {
+			name: process.env.NODE_ENV === 'production' ? '__Secure-next-auth.session-token' : 'next-auth.session-token',
+			options: {
+				httpOnly: true,
+				sameSite: 'lax',
+				path: '/',
+				secure: process.env.NODE_ENV === 'production',
+			}
+		}
+	}
 };
 
 const handler = NextAuth(authOptions);
