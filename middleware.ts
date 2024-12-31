@@ -8,16 +8,24 @@ export function middleware(request: NextRequest) {
 	const isPublicPath = path === '/auth/signin' || path === '/auth/signup' || path === '/auth/verify'
 
 	// Get the token from the NextAuth.js session token cookie
-	const token = request.cookies.get('next-auth.session-token')?.value || ''
+	// Check both possible cookie names (development and production)
+	const token =
+		request.cookies.get('next-auth.session-token')?.value ||
+		request.cookies.get('__Secure-next-auth.session-token')?.value ||
+		''
 
-	// Redirect unauthenticated users to login if they're trying to access a protected route
+	// Add a small delay before redirecting to allow token to be set
 	if (!token && !isPublicPath) {
+		// Don't redirect API routes
+		if (path.startsWith('/api/')) {
+			return NextResponse.next()
+		}
 		return NextResponse.redirect(new URL('/auth/signin', request.url))
 	}
 
-	// Redirect authenticated users away from auth pages
-	if (token && isPublicPath) {
-		return NextResponse.redirect(new URL('/', request.url))
+	// Only redirect away from auth pages if we're certain we have a token
+	if (token && isPublicPath && token.length > 0) {
+		return NextResponse.redirect(new URL('/chat', request.url))
 	}
 
 	return NextResponse.next()

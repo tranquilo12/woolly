@@ -90,7 +90,7 @@ class UserSync(BaseModel):
     name: str
     access_token: Optional[str] = None
     refresh_token: Optional[str] = None
-    expires_at: Optional[int] = None
+    expires_at: Optional[datetime] = None
 
 
 available_tools = {
@@ -474,6 +474,8 @@ async def chat(
 @app.post("/api/users/sync")
 async def sync_user(user_data: UserSync, db: Session = Depends(get_db)):
     """Create or update user from Azure AD login"""
+    print(f"User data: {user_data}")
+    print(f"User data type: {type(user_data)}")
     try:
         # Try to find existing user
         user = db.query(User).filter(User.azure_id == user_data.azure_id).first()
@@ -485,8 +487,10 @@ async def sync_user(user_data: UserSync, db: Session = Depends(get_db)):
             user.access_token = user_data.access_token
             user.refresh_token = user_data.refresh_token
             if user_data.expires_at:
-                user.token_expires_at = datetime.fromtimestamp(user_data.expires_at)
+                user.token_expires_at = user_data.expires_at
         else:
+            print(f"All user data: {user_data}")
+
             # Create new user
             user = User(
                 azure_id=user_data.azure_id,
@@ -494,11 +498,7 @@ async def sync_user(user_data: UserSync, db: Session = Depends(get_db)):
                 name=user_data.name,
                 access_token=user_data.access_token,
                 refresh_token=user_data.refresh_token,
-                token_expires_at=(
-                    datetime.fromtimestamp(user_data.expires_at)
-                    if user_data.expires_at
-                    else None
-                ),
+                token_expires_at=user_data.expires_at,
             )
             db.add(user)
 

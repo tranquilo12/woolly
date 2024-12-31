@@ -2,6 +2,10 @@ import NextAuth from "next-auth";
 import { NextAuthOptions } from "next-auth";
 import AzureADProvider from "next-auth/providers/azure-ad";
 
+const apiUrl = process.env.NODE_ENV === 'development'
+	? 'http://127.0.0.1:3001'
+	: process.env.NEXT_PUBLIC_API_URL;
+
 export const authOptions: NextAuthOptions = {
 	providers: [
 		AzureADProvider({
@@ -20,13 +24,25 @@ export const authOptions: NextAuthOptions = {
 			}
 		}),
 	],
+	pages: {
+		signIn: '/auth/signin',
+		signOut: '/auth/signin',
+		error: '/auth/error',
+	},
+	session: {
+		strategy: "jwt",
+		maxAge: 30 * 24 * 60 * 60, // 30 days
+	},
 	callbacks: {
 		async signIn({ user, account }) {
 			if (!account || !user) return false;
 
 			try {
-				// Create or update user in our database
-				const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/sync`, {
+				const expiresAt = account.expires_at
+					? new Date(account.expires_at * 1000)
+					: new Date();
+
+				const response = await fetch(`${apiUrl}/api/users/sync`, {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json',
@@ -37,12 +53,13 @@ export const authOptions: NextAuthOptions = {
 						name: user.name,
 						access_token: account.access_token,
 						refresh_token: account.refresh_token,
-						expires_at: account.expires_at
+						expires_at: expiresAt
 					}),
 				});
 
 				if (!response.ok) {
-					console.error('Failed to sync user:', await response.text());
+					const errorText = await response.text();
+					console.error('Failed to sync user:', errorText);
 					return false;
 				}
 
@@ -52,27 +69,40 @@ export const authOptions: NextAuthOptions = {
 				return false;
 			}
 		},
-		async jwt({ token, account }) {
+		async jwt({ token, account, trigger }) {
 			if (account) {
-				token.accessToken = account.access_token;
-				token.azureId = account.providerAccountId;
+				// Initial sign in
+				return {
+					...token,
+					accessToken: account.access_token,
+					refreshToken: account.refresh_token,
+					expiresAt: account.expires_at,
+					azureId: account.providerAccountId,
+				};
+			} else if (
+				token.expiresAt &&
+				Date.now() >= (token.expiresAt as number) * 1000 - 60000
+			) {
+				// Token is about to expire (within 1 minute), should implement refresh here
+				// For now, we'll just return the existing token
+				console.log("Token needs refresh - implementing soon");
 			}
 			return token;
 		},
 		async session({ session, token }) {
-			if (session.user) {
-				session.user.id = token.sub;
-				session.accessToken = token.accessToken as string;
-				session.azureId = token.azureId as string;
-			}
-			return session;
+			return {
+				...session,
+				accessToken: token.accessToken,
+				azureId: token.azureId,
+				user: {
+					...session.user,
+					id: token.sub,
+				},
+				error: null
+			};
 		}
 	},
 	debug: process.env.NODE_ENV === 'development',
-	session: {
-		strategy: "jwt",
-		maxAge: 30 * 24 * 60 * 60, // 30 days
-	},
 };
 
 const handler = NextAuth(authOptions);

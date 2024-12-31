@@ -1,10 +1,11 @@
-from typing import Literal, Dict, Any
+from typing import Literal, Dict, Any, Optional
 from pydantic import BaseModel
 from sqlalchemy import Column, String, DateTime, ForeignKey, Text, func, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from .database import Base
+from datetime import datetime
 
 
 # region OpenAI Streaming Response Models
@@ -181,6 +182,15 @@ class Message(Base):
             current_invocations.append(tool_invocation)
 
         self.tool_invocations = current_invocations
+
+
+class UserSync(BaseModel):
+    azure_id: str
+    email: str
+    name: str
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    expires_at: Optional[str] = None  # ISO format datetime string
 
 
 # endregion
