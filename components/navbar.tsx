@@ -18,14 +18,6 @@ export const Navbar = () => {
             <GitIcon /> View Source Code
           </Button>
         </Link>
-        <Button
-          onClick={toggle}
-          variant="default"
-          size="icon"
-          className="shadow-md hover:shadow-lg"
-        >
-          <MenuIcon />
-        </Button>
       </div>
 
       <div className="flex gap-2 items-center">
