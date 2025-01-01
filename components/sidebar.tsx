@@ -41,7 +41,6 @@ export function Sidebar() {
 			const response = await fetch("/api/chats", {
 				headers: {
 					'Cache-Control': 'no-store',
-					'Pragma': 'no-cache'
 				}
 			});
 			if (!response.ok) throw new Error("Failed to fetch chats");

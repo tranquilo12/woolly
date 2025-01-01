@@ -16,21 +16,26 @@ export default function SignIn() {
 			if (status === 'authenticated' && session) {
 				try {
 					// First try to get user's chats
-					const response = await fetch('/api/chats');
+					const response = await fetch('/api/chats', {
+						headers: {
+							'Content-Type': 'application/json',
+							'Accept': 'application/json'
+						}
+					});
 					const data = await response.json();
 
 					if (data.chats && data.chats.length > 0) {
 						// Redirect to most recent chat
-						const latestChat = data.chats[0]; // Assuming chats are sorted by date
+						const latestChat = data.chats[0]; // assuming chats are sorted by date
 						router.push(`/chat/${latestChat.id}`);
 					} else {
 						// No existing chats, redirect to create new chat
-						router.push('/chat');
+						router.push('/');
 					}
 				} catch (error) {
 					console.error('Error fetching chats:', error);
 					// On error, default to creating new chat
-					router.push('/chat');
+					router.push('/');
 				}
 			}
 		};
@@ -41,7 +46,7 @@ export default function SignIn() {
 	const handleSignIn = async () => {
 		try {
 			const result = await signIn('azure-ad', {
-				callbackUrl: '/chat',
+				callbackUrl: '/',
 				redirect: false,
 			});
 
