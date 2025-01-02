@@ -17,6 +17,7 @@ interface ChatProps {
 export function Chat({ chatId }: ChatProps) {
   const [initialMessages, setInitialMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();
 
   const saveMessage = async (message: Message) => {
     if (!chatId) return;
@@ -74,10 +75,10 @@ export function Chat({ chatId }: ChatProps) {
     onFinish: async (message) => {
       try {
         await saveMessage(message);
-        const response = await fetch(`/api/chat/${chatId}/messages`);
-        if (!response.ok) throw new Error('Failed to refresh messages');
-        const refreshedMessages = await response.json();
-        setMessages(refreshedMessages);
+        // const response = await fetch(`/api/chat/${chatId}/messages`);
+        // if (!response.ok) throw new Error('Failed to refresh messages');
+        // const refreshedMessages = await response.json();
+        // setMessages(refreshedMessages);
       } catch (error) {
         console.error('Error in onFinish:', error);
         toast.error('Failed to save or refresh messages');
@@ -85,11 +86,9 @@ export function Chat({ chatId }: ChatProps) {
     },
   });
 
-  const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();
-
   return (
     <div className="flex flex-col w-full h-[calc(100vh-4rem)] max-w-4xl mx-auto">
-      <div className="flex-1 overflow-y-auto px-4 pb-36">
+      <div ref={containerRef} className="flex-1 overflow-y-auto px-4 pb-36">
         <div className="flex flex-col w-full gap-4 py-4">
           {messages.map((message: Message) => (
             <motion.div

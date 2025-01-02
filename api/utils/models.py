@@ -1,3 +1,4 @@
+import json
 from typing import Literal, Dict, Any
 from pydantic import BaseModel
 from sqlalchemy import Column, String, DateTime, ForeignKey, Text, func, JSON
@@ -21,18 +22,12 @@ class EndOfStreamMessage(BaseModel):
     isContinued: bool = False
 
 
-class ToolCallInstruction(BaseModel):
-    toolCallId: str
-    toolName: str
-    args: dict
-    state: Literal["call", "partial-call"] = "call"
-
-
 class ToolCallPartial(BaseModel):
     toolCallId: str
     toolName: str
     state: Literal["partial-call"]
     args: dict
+    result: None = None  # Always None for partial calls
 
 
 class ToolCallResult(BaseModel):
@@ -46,27 +41,33 @@ class ToolCallResult(BaseModel):
 def build_tool_call_partial(tool_call_id: str, tool_name: str, args: dict) -> str:
     """
     Return a serialized JSON string for partial tool calls in the '9:...' format.
-    Similar to build_tool_call_instruction but with state='partial-call'
+    Includes accumulated partial arguments.
     """
-    obj = ToolCallInstruction(
+    obj = ToolCallPartial(
         toolCallId=tool_call_id,
         toolName=tool_name,
         args=args,
-        state="partial-call",  # Explicitly set the state for partial calls
+        state="partial-call",
     )
-    return f"9:{obj.model_dump_json()}\n"
+    res = obj.model_dump_json()
+    return f"9:{res}\n\n"
 
 
 def build_tool_call_result(
-    tool_call_id: str, tool_name: str, args: dict, result: dict
+    tool_call_id: str, tool_name: str, args: dict, result: dict | None
 ) -> str:
     """
-    Return a serialized JSON string matching your 'a:...' format.
+    Return a serialized JSON string for tool call results in the 'a:...' format.
     """
     obj = ToolCallResult(
-        toolCallId=tool_call_id, toolName=tool_name, args=args, result=result
+        toolCallId=tool_call_id,
+        toolName=tool_name,
+        state="result",
+        args=args,
+        result=result,
     )
-    return f"a:{obj.model_dump_json()}\n"
+    res = obj.model_dump_json()
+    return f"a:{res}\n\n"
 
 
 def build_end_of_stream_message(
@@ -76,41 +77,29 @@ def build_end_of_stream_message(
     is_continued: bool = False,
 ) -> str:
     """
-    Return a serialized JSON string matching your 'e:...' format.
+    Return a serialized JSON string for end-of-stream messages in the 'e:...' format.
     """
     obj = EndOfStreamMessage(
         finishReason=finish_reason,
         usage=Usage(promptTokens=prompt_tokens, completionTokens=completion_tokens),
         isContinued=is_continued,
     )
-    return f"e:{obj.model_dump_json()}\n"
+    res = obj.model_dump_json()
+    return f"e:{res}\n\n"
 
 
-def build_tool_call_instruction(tool_call_id: str, tool_name: str, args: dict) -> str:
+def is_complete_json(json_str: str) -> bool:
     """
-    Return a serialized JSON string matching your '9:...' format.
+    Check if a streaming JSON string appears to be complete and valid.
+    Attempts to parse the JSON silently to validate proper structure.
     """
-    obj = ToolCallInstruction(
-        toolCallId=tool_call_id,
-        toolName=tool_name,
-        args=args,
-    )
-    return f"9:{obj.model_dump_json()}\n"
-
-
-def build_tool_call_result(
-    tool_call_id: str, tool_name: str, args: dict, result: dict
-) -> str:
-    """
-    Return a serialized JSON string matching your 'a:...' format.
-    """
-    obj = ToolCallResult(
-        toolCallId=tool_call_id,
-        toolName=tool_name,
-        args=args,
-        result=result,
-    )
-    return f"a:{obj.model_dump_json()}\n"
+    try:
+        # Attempt to parse the JSON
+        parsed = json.loads(json_str)
+        # Ensure it's a dictionary/object
+        return isinstance(parsed, dict)
+    except json.JSONDecodeError:
+        return False
 
 
 # endregion
