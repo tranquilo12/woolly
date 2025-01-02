@@ -270,7 +270,7 @@ export function Chat({ chatId }: ChatProps) {
         {
           body: {
             messages: messagesToResend,
-            model: editedMessage.model,
+            model: editedMessage.model || "gpt-4o",
           },
         }
       );
@@ -348,7 +348,7 @@ export function Chat({ chatId }: ChatProps) {
               ...options,
               body: {
                 ...options?.body,
-                model: messages[0].model,
+                // model: messages[0].model || "gpt-4o",
               },
             };
             handleSubmit(event, newOptions);

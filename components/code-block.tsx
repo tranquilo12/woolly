@@ -24,7 +24,7 @@ export function CodeBlock({ language, value }: CodeBlockProps) {
 					onClick={copyToClipboard}
 					className="p-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-100"
 				>
-					{isCopied ? <Check size={14} /> : <Copy size={14} />}
+					{isCopied ? <Check size={8} /> : <Copy size={8} />}
 				</button>
 			</div>
 			<SyntaxHighlighter
