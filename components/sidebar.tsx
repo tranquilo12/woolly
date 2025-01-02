@@ -92,7 +92,7 @@ export function Sidebar() {
 
 	useClickOutside(sidebarRef, () => {
 		if (isOpen) {
-			toggle(false);
+			toggle();
 		}
 	});
 

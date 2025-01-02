@@ -1,7 +1,7 @@
 import { Message } from "ai";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { ToolResult } from "types/tool-result";
+import { ToolResult } from "@/types/tool-result";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
