@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "ai/react";
-import { ChatRequestOptions, Message } from "ai";
+import { Message } from "ai";
 import { MultimodalInput } from "./multimodal-input";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useState, useEffect, memo } from "react";
@@ -9,7 +9,6 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { ToolInvocationDisplay } from "./tool-invocation";
-import { ThinkingMessage } from "./thinking-message";
 
 interface ChatProps {
   chatId?: string;

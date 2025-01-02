@@ -10,7 +10,7 @@ def execute_python_code(code: str, output_format: str, timeout: int = None):
         timeout (int, optional): Timeout in seconds for code execution
     """
     url = "http://localhost:8000/api/v1/execute"
-    payload = {"code": code, "output_format": output_format, "timeout": timeout}
+    payload = {"code": code, "output_format": output_format}
 
     try:
         response = requests.post(
