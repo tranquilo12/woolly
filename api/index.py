@@ -43,6 +43,10 @@ class MessageCreate(BaseModel):
     toolInvocations: Optional[List[dict]] = None
 
 
+class MessageEdit(BaseModel):
+    content: str
+
+
 available_tools = {
     "execute_python_code": execute_python_code,
 }
@@ -372,3 +376,41 @@ async def handle_chat_legacy(request: Request, protocol: str = Query("data")):
     response = StreamingResponse(stream_text(openai_messages, protocol))
     response.headers["x-vercel-ai-data-stream"] = "v1"
     return response
+
+
+@app.patch("/api/chat/{chat_id}/messages/{message_id}")
+async def edit_message(
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    message: MessageEdit,
+    db: Session = Depends(get_db),
+):
+    """Edit a message and remove all subsequent messages"""
+    try:
+        # Find the message to edit
+        target_message = (
+            db.query(Message)
+            .filter(Message.chat_id == chat_id, Message.id == message_id)
+            .first()
+        )
+
+        if not target_message:
+            raise HTTPException(status_code=404, detail="Message not found")
+
+        # Get message creation time to find subsequent messages
+        message_time = target_message.created_at
+
+        # Delete all messages that came after this one
+        db.query(Message).filter(
+            Message.chat_id == chat_id, Message.created_at > message_time
+        ).delete()
+
+        # Update the target message
+        target_message.content = message.content
+        db.commit()
+
+        return {"success": True}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to edit message: {str(e)}")

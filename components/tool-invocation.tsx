@@ -39,7 +39,7 @@ export function ToolInvocationDisplay({ toolInvocation }: { toolInvocation: Tool
 					{/* Error Display */}
 					{result.error && typeof result.error === 'object' ? (
 						<div className="text-red-500 bg-red-100 dark:bg-red-900/30 dark:text-red-300 p-2 rounded text-xs">
-							{result.error.message || 'An error occurred'}
+							{result.error || 'An error occurred'}
 						</div>
 					) : (
 						<>

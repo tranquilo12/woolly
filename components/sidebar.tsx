@@ -91,7 +91,7 @@ export function Sidebar() {
 	};
 
 	useClickOutside(sidebarRef, () => {
-		if (isOpen) {
+		if (isOpen && !document.querySelector('button:hover')) {
 			toggle();
 		}
 	});

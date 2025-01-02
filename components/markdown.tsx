@@ -1,24 +1,56 @@
 import Link from "next/link";
-import React, { memo } from "react";
+import React, { memo, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { CodeBlock } from "./code-block";
 
-const NonMemoizedMarkdown = ({ children }: { children: string }) => {
+type MarkdownProps = {
+  children: string;
+  isToolCallLoading?: boolean;
+};
+
+const CodeBlockWithCopy = ({ language, value }: { language: string, value: string }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="relative">
+      <CodeBlock language={language} value={value} />
+      <button
+        onClick={handleCopy}
+        className="absolute top-2 right-2 bg-gray-700 text-white p-1 rounded hover:bg-gray-600"
+      >
+        {copied ? "Copied!" : "Copy"}
+      </button>
+    </div>
+  );
+};
+
+const NonMemoizedMarkdown = ({ children, isToolCallLoading }: MarkdownProps) => {
+  if (isToolCallLoading) {
+    return (
+      <div className="p-2 text-gray-500 font-semibold">
+        Loading tool call...
+      </div>
+    );
+  }
+
   const components: Partial<Components> = {
-    // @ts-expect-error
-    code: ({ node, inline, className, children, ...props }) => {
+    code: ({ node, className, children, ...props }) => {
       const match = /language-(\w+)/.exec(className || "");
-      return !inline && match ? (
-        // @ts-expect-error
-        <pre
-          {...props}
-          className={`${className} text-sm w-[80dvw] md:max-w-[500px] overflow-x-scroll bg-zinc-100 p-3 rounded-lg mt-2 dark:bg-zinc-800`}
-        >
-          <code className={match[1]}>{children}</code>
-        </pre>
+      const value = String(children).replace(/\n$/, "");
+
+      return match ? (
+        <CodeBlockWithCopy language={match[1]} value={value} />
       ) : (
         <code
-          className={`${className} text-sm bg-zinc-100 dark:bg-zinc-800 py-0.5 px-1 rounded-md`}
+          className={`${className} text-xs bg-zinc-100 dark:bg-zinc-800 py-0.5 px-1 rounded-md`}
           {...props}
         >
           {children}
@@ -119,5 +151,6 @@ const NonMemoizedMarkdown = ({ children }: { children: string }) => {
 
 export const Markdown = memo(
   NonMemoizedMarkdown,
-  (prevProps, nextProps) => prevProps.children === nextProps.children,
+  (prevProps, nextProps) => prevProps.children === nextProps.children &&
+    prevProps.isToolCallLoading === nextProps.isToolCallLoading
 );
