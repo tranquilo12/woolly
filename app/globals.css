@@ -116,3 +116,13 @@
   scrollbar-width: thin;
   scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
 }
+
+.message-container {
+  scroll-behavior: smooth;
+  overflow-anchor: auto;
+}
+
+.message-content {
+  transition: height 200ms ease-in-out;
+  will-change: height;
+}

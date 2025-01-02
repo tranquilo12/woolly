@@ -352,73 +352,8 @@ async def chat(
         # Convert messages to OpenAI format
         openai_messages = convert_to_openai_messages(request.messages)
 
-        # Create async generator for streaming
-        # async def stream_chat():
-        #     current_content = []
-        #     tool_invocations = {}  # Use dict to track unique tool calls by ID
-
-        # for chunk in stream_text(openai_messages, protocol):
-        #     prefix = chunk[0]
-        #     json_str = chunk[2:].strip()
-
-        #     data = None
-        #     if is_complete_json(json_str):
-        #         data = json.loads(json_str)
-
-        #     if prefix == "0":  # Regular content
-        #         if data is None:
-        #             current_content.append(
-        #                 json_str.replace('{"', "").replace('"}', "")
-        #             )
-        #         elif isinstance(data, dict) and "content" in data:
-        #             current_content.append(data["content"])
-        #         yield chunk
-
-        #     elif prefix == "9":  # Tool call partial
-        #         if isinstance(data, dict):
-        #             tool_invocations[data["toolCallId"]] = {
-        #                 "toolCallId": data["toolCallId"],
-        #                 "toolName": data["toolName"],
-        #                 "args": data["args"],
-        #                 "state": "partial-call",
-        #                 "result": None,
-        #             }
-        #         yield chunk
-
-        #     elif prefix == "a":  # Tool call result
-        #         if isinstance(data, dict):
-        #             tool_invocations[data["toolCallId"]] = {
-        #                 "toolCallId": data["toolCallId"],
-        #                 "toolName": data["toolName"],
-        #                 "args": data["args"],
-        #                 "state": "result",
-        #                 "result": data["result"],
-        #             }
-        #         yield chunk
-
-        #     elif prefix == "e":  # End of stream
-        #         if isinstance(data, dict):
-        #             final_content = "".join(current_content)
-
-        #             # Convert tool invocations dict to list, only keeping final states
-        #             final_tool_invocations = list(tool_invocations.values())
-
-        #             message = Message(
-        #                 chat_id=chat_id,
-        #                 role="assistant",
-        #                 content=final_content,
-        #                 tool_invocations=final_tool_invocations,
-        #                 created_at=datetime.now(timezone.utc),
-        #             )
-        #             db.add(message)
-        #             db.commit()
-
-        #         yield chunk
-
         return StreamingResponse(
-            # stream_chat(),
             stream_text(openai_messages, protocol),
-            # media_type="text/event-stream",
             headers={"x-vercel-ai-data-stream": "v1"},
         )
 
