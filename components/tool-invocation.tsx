@@ -36,8 +36,6 @@ export function ToolInvocationDisplay({ toolInvocation }: { toolInvocation: Tool
 
 			{state === "result" && result && (
 				<div className="space-y-2">
-					<div className="text-xs text-muted-foreground mb-1">Result:</div>
-
 					{/* Error Display */}
 					{result.error && typeof result.error === 'object' ? (
 						<div className="text-red-500 bg-red-100 dark:bg-red-900/30 dark:text-red-300 p-2 rounded text-xs">
@@ -47,28 +45,38 @@ export function ToolInvocationDisplay({ toolInvocation }: { toolInvocation: Tool
 						<>
 							{/* Output Display */}
 							{result.output && (
-								<pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
-									{result.output}
-								</pre>
+								<details>
+									<summary className="text-xs text-muted-foreground mb-1 cursor-pointer hover:text-foreground">
+										Output
+									</summary>
+									<pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
+										{result.output}
+									</pre>
+								</details>
 							)}
 
 							{/* Plots Display */}
 							{result.plots && Object.entries(result.plots).length > 0 && (
-								<div className="mt-4 space-y-4">
-									{Object.entries(result.plots).map(([name, plotData]) => (
-										<div key={name} className="space-y-2">
-											<div className="text-xs text-muted-foreground">{name}</div>
-											<Image
-												src={plotData.startsWith('data:') ? plotData : `data:image/png;base64,${plotData}`}
-												alt={`Plot: ${name}`}
-												width={600}
-												height={400}
-												className="max-w-full h-auto rounded"
-												unoptimized={true}
-											/>
-										</div>
-									))}
-								</div>
+								<details>
+									<summary className="text-xs text-muted-foreground mb-1 cursor-pointer hover:text-foreground">
+										Plots
+									</summary>
+									<div className="mt-2 space-y-4">
+										{Object.entries(result.plots).map(([name, plotData]) => (
+											<div key={name} className="space-y-2">
+												<div className="text-xs text-muted-foreground">{name}</div>
+												<Image
+													src={plotData.startsWith('data:') ? plotData : `data:image/png;base64,${plotData}`}
+													alt={`Plot: ${name}`}
+													width={600}
+													height={400}
+													className="max-w-full h-auto rounded"
+													unoptimized={true}
+												/>
+											</div>
+										))}
+									</div>
+								</details>
 							)}
 
 							{/* Metrics Display */}
