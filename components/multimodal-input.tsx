@@ -188,7 +188,10 @@ export function MultimodalInput({
               variant="outline"
               size="icon"
               className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-md"
-              onClick={toggle}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggle();
+              }}
             >
               <MenuIcon size={14} />
             </Button>
