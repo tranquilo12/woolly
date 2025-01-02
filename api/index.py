@@ -17,13 +17,7 @@ from .utils.models import (
 import uuid
 from sqlalchemy.orm import Session
 from .utils.database import get_db
-from .utils.models import (
-    build_tool_call_partial,
-    build_tool_call_result,
-    build_end_of_stream_message,
-)
 from datetime import datetime, timezone
-from pydantic import ValidationError
 
 
 load_dotenv(".env.local")
@@ -305,7 +299,12 @@ async def save_chat_message(
     try:
         tool_invocations = None
         if message.toolInvocations:
-            tool_invocations = json.dumps([t for t in message.toolInvocations])
+            # Only serialize if not already a string
+            tool_invocations = (
+                message.toolInvocations
+                if isinstance(message.toolInvocations[0], str)
+                else [t for t in message.toolInvocations]
+            )
 
         db_message = Message(
             chat_id=chat_id,
