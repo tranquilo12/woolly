@@ -82,6 +82,7 @@ export function Chat({ chatId }: ChatProps) {
     api: chatId ? `/api/chat/${chatId}` : "/api/chat",
     id: chatId,
     initialMessages,
+    streamProtocol: "data",
     onFinish: async (message) => {
       try {
         await saveMessage(message);
@@ -91,37 +92,6 @@ export function Chat({ chatId }: ChatProps) {
       }
     },
   });
-
-  const handleSubmitWithThinking = async (
-    event?: { preventDefault?: () => void },
-    chatRequestOptions?: ChatRequestOptions,
-  ) => {
-    if (event?.preventDefault) {
-      event.preventDefault();
-    }
-
-    // Create and append the user's message first, which will return the assistant's message ID
-    const assistantMessageId = await append(
-      {
-        role: "user",
-        content: input,
-      },
-      chatRequestOptions
-    );
-
-    // If we got an ID back, create our placeholder assistant message
-    if (assistantMessageId) {
-      setMessages(messages => [
-        ...messages,
-        {
-          id: assistantMessageId,
-          content: "",
-          role: "assistant",
-          createdAt: new Date(),
-        },
-      ]);
-    }
-  };
 
   return (
     <div className="flex flex-col w-full h-[calc(100vh-4rem)] max-w-4xl mx-auto">
@@ -164,7 +134,7 @@ export function Chat({ chatId }: ChatProps) {
             isLoading={isLoading}
             messages={messages}
             setMessages={setMessages}
-            handleSubmit={handleSubmitWithThinking}
+            handleSubmit={handleSubmit}
           />
         </div>
       </div>
