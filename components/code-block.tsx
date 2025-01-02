@@ -18,7 +18,7 @@ export function CodeBlock({ language, value }: CodeBlockProps) {
 	};
 
 	return (
-		<div className="relative group">
+		<div className="relative group overflow-x-auto">
 			<div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
 				<button
 					onClick={copyToClipboard}
@@ -34,6 +34,8 @@ export function CodeBlock({ language, value }: CodeBlockProps) {
 					margin: 0,
 					borderRadius: '0.5rem',
 					padding: '1rem',
+					fontSize: '0.75rem',
+					overflowX: 'auto',
 				}}
 			>
 				{value}
