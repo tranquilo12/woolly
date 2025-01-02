@@ -123,7 +123,7 @@ export function Chat({ chatId }: ChatProps) {
     <div className="flex flex-col w-full h-[calc(100vh-4rem)] max-w-4xl mx-auto">
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto px-4 pb-36 message-container"
+        className="flex-1 overflow-y-auto px-4 pb-48 message-container"
       >
         <div className="flex flex-col w-full gap-4 py-4">
           {messages.map((message: Message) => (

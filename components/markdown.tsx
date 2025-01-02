@@ -4,6 +4,11 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "./code-block";
 
+type MarkdownProps = {
+  children: string;
+  isToolCallLoading?: boolean;
+};
+
 const CodeBlockWithCopy = ({ language, value }: { language: string, value: string }) => {
   const [copied, setCopied] = useState(false);
 
@@ -27,7 +32,15 @@ const CodeBlockWithCopy = ({ language, value }: { language: string, value: strin
   );
 };
 
-const NonMemoizedMarkdown = ({ children }: { children: string }) => {
+const NonMemoizedMarkdown = ({ children, isToolCallLoading }: MarkdownProps) => {
+  if (isToolCallLoading) {
+    return (
+      <div className="p-2 text-gray-500 font-semibold">
+        Loading tool call...
+      </div>
+    );
+  }
+
   const components: Partial<Components> = {
     code: ({ node, className, children, ...props }) => {
       const match = /language-(\w+)/.exec(className || "");
@@ -138,5 +151,6 @@ const NonMemoizedMarkdown = ({ children }: { children: string }) => {
 
 export const Markdown = memo(
   NonMemoizedMarkdown,
-  (prevProps, nextProps) => prevProps.children === nextProps.children,
+  (prevProps, nextProps) => prevProps.children === nextProps.children &&
+    prevProps.isToolCallLoading === nextProps.isToolCallLoading
 );

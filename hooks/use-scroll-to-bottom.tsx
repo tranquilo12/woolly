@@ -55,13 +55,14 @@ export function useScrollToBottom<T extends HTMLElement>(): [
     };
 
     const observer = new MutationObserver((mutations) => {
-      // Only trigger scroll for content changes
-      const hasContentChange = mutations.some(mutation =>
+      // Only trigger scroll for content changes or class changes (which could indicate state updates)
+      const hasRelevantChange = mutations.some(mutation =>
         mutation.type === 'characterData' ||
-        mutation.addedNodes.length > 0
+        mutation.addedNodes.length > 0 ||
+        (mutation.type === 'attributes' && mutation.attributeName === 'class')
       );
 
-      if (hasContentChange) {
+      if (hasRelevantChange) {
         if (scrollTimeout.current) {
           cancelAnimationFrame(scrollTimeout.current);
         }
@@ -74,6 +75,8 @@ export function useScrollToBottom<T extends HTMLElement>(): [
       childList: true,
       subtree: true,
       characterData: true,
+      attributes: true,
+      attributeFilter: ['class']
     });
 
     return () => {
