@@ -52,7 +52,7 @@ available_tools = {
 }
 
 
-def do_stream(messages: List[ChatCompletionMessageParam]):
+def do_stream(messages: List[ChatCompletionMessageParam], model: str = "gpt-4o"):
     # Convert messages to the format expected by OpenAI Vision API
     formatted_messages = []
 
@@ -81,7 +81,7 @@ def do_stream(messages: List[ChatCompletionMessageParam]):
 
     stream = client.chat.completions.create(
         messages=formatted_messages,
-        model="gpt-4o",
+        model=model,
         stream=True,
         tools=[
             {
@@ -111,8 +111,12 @@ def do_stream(messages: List[ChatCompletionMessageParam]):
     return stream
 
 
-def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = "data"):
-    stream = do_stream(messages)
+def stream_text(
+    messages: List[ChatCompletionMessageParam],
+    protocol: str = "data",
+    model: str = "gpt-4o",
+):
+    stream = do_stream(messages, model=model)
     draft_tool_calls = []
     draft_tool_calls_index = -1
     for chunk in stream:
@@ -336,18 +340,16 @@ async def chat(
     db: Session = Depends(get_db),
     protocol: str = Query("data"),
 ):
-    """Handle chat requests with streaming responses"""
     try:
         if not request.messages:
-            raise HTTPException(
-                status_code=422, detail="No messages provided in request"
-            )
+            raise HTTPException(status_code=422, detail="No messages provided")
 
-        # Store the user's message first
+        # Store the user's message with the selected model
         user_message = Message(
             chat_id=chat_id,
             role="user",
             content=request.messages[-1].content,
+            model=getattr(request.messages[-1], "model", "gpt-4o"),
             created_at=datetime.now(timezone.utc),
         )
         db.add(user_message)
@@ -356,8 +358,11 @@ async def chat(
         # Convert messages to OpenAI format
         openai_messages = convert_to_openai_messages(request.messages)
 
+        # Get model from the last message
+        model = getattr(request.messages[-1], "model", "gpt-4o")
+
         return StreamingResponse(
-            stream_text(openai_messages, protocol),
+            stream_text(openai_messages, protocol, model=model),
             headers={"x-vercel-ai-data-stream": "v1"},
         )
 
@@ -414,3 +419,35 @@ async def edit_message(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to edit message: {str(e)}")
+
+
+@app.patch("/api/chat/{chat_id}/messages/{message_id}/model")
+async def update_message_model(
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    model_update: dict,
+    db: Session = Depends(get_db),
+):
+    """Update message model"""
+    try:
+        # Find the message to update
+        message = (
+            db.query(Message)
+            .filter(Message.chat_id == chat_id, Message.id == message_id)
+            .first()
+        )
+
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+
+        # Update the model
+        message.model = model_update.get("model")
+        db.commit()
+
+        return {"success": True}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update message model: {str(e)}"
+        )

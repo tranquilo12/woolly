@@ -53,11 +53,13 @@ class ClientMessage(BaseModel):
 
 class Request(BaseModel):
     messages: List[ClientMessage]
+    model: Optional[str] = "gpt-4o"  # Default model
 
     class Config:
         json_schema_extra = {
             "example": {
-                "messages": [{"role": "user", "content": "Hello, how are you?"}]
+                "messages": [{"role": "user", "content": "Hello, how are you?"}],
+                "model": "gpt-4o",
             }
         }
 

@@ -14,6 +14,7 @@ import { Button } from "./ui/button";
 import { EditMessageInput } from "./edit-message-input";
 import { ThinkingMessage } from "./thinking-message";
 import { EditIndicator } from "./edit-indicator";
+import { ModelSelector } from "./model-selector";
 
 interface ChatProps {
   chatId?: string;
@@ -23,10 +24,11 @@ interface ChatMessageProps {
   message: Message;
   chatId: string | undefined;
   onEditComplete: (message: Message) => void;
+  onModelChange: (model: string, messageId: string) => void;
 }
 
 // Memoized Message component to prevent unnecessary re-renders
-const ChatMessage = memo(({ message, chatId, onEditComplete }: ChatMessageProps) => {
+const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: ChatMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
 
   const handleEdit = async (newContent: string) => {
@@ -80,7 +82,7 @@ const ChatMessage = memo(({ message, chatId, onEditComplete }: ChatMessageProps)
     >
       <div className="flex-1">
         <div className={cn(
-          "p-4 rounded-lg max-w-[80%]",
+          "p-4 pb-8 rounded-lg max-w-[80%] relative",
           message.role === "user"
             ? "bg-primary/10 ml-auto"
             : "bg-muted mr-auto"
@@ -89,6 +91,14 @@ const ChatMessage = memo(({ message, chatId, onEditComplete }: ChatMessageProps)
           {message.toolInvocations?.map((tool, i) => (
             <ToolInvocationDisplay key={i} toolInvocation={tool} />
           ))}
+          {message.role === "user" && (
+            <div className="absolute bottom-1.5 left-2 opacity-20 hover:opacity-100 transition-opacity">
+              <ModelSelector
+                currentModel={message.model || "gpt-4o"}
+                onModelChange={(model) => onModelChange(model, message.id)}
+              />
+            </div>
+          )}
         </div>
         {message.role === "user" && (
           <Button
@@ -112,6 +122,28 @@ export function Chat({ chatId }: ChatProps) {
   const [isRestreaming, setIsRestreaming] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();
+
+  // Add a debounced scroll handler
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const isAtBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+      if (isAtBottom && (isLoading || isThinking || isRestreaming)) {
+        const end = endRef.current;
+        if (end) {
+          end.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [isLoading, isThinking, isRestreaming]);
+
+  // Force scroll on message changes
 
   const saveMessage = async (message: Message) => {
     if (!chatId) return;
@@ -188,6 +220,13 @@ export function Chat({ chatId }: ChatProps) {
     },
   });
 
+  useEffect(() => {
+    const end = endRef.current;
+    if (end && (isLoading || isThinking || isRestreaming)) {
+      end.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isLoading, isThinking, isRestreaming]);
+
   // Update thinking state when chat loading state changes
   useEffect(() => {
     if (isChatLoading && messages.length === 0) {
@@ -222,22 +261,47 @@ export function Chat({ chatId }: ChatProps) {
         id: m.id
       }));
 
-      // Trigger a new stream with these messages
-      await append({
-        role: 'user',
-        content: editedMessage.content,
-      }, {
-        body: {
-          messages: messagesToResend
+      // Send selectedModel with the re-submission
+      await append(
+        {
+          role: 'user',
+          content: editedMessage.content,
+        },
+        {
+          body: {
+            messages: messagesToResend,
+            model: editedMessage.model,
+          },
         }
-      });
+      );
 
     } catch (error) {
       console.error('Failed to restream messages:', error);
       toast.error('Failed to continue conversation after edit');
       setIsRestreaming(false);
     }
-  }, [chatId, messages, setMessages, append, setIsRestreaming]);
+  }, [chatId, messages, setMessages, append]);
+
+  const handleModelChange = async (model: string, messageId: string) => {
+    // Update the message's model in the database
+    const response = await fetch(`/api/chat/${chatId}/messages/${messageId}/model`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model }),
+    });
+
+    if (!response.ok) {
+      toast.error('Failed to update message model');
+      return;
+    }
+
+    // Update local state
+    setMessages(messages.map(msg =>
+      msg.id === messageId ? { ...msg, model } : msg
+    ));
+  };
 
   const renderMessage = useCallback((message: Message) => {
     if (message.id === 'edit-indicator') {
@@ -250,9 +314,10 @@ export function Chat({ chatId }: ChatProps) {
         message={message}
         chatId={chatId}
         onEditComplete={handleEditComplete}
+        onModelChange={handleModelChange}
       />
     );
-  }, [chatId, handleEditComplete]);
+  }, [chatId, handleEditComplete, handleModelChange]);
 
   return (
     <div className="flex flex-col w-full h-[calc(100vh-4rem)] max-w-4xl mx-auto relative">
@@ -268,19 +333,27 @@ export function Chat({ chatId }: ChatProps) {
       </div>
 
       <div className="absolute bottom-0 left-0 right-0 border-t bg-background/80 backdrop-blur-sm">
-        <div className="max-w-4xl mx-auto">
-          <MultimodalInput
-            chatId={chatId || ''}
-            input={input}
-            setInput={setInput}
-            append={append}
-            stop={stop}
-            isLoading={isLoading}
-            messages={messages}
-            setMessages={setMessages}
-            handleSubmit={handleSubmit}
-          />
-        </div>
+        <MultimodalInput
+          chatId={chatId || ''}
+          input={input}
+          setInput={setInput}
+          append={append}
+          stop={stop}
+          isLoading={isLoading}
+          messages={messages}
+          setMessages={setMessages}
+          handleSubmit={(event, options) => {
+            // Insert selectedModel into body
+            const newOptions = {
+              ...options,
+              body: {
+                ...options?.body,
+                model: messages[0].model,
+              },
+            };
+            handleSubmit(event, newOptions);
+          }}
+        />
       </div>
     </div>
   );

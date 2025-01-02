@@ -140,6 +140,7 @@ class Message(Base):
     content = Column(Text)
     tool_invocations = Column(JSON, default=list)  # Store as JSON array
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    model = Column(String, nullable=True, default="gpt-4o")
 
     chat = relationship("Chat", back_populates="messages")
 
