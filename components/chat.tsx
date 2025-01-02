@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { ToolInvocationDisplay } from "./tool-invocation";
+import { Markdown } from "./markdown";
 
 interface ChatProps {
   chatId?: string;
@@ -23,7 +24,7 @@ const ChatMessage = memo(({ message }: { message: Message }) => (
     transition={{ duration: 0.3 }}
     className={cn(
       "p-4 rounded-lg max-w-[80%] whitespace-pre-wrap transition-all duration-200 ease-in-out",
-      "message-content", // Added for height transitions
+      "message-content",
       message.role === "user"
         ? "bg-primary/10 ml-auto text-right"
         : "bg-muted mr-auto",
@@ -32,7 +33,7 @@ const ChatMessage = memo(({ message }: { message: Message }) => (
         : null
     )}
   >
-    {message.content}
+    <Markdown>{message.content}</Markdown>
     {message.toolInvocations?.map((tool, i) => (
       <ToolInvocationDisplay key={i} toolInvocation={tool} />
     ))}
