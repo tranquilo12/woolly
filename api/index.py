@@ -114,74 +114,64 @@ def do_stream(messages: List[ChatCompletionMessageParam]):
 
 
 def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = "data"):
-    try:
-        stream = do_stream(messages)
-        current_tool_call = None
-        current_args_buffer = []
-
-        for chunk in stream:
-            if not chunk.choices:
+    stream = do_stream(messages)
+    draft_tool_calls = []
+    draft_tool_calls_index = -1
+    for chunk in stream:
+        for choice in chunk.choices:
+            if choice.finish_reason == "stop":
                 continue
 
-            delta = chunk.choices[0].delta
+            elif choice.finish_reason == "tool_calls":
+                for tool_call in draft_tool_calls:
+                    yield '9:{{"toolCallId":"{id}","toolName":"{name}","args":{args}}}\n'.format(
+                        id=tool_call["id"],
+                        name=tool_call["name"],
+                        args=tool_call["arguments"],
+                    )
 
-            # Handle tool calls
-            if delta.tool_calls:
-                for tool_call in delta.tool_calls:
-                    if not current_tool_call:
-                        current_tool_call = tool_call
-                        current_args_buffer = []
-                    if tool_call.function and tool_call.function.arguments:
-                        current_args_buffer.append(tool_call.function.arguments)
-                        args_so_far = "".join(current_args_buffer)
+                for tool_call in draft_tool_calls:
+                    tool_result = available_tools[tool_call["name"]](
+                        **json.loads(tool_call["arguments"])
+                    )
 
-                        # Always send partial state
-                        yield build_tool_call_partial(
-                            tool_call_id=current_tool_call.id,
-                            tool_name=current_tool_call.function.name,
-                            args={"partial": args_so_far},
+                    yield 'a:{{"toolCallId":"{id}","toolName":"{name}","args":{args},"result":{result}}}\n'.format(
+                        id=tool_call["id"],
+                        name=tool_call["name"],
+                        args=tool_call["arguments"],
+                        result=json.dumps(tool_result),
+                    )
+
+            elif choice.delta.tool_calls:
+                for tool_call in choice.delta.tool_calls:
+                    id = tool_call.id
+                    name = tool_call.function.name
+                    arguments = tool_call.function.arguments
+
+                    if id is not None:
+                        draft_tool_calls_index += 1
+                        draft_tool_calls.append(
+                            {"id": id, "name": name, "arguments": ""}
                         )
 
-                        # Check if we have complete JSON
-                        if is_complete_json(args_so_far):
-                            try:
-                                args = json.loads(args_so_far)
-                                # Execute tool and emit result
-                                result = available_tools[
-                                    current_tool_call.function.name
-                                ](**args)
-                                yield build_tool_call_result(
-                                    tool_call_id=current_tool_call.id,
-                                    tool_name=current_tool_call.function.name,
-                                    args=args,
-                                    result=result,
-                                )
+                    else:
+                        draft_tool_calls[draft_tool_calls_index][
+                            "arguments"
+                        ] += arguments
 
-                                # Reset state
-                                current_tool_call = None
-                                current_args_buffer = []
-                            except json.JSONDecodeError:
-                                # If JSON.loads fails despite our check, continue accumulating
-                                continue
+            else:
+                yield "0:{text}\n".format(text=json.dumps(choice.delta.content))
 
-            # Handle regular content
-            if delta.content:
-                yield f"0:{{{json.dumps(delta.content)}}}\n\n"
+        if chunk.choices == []:
+            usage = chunk.usage
+            prompt_tokens = usage.prompt_tokens
+            completion_tokens = usage.completion_tokens
 
-        # End of stream
-        if chunk.choices[0].finish_reason:
-            yield build_end_of_stream_message(
-                finish_reason=chunk.choices[0].finish_reason,
-                prompt_tokens=chunk.usage.prompt_tokens if chunk.usage else 0,
-                completion_tokens=chunk.usage.completion_tokens if chunk.usage else 0,
+            yield 'e:{{"finishReason":"{reason}","usage":{{"promptTokens":{prompt},"completionTokens":{completion}}},"isContinued":false}}\n'.format(
+                reason="tool-calls" if len(draft_tool_calls) > 0 else "stop",
+                prompt=prompt_tokens,
+                completion=completion_tokens,
             )
-
-    except Exception as e:
-        print(f"Error in stream_text: {e}")
-        yield f"0:{{{json.dumps(str(e))}}}\n\n"
-        yield build_end_of_stream_message(
-            finish_reason="error", prompt_tokens=0, completion_tokens=0
-        )
 
 
 # Chat CRUD Operations

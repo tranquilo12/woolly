@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "ai/react";
-import { Message } from "ai";
+import { ChatRequestOptions, Message } from "ai";
 import { MultimodalInput } from "./multimodal-input";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useState, useEffect } from "react";
@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { ToolInvocationDisplay } from "./tool-invocation";
+import { ThinkingMessage } from "./thinking-message";
 
 interface ChatProps {
   chatId?: string;
@@ -68,23 +69,59 @@ export function Chat({ chatId }: ChatProps) {
     fetchMessages();
   }, [chatId]);
 
-  const { messages, append, stop, input, setInput, setMessages, handleSubmit } = useChat({
+  const {
+    messages,
+    input,
+    handleSubmit,
+    append,
+    stop,
+    setMessages,
+    setInput,
+    isLoading: isChatLoading,
+  } = useChat({
     api: chatId ? `/api/chat/${chatId}` : "/api/chat",
     id: chatId,
     initialMessages,
     onFinish: async (message) => {
       try {
         await saveMessage(message);
-        // const response = await fetch(`/api/chat/${chatId}/messages`);
-        // if (!response.ok) throw new Error('Failed to refresh messages');
-        // const refreshedMessages = await response.json();
-        // setMessages(refreshedMessages);
       } catch (error) {
         console.error('Error in onFinish:', error);
         toast.error('Failed to save or refresh messages');
       }
     },
   });
+
+  const handleSubmitWithThinking = async (
+    event?: { preventDefault?: () => void },
+    chatRequestOptions?: ChatRequestOptions,
+  ) => {
+    if (event?.preventDefault) {
+      event.preventDefault();
+    }
+
+    // Create and append the user's message first, which will return the assistant's message ID
+    const assistantMessageId = await append(
+      {
+        role: "user",
+        content: input,
+      },
+      chatRequestOptions
+    );
+
+    // If we got an ID back, create our placeholder assistant message
+    if (assistantMessageId) {
+      setMessages(messages => [
+        ...messages,
+        {
+          id: assistantMessageId,
+          content: "",
+          role: "assistant",
+          createdAt: new Date(),
+        },
+      ]);
+    }
+  };
 
   return (
     <div className="flex flex-col w-full h-[calc(100vh-4rem)] max-w-4xl mx-auto">
@@ -127,7 +164,7 @@ export function Chat({ chatId }: ChatProps) {
             isLoading={isLoading}
             messages={messages}
             setMessages={setMessages}
-            handleSubmit={handleSubmit}
+            handleSubmit={handleSubmitWithThinking}
           />
         </div>
       </div>
