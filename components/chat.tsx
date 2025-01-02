@@ -255,10 +255,10 @@ export function Chat({ chatId }: ChatProps) {
   }, [chatId, handleEditComplete]);
 
   return (
-    <div className="flex flex-col w-full h-[calc(100vh-4rem)] max-w-4xl mx-auto">
+    <div className="flex flex-col w-full h-[calc(100vh-4rem)] max-w-4xl mx-auto relative">
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto px-4 pb-48 message-container"
+        className="flex-1 overflow-y-auto px-4 pb-36 message-container"
       >
         <div className="flex flex-col w-full gap-4 py-4">
           {messages.map(renderMessage)}
@@ -267,7 +267,7 @@ export function Chat({ chatId }: ChatProps) {
         </div>
       </div>
 
-      <div className="border-t fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-sm">
+      <div className="absolute bottom-0 left-0 right-0 border-t bg-background/80 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto">
           <MultimodalInput
             chatId={chatId || ''}
