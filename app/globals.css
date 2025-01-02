@@ -147,3 +147,40 @@
   opacity: 0;
   transition: opacity 200ms ease-in;
 }
+
+@layer components {
+  .sidebar-gradient {
+    background: linear-gradient(
+      to bottom,
+      hsl(var(--background)) 0%,
+      hsla(var(--background) / 0.97) 100%
+    );
+  }
+
+  .sidebar-border {
+    border-image: linear-gradient(
+        to bottom,
+        hsl(var(--border)) 0%,
+        hsla(var(--border) / 0.3) 100%
+      )
+      1;
+  }
+}
+
+/* Update scrollbar styles for sidebar */
+[data-sidebar]::-webkit-scrollbar {
+  width: 4px;
+}
+
+[data-sidebar]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-sidebar]::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 2px;
+}
+
+[data-sidebar]::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}

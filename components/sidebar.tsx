@@ -22,7 +22,7 @@ export function Sidebar() {
 	const [chats, setChats] = useState<Chat[]>([]);
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editingTitle, setEditingTitle] = useState("");
-	const { isOpen, toggle } = useSidebar();
+	const { isOpen, toggle, setIsOpen } = useSidebar();
 	const sidebarRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
@@ -91,8 +91,8 @@ export function Sidebar() {
 	};
 
 	useClickOutside(sidebarRef, () => {
-		if (isOpen && !document.querySelector('button:hover')) {
-			toggle();
+		if (isOpen) {
+			setIsOpen(false);
 		}
 	});
 
@@ -137,15 +137,19 @@ export function Sidebar() {
 	};
 
 	return (
-		<AnimatePresence mode="wait">
+		<AnimatePresence>
 			{isOpen && (
 				<motion.div
 					ref={sidebarRef}
-					variants={containerVariants}
 					initial="hidden"
 					animate="visible"
 					exit="exit"
-					className="fixed inset-y-0 left-0 w-64 bg-background/60 backdrop-blur-lg border-r pb-12 overflow-hidden z-10"
+					variants={containerVariants}
+					className={cn(
+						"fixed left-0 top-0 z-50 flex h-full w-full flex-col border-l bg-background/80 backdrop-blur-xl sm:w-[400px]",
+						"border-muted/30 shadow-[0_0_15px_rgba(0,0,0,0.1)] dark:shadow-[0_0_15px_rgba(0,0,0,0.2)]",
+					)}
+					data-sidebar
 				>
 					<motion.div
 						className="flex flex-col h-full px-4"
