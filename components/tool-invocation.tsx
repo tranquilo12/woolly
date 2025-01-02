@@ -1,10 +1,12 @@
 import { ToolInvocation } from "ai";
-import { cn } from "@/lib/utils";
+import { cn, formatMetric, parseToolResult } from "@/lib/utils";
+import type { ToolResult } from "@/types/tool-result";
+import Image from 'next/image';
 
 export function ToolInvocationDisplay({ toolInvocation }: { toolInvocation: ToolInvocation }) {
 	const { toolName, state, args, result } = toolInvocation as (
 		| { state: 'partial-call' | 'call'; toolName: string; args: any; result?: never }
-		| { state: 'result'; toolName: string; args: any; result: { error?: { message: string }; output?: any } }
+		| { state: 'result'; toolName: string; args: any; result: ToolResult }
 	);
 
 	return (
@@ -32,17 +34,52 @@ export function ToolInvocationDisplay({ toolInvocation }: { toolInvocation: Tool
 				</details>
 			)}
 
-			{state === "result" && (
-				<div>
+			{state === "result" && result && (
+				<div className="space-y-2">
 					<div className="text-xs text-muted-foreground mb-1">Result:</div>
-					{result?.error ? (
+
+					{/* Error Display */}
+					{result.error && typeof result.error === 'object' ? (
 						<div className="text-red-500 bg-red-100 dark:bg-red-900/30 dark:text-red-300 p-2 rounded text-xs">
-							{result.error.message}
+							{result.error.message || 'An error occurred'}
 						</div>
 					) : (
-						<pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
-							{JSON.stringify(result, null, 2)}
-						</pre>
+						<>
+							{/* Output Display */}
+							{result.output && (
+								<pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
+									{result.output}
+								</pre>
+							)}
+
+							{/* Plots Display */}
+							{result.plots && Object.entries(result.plots).length > 0 && (
+								<div className="mt-4 space-y-4">
+									{Object.entries(result.plots).map(([name, plotData]) => (
+										<div key={name} className="space-y-2">
+											<div className="text-xs text-muted-foreground">{name}</div>
+											<Image
+												src={plotData.startsWith('data:') ? plotData : `data:image/png;base64,${plotData}`}
+												alt={`Plot: ${name}`}
+												width={600}
+												height={400}
+												className="max-w-full h-auto rounded"
+												unoptimized={true}
+											/>
+										</div>
+									))}
+								</div>
+							)}
+
+							{/* Metrics Display */}
+							{result.metrics && (
+								<div className="flex gap-4 text-xs text-muted-foreground mt-2">
+									<div>Memory: {formatMetric(result.metrics.memory_usage, 'memory')}</div>
+									<div>CPU: {formatMetric(result.metrics.cpu_percent, 'cpu')}</div>
+									<div>Time: {formatMetric(result.metrics.execution_time, 'time')}</div>
+								</div>
+							)}
+						</>
 					)}
 				</div>
 			)}
