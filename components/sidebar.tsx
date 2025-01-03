@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useSidebar } from "./sidebar-provider";
 import { useClickOutside } from '@/hooks/use-click-outside';
 import { cn } from "@/lib/utils";
+import { useChatList } from "./chat-list-context";
 
 interface Chat {
 	id: string;
@@ -25,6 +26,7 @@ export function Sidebar() {
 	const { isOpen, toggle, setIsOpen } = useSidebar();
 	const sidebarRef = useRef<HTMLDivElement>(null);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
+	const { refreshChats } = useChatList();
 
 	useEffect(() => {
 		fetchChats();
@@ -38,22 +40,6 @@ export function Sidebar() {
 			setChats(data);
 		} catch (error) {
 			toast.error("Failed to load chats");
-		}
-	};
-
-	const createNewChat = async () => {
-		try {
-			const response = await fetch("/api/chat/create", {
-				method: "POST",
-			});
-
-			if (!response.ok) throw new Error("Failed to create chat");
-
-			const data = await response.json();
-			router.push(`/chat/${data.id}`);
-			fetchChats(); // Refresh the list
-		} catch (error) {
-			toast.error("Failed to create new chat");
 		}
 	};
 
@@ -84,8 +70,9 @@ export function Sidebar() {
 
 			if (!response.ok) throw new Error("Failed to update chat title");
 
-			fetchChats(); // Refresh the list
+			fetchChats();
 			setEditingId(null);
+			refreshChats();
 		} catch (error) {
 			toast.error("Failed to update chat title");
 		}

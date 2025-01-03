@@ -10,11 +10,11 @@ import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { ToolInvocationDisplay } from "./tool-invocation";
 import { Markdown } from "./markdown";
-import { Button } from "./ui/button";
 import { EditMessageInput } from "./edit-message-input";
 import { ThinkingMessage } from "./thinking-message";
 import { EditIndicator } from "./edit-indicator";
 import { ModelSelector } from "./model-selector";
+import { useChatTitle } from "./chat-title-context";
 
 interface ChatProps {
   chatId?: string;
@@ -73,21 +73,19 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
       initial={{ opacity: 0, y: 50 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className={cn(
-        "group relative flex items-start md:gap-6 gap-4 pb-4",
-        message.role === "user"
-          ? "flex-row-reverse"
-          : "flex-row"
-      )}
+      className="group relative flex items-start md:gap-6 gap-4 pb-4 w-full"
     >
-      <div className="flex-1">
+      <div className="flex-1 overflow-hidden">
         <div className={cn(
-          "p-4 pb-8 rounded-lg max-w-[80%] relative",
+          "p-4 pb-8 rounded-lg relative overflow-hidden",
+          "break-words whitespace-pre-wrap",
           message.role === "user"
-            ? "bg-primary/10 ml-auto"
-            : "bg-muted mr-auto"
+            ? "bg-primary/10 ml-auto max-w-[85%] float-right clear-both"
+            : "bg-muted mr-auto max-w-[85%] float-left clear-both"
         )}>
-          <Markdown>{message.content}</Markdown>
+          <div className="prose prose-neutral dark:prose-invert max-w-none">
+            <Markdown>{message.content}</Markdown>
+          </div>
           {message.toolInvocations?.map((tool, i) => (
             <ToolInvocationDisplay key={i} toolInvocation={tool} />
           ))}
@@ -100,16 +98,6 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
             </div>
           )}
         </div>
-        {message.role === "user" && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsEditing(true)}
-            className="opacity-0 group-hover:opacity-100 transition-opacity absolute top-2 right-2"
-          >
-            Edit
-          </Button>
-        )}
       </div>
     </motion.div>
   );
@@ -121,7 +109,9 @@ export function Chat({ chatId }: ChatProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isRestreaming, setIsRestreaming] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [isToolStreaming, setIsToolStreaming] = useState(false);
   const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();
+  const { setTitle } = useChatTitle();
 
   // Add a debounced scroll handler
   useEffect(() => {
@@ -151,7 +141,15 @@ export function Chat({ chatId }: ChatProps) {
       const messageToSave = {
         role: message.role,
         content: message.content,
-        toolInvocations: message.toolInvocations || null
+        toolInvocations: message.toolInvocations
+          ? message.toolInvocations.map(tool => ({
+            state: tool.state,
+            toolCallId: tool.toolCallId,
+            toolName: tool.toolName,
+            args: tool.args,
+            result: tool.result
+          }))
+          : null
       };
 
       const response = await fetch(`/api/chat/${chatId}/messages/save`, {
@@ -229,16 +227,24 @@ export function Chat({ chatId }: ChatProps) {
 
   // Update thinking state when chat loading state changes
   useEffect(() => {
-    if (isChatLoading && messages.length === 0) {
-      setIsThinking(true);
-    } else if (isChatLoading && messages.length > 0) {
+    const shouldShowThinking = () => {
+      if (!isChatLoading) return false;
+      if (messages.length === 0) return true;
+
       const lastMessage = messages[messages.length - 1];
-      // Only show thinking if the last message is empty (hasn't started streaming)
-      setIsThinking(lastMessage.role === 'assistant' && !lastMessage.content);
-    } else {
-      setIsThinking(false);
-    }
-  }, [isChatLoading, messages]);
+      const hasActiveToolInvocations = lastMessage.toolInvocations?.some(
+        tool => tool.state === 'partial-call' || tool.state === 'call'
+      );
+
+      const isEmptyAssistantMessage = lastMessage.role === 'assistant' && !lastMessage.content;
+      const isStreamStarting = lastMessage.role === 'assistant' && lastMessage.content === '';
+
+      setIsToolStreaming(hasActiveToolInvocations || isStreamStarting);
+      return isEmptyAssistantMessage || isStreamStarting || hasActiveToolInvocations;
+    };
+
+    setIsThinking(shouldShowThinking() || isToolStreaming);
+  }, [isChatLoading, messages, isToolStreaming]);
 
   const handleEditComplete = useCallback(async (editedMessage: Message) => {
     if (!chatId) return;
@@ -319,8 +325,28 @@ export function Chat({ chatId }: ChatProps) {
     );
   }, [chatId, handleEditComplete, handleModelChange]);
 
+  useEffect(() => {
+    const fetchChatTitle = async () => {
+      if (!chatId) return;
+      try {
+        const response = await fetch(`/api/chats`);
+        if (!response.ok) throw new Error('Failed to fetch chats');
+        const chats = await response.json();
+        const currentChat = chats.find((chat: any) => chat.id === chatId);
+        if (currentChat?.title) {
+          setTitle(currentChat.title);
+        }
+      } catch (error) {
+        console.error('Failed to fetch chat title:', error);
+      }
+    };
+
+    fetchChatTitle();
+    return () => setTitle('');
+  }, [chatId, setTitle]);
+
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
       {/* Message container */}
       <div
         ref={containerRef}
@@ -328,7 +354,7 @@ export function Chat({ chatId }: ChatProps) {
       >
         <div className="flex flex-col w-full gap-4 px-4 py-4">
           {messages.map(renderMessage)}
-          {(isLoading || isThinking || isRestreaming) && <ThinkingMessage />}
+          {(isLoading || isThinking || isRestreaming) && <ThinkingMessage isToolStreaming={isToolStreaming} />}
           <div ref={endRef} className="h-px w-full" />
         </div>
       </div>
@@ -337,7 +363,7 @@ export function Chat({ chatId }: ChatProps) {
       <div className="sticky bottom-0 w-full bg-background border-t">
         <div className="max-w-3xl mx-auto">
           <MultimodalInput
-            chatId={chatId}
+            chatId={chatId || ""}
             input={input}
             setInput={setInput}
             isLoading={isLoading}

@@ -236,3 +236,30 @@
 .sidebar-scroll.overflow-visible::-webkit-scrollbar-track {
   background: transparent;
 }
+
+.prose {
+  max-width: none;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+.prose pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-x: auto;
+}
+
+.prose p {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  margin-bottom: 1em;
+}
+
+.prose code {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-width: 100%;
+}

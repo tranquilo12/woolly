@@ -191,6 +191,7 @@ async def create_chat(agent_id: Optional[str] = None, db: Session = Depends(get_
             id=uuid.uuid4(),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
+            title="New Chat",
         )
 
         if agent_id:
@@ -219,21 +220,25 @@ async def create_chat(agent_id: Optional[str] = None, db: Session = Depends(get_
 @app.get("/api/chats")
 async def get_chats(db: Session = Depends(get_db)):
     """Fetch all chats ordered by last updated"""
-    chats = db.query(Chat).order_by(Chat.updated_at).all()
+    chats = db.query(Chat).order_by(Chat.updated_at.desc()).all()
     return [
         {
             "id": str(chat.id),
             "created_at": chat.created_at.isoformat(),
             "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
             "title": (
-                db.query(Message)
-                .filter(Message.chat_id == chat.id)
-                .order_by(Message.created_at.asc())
-                .first()
-                .content[:50]
-                + "..."
-                if db.query(Message).filter(Message.chat_id == chat.id).first()
-                else "New Chat"
+                chat.title
+                if chat.title
+                else (
+                    db.query(Message)
+                    .filter(Message.chat_id == chat.id)
+                    .order_by(Message.created_at.asc())
+                    .first()
+                    .content[:50]
+                    + "..."
+                    if db.query(Message).filter(Message.chat_id == chat.id).first()
+                    else "New Chat"
+                )
             ),
         }
         for chat in chats
@@ -268,21 +273,12 @@ async def update_chat_title(
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
 
-        new_message = Message(
-            chat_id=chat_id,
-            role="system",
-            content=title_update.title,
-            created_at=datetime.now(timezone.utc),
-        )
-
-        db.query(Message).filter(Message.chat_id == chat_id).filter(
-            Message.role == "system"
-        ).delete()
-
-        db.add(new_message)
+        # Update the chat title
+        chat.title = title_update.title
+        chat.updated_at = datetime.now(timezone.utc)
         db.commit()
 
-        return {"success": True}
+        return {"success": True, "title": chat.title}
 
     except Exception as e:
         db.rollback()
@@ -321,12 +317,10 @@ async def save_chat_message(
     try:
         tool_invocations = None
         if message.toolInvocations:
-            # Only serialize if not already a string
-            tool_invocations = (
-                message.toolInvocations
-                if isinstance(message.toolInvocations[0], str)
-                else [t for t in message.toolInvocations]
-            )
+            # Convert to list of dictionaries if not already
+            tool_invocations = [
+                t if isinstance(t, dict) else t.dict() for t in message.toolInvocations
+            ]
 
         db_message = Message(
             chat_id=chat_id,

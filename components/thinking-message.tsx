@@ -1,15 +1,19 @@
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { SparklesIcon } from "lucide-react";
+import { SparklesIcon, WrenchIcon } from "lucide-react";
 
-export const ThinkingMessage = () => {
+interface ThinkingMessageProps {
+	isToolStreaming?: boolean;
+}
+
+export const ThinkingMessage = ({ isToolStreaming }: ThinkingMessageProps) => {
 	const role = "assistant";
 
 	return (
 		<motion.div
 			className="w-full mx-auto max-w-3xl px-4 group/message "
 			initial={{ y: 5, opacity: 0 }}
-			animate={{ y: 0, opacity: 1, transition: { delay: 1 } }}
+			animate={{ y: 0, opacity: 1, transition: { delay: 0.3 } }}
 			data-role={role}
 		>
 			<div
@@ -21,12 +25,12 @@ export const ThinkingMessage = () => {
 				)}
 			>
 				<div className="size-8 flex items-center rounded-full justify-center ring-1 shrink-0 ring-border">
-					<SparklesIcon size={14} />
+					{isToolStreaming ? <WrenchIcon size={14} /> : <SparklesIcon size={14} />}
 				</div>
 
 				<div className="flex flex-col gap-2 w-full">
 					<div className="flex flex-col gap-4 text-muted-foreground">
-						Thinking...
+						{isToolStreaming ? "Running tools..." : "Thinking..."}
 					</div>
 				</div>
 			</div>
