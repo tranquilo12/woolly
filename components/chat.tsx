@@ -134,19 +134,31 @@ export function Chat({ chatId }: ChatProps) {
     const container = containerRef.current;
     if (!container) return;
 
+    let scrollTimeout: NodeJS.Timeout;
+
     const handleScroll = () => {
-      const isAtBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight < 100;
-      if (isAtBottom && (isLoading || isThinking || isRestreaming)) {
-        const end = endRef.current;
-        if (end) {
-          end.scrollIntoView({ behavior: 'smooth' });
-        }
+      container.classList.add('is-scrolling');
+
+      // Clear existing timeout
+      if (scrollTimeout) {
+        clearTimeout(scrollTimeout);
+      }
+
+      // Set new timeout to remove the class
+      scrollTimeout = setTimeout(() => {
+        container.classList.remove('is-scrolling');
+      }, 1000); // Hide scrollbar after 1 second of no scrolling
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      if (scrollTimeout) {
+        clearTimeout(scrollTimeout);
       }
     };
-    container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [isLoading, isThinking, isRestreaming]);
+  }, []);
 
   // Force scroll on message changes
 

@@ -95,18 +95,33 @@ export function Sidebar() {
 	}, [toggle]);
 
 	useEffect(() => {
+		const sidebarElement = sidebarRef.current;
+		if (!sidebarElement) return;
+
+		let scrollTimeout: NodeJS.Timeout;
+
 		const handleScroll = () => {
-			if (scrollContainerRef.current) {
-				const isScrolling = scrollContainerRef.current.scrollTop > 0;
-				scrollContainerRef.current.classList.toggle('overflow-visible', isScrolling);
+			sidebarElement.classList.add('is-scrolling');
+
+			// Clear the existing timeout
+			if (scrollTimeout) {
+				clearTimeout(scrollTimeout);
 			}
+
+			// Set a new timeout to remove the class
+			scrollTimeout = setTimeout(() => {
+				sidebarElement.classList.remove('is-scrolling');
+			}, 1000); // Hide scrollbar after 1 second of no scrolling
 		};
 
-		const scrollContainer = scrollContainerRef.current;
-		if (scrollContainer) {
-			scrollContainer.addEventListener('scroll', handleScroll);
-			return () => scrollContainer.removeEventListener('scroll', handleScroll);
-		}
+		sidebarElement.addEventListener('scroll', handleScroll);
+
+		return () => {
+			sidebarElement.removeEventListener('scroll', handleScroll);
+			if (scrollTimeout) {
+				clearTimeout(scrollTimeout);
+			}
+		};
 	}, []);
 
 	const containerVariants = {

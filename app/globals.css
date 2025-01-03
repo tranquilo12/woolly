@@ -98,6 +98,8 @@
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
+  opacity: 0;
+  transition: opacity 0.3s;
 }
 
 ::-webkit-scrollbar-track {
@@ -107,16 +109,34 @@
 ::-webkit-scrollbar-thumb {
   background: hsl(var(--muted-foreground) / 0.3);
   border-radius: 3px;
+  opacity: 0;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.5);
+/* Show scrollbar while scrolling */
+:is(*:hover, *:focus-within)::-webkit-scrollbar-thumb {
+  opacity: 1;
 }
 
 /* For Firefox */
 * {
   scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.3s;
+}
+
+/* Show scrollbar while scrolling in Firefox */
+*:hover,
+*:focus-within {
   scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+}
+
+/* Add a class for when scrolling is active */
+.is-scrolling::-webkit-scrollbar-thumb {
+  opacity: 1 !important;
+}
+
+.is-scrolling {
+  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent !important;
 }
 
 .message-container {
@@ -178,35 +198,29 @@
 
 /* Update scrollbar styles for sidebar */
 [data-sidebar] {
-  scrollbar-width: none; /* For Firefox */
-  -ms-overflow-style: none; /* For IE and Edge */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 [data-sidebar]::-webkit-scrollbar {
-  display: none; /* Hide scrollbar by default */
+  display: none;
 }
 
-[data-sidebar]:hover {
-  scrollbar-width: thin;
-  -ms-overflow-style: auto;
-}
-
-[data-sidebar]:hover::-webkit-scrollbar {
+[data-sidebar].is-scrolling::-webkit-scrollbar {
   display: block;
   width: 4px;
-  transition: all 0.2s ease;
 }
 
-[data-sidebar]:hover::-webkit-scrollbar-track {
+[data-sidebar].is-scrolling::-webkit-scrollbar-track {
   background: transparent;
 }
 
-[data-sidebar]:hover::-webkit-scrollbar-thumb {
+[data-sidebar].is-scrolling::-webkit-scrollbar-thumb {
   background: hsl(var(--muted-foreground) / 0.2);
   border-radius: 2px;
 }
 
-[data-sidebar]:hover::-webkit-scrollbar-thumb:hover {
+[data-sidebar].is-scrolling::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.4);
 }
 
