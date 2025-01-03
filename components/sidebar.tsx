@@ -2,14 +2,15 @@
 
 import { useRouter } from "next/navigation";
 import { Button } from "./ui/button";
-import { PlusIcon, TrashIcon, PencilIcon } from "lucide-react";
+import { PlusIcon, TrashIcon, PenIcon } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSidebar } from "./sidebar-provider";
 import { useClickOutside } from '@/hooks/use-click-outside';
 import { cn } from "@/lib/utils";
+import { useChatList } from "./chat-list-context";
 
 interface Chat {
 	id: string;
@@ -22,12 +23,18 @@ export function Sidebar() {
 	const [chats, setChats] = useState<Chat[]>([]);
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editingTitle, setEditingTitle] = useState("");
-	const { isOpen, toggle } = useSidebar();
+	const { isOpen, toggle, setIsOpen } = useSidebar();
 	const sidebarRef = useRef<HTMLDivElement>(null);
+	const scrollContainerRef = useRef<HTMLDivElement>(null);
+	const { refreshChats, refreshTrigger } = useChatList();
 
 	useEffect(() => {
 		fetchChats();
 	}, []);
+
+	useEffect(() => {
+		fetchChats();
+	}, [refreshTrigger]);
 
 	const fetchChats = async () => {
 		try {
@@ -37,22 +44,6 @@ export function Sidebar() {
 			setChats(data);
 		} catch (error) {
 			toast.error("Failed to load chats");
-		}
-	};
-
-	const createNewChat = async () => {
-		try {
-			const response = await fetch("/api/chat/create", {
-				method: "POST",
-			});
-
-			if (!response.ok) throw new Error("Failed to create chat");
-
-			const data = await response.json();
-			router.push(`/chat/${data.id}`);
-			fetchChats(); // Refresh the list
-		} catch (error) {
-			toast.error("Failed to create new chat");
 		}
 	};
 
@@ -83,18 +74,40 @@ export function Sidebar() {
 
 			if (!response.ok) throw new Error("Failed to update chat title");
 
-			fetchChats(); // Refresh the list
+			fetchChats();
 			setEditingId(null);
+			refreshChats();
 		} catch (error) {
 			toast.error("Failed to update chat title");
 		}
 	};
 
 	useClickOutside(sidebarRef, () => {
-		if (isOpen && !document.querySelector('button:hover')) {
-			toggle();
+		const toggleButton = document.querySelector('[data-sidebar-toggle]');
+		if (isOpen && !toggleButton?.contains(document.activeElement)) {
+			setIsOpen(false);
 		}
 	});
+
+	const handleToggleClick = useCallback((e: React.MouseEvent) => {
+		e.stopPropagation();
+		toggle();
+	}, [toggle]);
+
+	useEffect(() => {
+		const handleScroll = () => {
+			if (scrollContainerRef.current) {
+				const isScrolling = scrollContainerRef.current.scrollTop > 0;
+				scrollContainerRef.current.classList.toggle('overflow-visible', isScrolling);
+			}
+		};
+
+		const scrollContainer = scrollContainerRef.current;
+		if (scrollContainer) {
+			scrollContainer.addEventListener('scroll', handleScroll);
+			return () => scrollContainer.removeEventListener('scroll', handleScroll);
+		}
+	}, []);
 
 	const containerVariants = {
 		hidden: {
@@ -137,43 +150,34 @@ export function Sidebar() {
 	};
 
 	return (
-		<AnimatePresence mode="wait">
+		<AnimatePresence>
 			{isOpen && (
 				<motion.div
 					ref={sidebarRef}
-					variants={containerVariants}
 					initial="hidden"
 					animate="visible"
 					exit="exit"
-					className="fixed inset-y-0 left-0 w-64 bg-background/60 backdrop-blur-lg border-r pb-12 overflow-hidden z-10"
+					variants={containerVariants}
+					className={cn(
+						"fixed left-0 top-[var(--navbar-height)] z-50 flex h-content w-full flex-col border-l bg-background/80 backdrop-blur-xl sm:w-[400px]",
+						"border-muted/30 shadow-[0_0_30px_rgba(0,0,0,0.3)] dark:shadow-[0_2px_30px_rgba(0,0,0,0.6)]",
+					)}
+					data-sidebar
 				>
 					<motion.div
-						className="flex flex-col h-full px-4"
+						className="flex flex-col h-full items-center py-6"
 						variants={contentVariants}
 						initial="hidden"
 						animate="visible"
 					>
-						<motion.div
-							className={cn(
-								"flex-1 overflow-auto py-4",
-								chats.length <= 3 ? "flex flex-col justify-center" : ""
-							)}
-						>
-							<div className="space-y-4">
-								<motion.div
-									variants={itemVariants}
-								>
-									<Button
-										onClick={createNewChat}
-										className="w-full justify-center"
-										variant="outline"
-									>
-										<PlusIcon className="mr-2 h-4 w-4" />
-										New Chat
-									</Button>
-								</motion.div>
+						<div className="w-full px-4 flex flex-col items-center gap-4">
+							<h2 className="text-lg font-semibold text-foreground">Chat History</h2>
 
-								<div className="space-y-3">
+							<div
+								ref={scrollContainerRef}
+								className="w-full flex-1 overflow-auto sidebar-scroll rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm shadow-[0_0_15px_rgba(20,20,20,0.1)] dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] dark:bg-muted/20"
+							>
+								<div className="p-2 space-y-2">
 									{chats.map((chat) => (
 										<motion.div
 											key={chat.id}
@@ -209,7 +213,6 @@ export function Sidebar() {
 														<span className="text-center truncate px-8">{chat.title}</span>
 													</Link>
 
-													{/* Action buttons without tooltips */}
 													<div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition-opacity">
 														<Button
 															variant="ghost"
@@ -222,7 +225,7 @@ export function Sidebar() {
 																setEditingTitle(chat.title);
 															}}
 														>
-															<PencilIcon className="h-3.5 w-3.5" />
+															<PenIcon className="h-3.5 w-3.5" />
 														</Button>
 
 														<Button
@@ -244,7 +247,16 @@ export function Sidebar() {
 									))}
 								</div>
 							</div>
-						</motion.div>
+
+							<Button
+								onClick={() => router.push('/')}
+								className="w-full justify-center"
+								variant="ghost"
+							>
+								<PlusIcon className="mr-2" size={16} />
+								New Chat
+							</Button>
+						</div>
 					</motion.div>
 				</motion.div>
 			)}

@@ -1,7 +1,8 @@
+from datetime import datetime
 import json
-from typing import Literal, Dict, Any
+from typing import Literal, Dict, Any, List, Optional
 from pydantic import BaseModel
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, func, JSON
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, func, JSON, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
@@ -118,16 +119,30 @@ class User(Base):
     chats = relationship("Chat", back_populates="user")
 
 
+class Agent(Base):
+    __tablename__ = "agents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, unique=True)
+    description = Column(Text)
+    system_prompt = Column(Text)
+    tools = Column(JSON, default=list)  # List of tool names this agent can use
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_active = Column(Boolean, default=True)
+
+
 class Chat(Base):
     __tablename__ = "chats"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id"), nullable=True)
     title = Column(String, default="New Chat")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     user = relationship("User", back_populates="chats")
+    agent = relationship("Agent")
     messages = relationship("Message", back_populates="chat")
 
 
@@ -158,6 +173,39 @@ class Message(Base):
             current_invocations.append(tool_invocation)
 
         self.tool_invocations = current_invocations
+
+
+# endregion
+
+# region Pydantic Models for Agents
+
+
+class AgentCreate(BaseModel):
+    name: str
+    description: str
+    system_prompt: str
+    tools: List[str] = []
+
+
+class AgentUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    system_prompt: Optional[str] = None
+    tools: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+
+class AgentResponse(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    system_prompt: str
+    tools: List[str]
+    created_at: datetime
+    is_active: bool
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 # endregion

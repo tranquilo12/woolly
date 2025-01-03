@@ -1,5 +1,5 @@
 import Link from "next/link";
-import React, { memo, useState } from "react";
+import React, { memo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "./code-block";
@@ -7,29 +7,6 @@ import { CodeBlock } from "./code-block";
 type MarkdownProps = {
   children: string;
   isToolCallLoading?: boolean;
-};
-
-const CodeBlockWithCopy = ({ language, value }: { language: string, value: string }) => {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
-  return (
-    <div className="relative">
-      <CodeBlock language={language} value={value} />
-      <button
-        onClick={handleCopy}
-        className="absolute top-2 right-2 bg-gray-700 text-white p-1 rounded hover:bg-gray-600"
-      >
-        {copied ? "Copied!" : "Copy"}
-      </button>
-    </div>
-  );
 };
 
 const NonMemoizedMarkdown = ({ children, isToolCallLoading }: MarkdownProps) => {
@@ -47,7 +24,7 @@ const NonMemoizedMarkdown = ({ children, isToolCallLoading }: MarkdownProps) => 
       const value = String(children).replace(/\n$/, "");
 
       return match ? (
-        <CodeBlockWithCopy language={match[1]} value={value} />
+        <CodeBlock language={match[1]} value={value} />
       ) : (
         <code
           className={`${className} text-xs bg-zinc-100 dark:bg-zinc-800 py-0.5 px-1 rounded-md`}

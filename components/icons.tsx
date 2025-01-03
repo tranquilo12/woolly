@@ -37,24 +37,20 @@ export const UserIcon = () => {
   );
 };
 
-export const AttachmentIcon = () => {
-  return (
-    <svg
-      height="16"
-      strokeLinejoin="round"
-      viewBox="0 0 16 16"
-      width="16"
-      style={{ color: "currentcolor" }}
-    >
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M14.5 6.5V13.5C14.5 14.8807 13.3807 16 12 16H4C2.61929 16 1.5 14.8807 1.5 13.5V1.5V0H3H8H9.08579C9.351 0 9.60536 0.105357 9.79289 0.292893L14.2071 4.70711C14.3946 4.89464 14.5 5.149 14.5 5.41421V6.5ZM13 6.5V13.5C13 14.0523 12.5523 14.5 12 14.5H4C3.44772 14.5 3 14.0523 3 13.5V1.5H8V5V6.5H9.5H13ZM9.5 2.12132V5H12.3787L9.5 2.12132Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-};
+export const AttachmentIcon = ({ size = 16 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+  </svg>
+);
 
 export const VercelIcon = ({ size = 17 }: { size?: number }) => {
   return (
@@ -515,24 +511,20 @@ export const InfoIcon = ({ size = 16 }: { size?: number }) => {
   );
 };
 
-export const ArrowUpIcon = ({ size = 16 }: { size?: number }) => {
-  return (
-    <svg
-      height={size}
-      strokeLinejoin="round"
-      viewBox="0 0 16 16"
-      width={size}
-      style={{ color: "currentcolor" }}
-    >
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M8.70711 1.39644C8.31659 1.00592 7.68342 1.00592 7.2929 1.39644L2.21968 6.46966L1.68935 6.99999L2.75001 8.06065L3.28034 7.53032L7.25001 3.56065V14.25V15H8.75001V14.25V3.56065L12.7197 7.53032L13.25 8.06065L14.3107 6.99999L13.7803 6.46966L8.70711 1.39644Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-};
+export const ArrowUpIcon = ({ size = 16 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 19V5M5 12l7-7 7 7" />
+  </svg>
+);
 
 export const StopIcon = ({ size = 16 }: { size?: number }) => {
   return (

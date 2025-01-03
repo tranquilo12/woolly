@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "ai/react";
-import { Message } from "ai";
+import { ChatRequestOptions, CreateMessage, Message } from "ai";
 import { MultimodalInput } from "./multimodal-input";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useState, useEffect, memo, useCallback } from "react";
@@ -10,21 +10,37 @@ import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { ToolInvocationDisplay } from "./tool-invocation";
 import { Markdown } from "./markdown";
-import { Button } from "./ui/button";
 import { EditMessageInput } from "./edit-message-input";
 import { ThinkingMessage } from "./thinking-message";
 import { EditIndicator } from "./edit-indicator";
 import { ModelSelector } from "./model-selector";
+import { useChatTitle } from "./chat-title-context";
 
 interface ChatProps {
   chatId?: string;
 }
 
 interface ChatMessageProps {
-  message: Message;
+  message: MessageWithModel;
   chatId: string | undefined;
-  onEditComplete: (message: Message) => void;
+  onEditComplete: (message: MessageWithModel) => void;
   onModelChange: (model: string, messageId: string) => void;
+}
+
+export interface MessageWithModel extends Message {
+  model?: string;
+}
+
+export function toMessage(messageWithModel: MessageWithModel): Message {
+  const { model, ...messageProps } = messageWithModel;
+  return messageProps;
+}
+
+export function toMessageWithModel(message: Message, model: string = 'gpt-4o'): MessageWithModel {
+  return {
+    ...message,
+    model,
+  };
 }
 
 // Memoized Message component to prevent unnecessary re-renders
@@ -73,21 +89,19 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
       initial={{ opacity: 0, y: 50 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className={cn(
-        "group relative flex items-start md:gap-6 gap-4 pb-4",
-        message.role === "user"
-          ? "flex-row-reverse"
-          : "flex-row"
-      )}
+      className="group relative flex items-start md:gap-6 gap-4 pb-4 w-full"
     >
-      <div className="flex-1">
+      <div className="flex-1 overflow-hidden">
         <div className={cn(
-          "p-4 pb-8 rounded-lg max-w-[80%] relative",
+          "p-4 pb-8 rounded-lg relative overflow-hidden",
+          "break-words whitespace-pre-wrap",
           message.role === "user"
-            ? "bg-primary/10 ml-auto"
-            : "bg-muted mr-auto"
+            ? "bg-primary/10 ml-auto max-w-[85%] float-right clear-both"
+            : "bg-muted mr-auto max-w-[85%] float-left clear-both"
         )}>
-          <Markdown>{message.content}</Markdown>
+          <div className="prose prose-neutral dark:prose-invert max-w-none">
+            <Markdown>{message.content}</Markdown>
+          </div>
           {message.toolInvocations?.map((tool, i) => (
             <ToolInvocationDisplay key={i} toolInvocation={tool} />
           ))}
@@ -100,16 +114,6 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
             </div>
           )}
         </div>
-        {message.role === "user" && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsEditing(true)}
-            className="opacity-0 group-hover:opacity-100 transition-opacity absolute top-2 right-2"
-          >
-            Edit
-          </Button>
-        )}
       </div>
     </motion.div>
   );
@@ -117,11 +121,13 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
 ChatMessage.displayName = 'ChatMessage';
 
 export function Chat({ chatId }: ChatProps) {
-  const [initialMessages, setInitialMessages] = useState<Message[]>([]);
+  const [initialMessages, setInitialMessages] = useState<MessageWithModel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRestreaming, setIsRestreaming] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [isToolStreaming, setIsToolStreaming] = useState(false);
   const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();
+  const { setTitle } = useChatTitle();
 
   // Add a debounced scroll handler
   useEffect(() => {
@@ -138,20 +144,27 @@ export function Chat({ chatId }: ChatProps) {
         }
       }
     };
-
     container.addEventListener('scroll', handleScroll);
     return () => container.removeEventListener('scroll', handleScroll);
   }, [isLoading, isThinking, isRestreaming]);
 
   // Force scroll on message changes
 
-  const saveMessage = async (message: Message) => {
+  const saveMessage = async (message: MessageWithModel) => {
     if (!chatId) return;
     try {
       const messageToSave = {
         role: message.role,
         content: message.content,
-        toolInvocations: message.toolInvocations || null
+        model: message.model,
+        toolInvocations: message.toolInvocations
+          ? message.toolInvocations.map(tool => ({
+            state: tool.state,
+            toolCallId: tool.toolCallId,
+            toolName: tool.toolName,
+            args: tool.args,
+          }))
+          : null
       };
 
       const response = await fetch(`/api/chat/${chatId}/messages/save`, {
@@ -198,19 +211,20 @@ export function Chat({ chatId }: ChatProps) {
     messages,
     input,
     handleSubmit,
-    append,
+    append: vercelAppend,
     stop,
-    setMessages,
+    setMessages: setVercelMessages,
     setInput,
     isLoading: isChatLoading,
   } = useChat({
     api: chatId ? `/api/chat/${chatId}` : "/api/chat",
     id: chatId,
-    initialMessages,
+    initialMessages: initialMessages.map(toMessage),
     streamProtocol: "data",
     onFinish: async (message) => {
       try {
-        await saveMessage(message);
+        const messageWithModel = toMessageWithModel(message);
+        await saveMessage(messageWithModel);
         setIsRestreaming(false);
         setIsThinking(false);
       } catch (error) {
@@ -219,6 +233,28 @@ export function Chat({ chatId }: ChatProps) {
       }
     },
   });
+
+  // Create a wrapped append function that handles MessageWithModel
+  const append = async (
+    message: MessageWithModel | CreateMessage,
+    options?: ChatRequestOptions
+  ) => {
+    return vercelAppend(toMessage(message as MessageWithModel), options);
+  };
+
+  // Create a wrapped setMessages function
+  const setMessages = (
+    messages: MessageWithModel[] | ((prev: MessageWithModel[]) => MessageWithModel[])
+  ) => {
+    if (typeof messages === 'function') {
+      setVercelMessages((prev) =>
+        messages(prev.map(message => toMessageWithModel(message, undefined)))
+          .map(toMessage)
+      );
+    } else {
+      setVercelMessages(messages.map(toMessage));
+    }
+  };
 
   useEffect(() => {
     const end = endRef.current;
@@ -229,18 +265,26 @@ export function Chat({ chatId }: ChatProps) {
 
   // Update thinking state when chat loading state changes
   useEffect(() => {
-    if (isChatLoading && messages.length === 0) {
-      setIsThinking(true);
-    } else if (isChatLoading && messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      // Only show thinking if the last message is empty (hasn't started streaming)
-      setIsThinking(lastMessage.role === 'assistant' && !lastMessage.content);
-    } else {
-      setIsThinking(false);
-    }
-  }, [isChatLoading, messages]);
+    const shouldShowThinking = () => {
+      if (!isChatLoading) return false;
+      if (messages.length === 0) return true;
 
-  const handleEditComplete = useCallback(async (editedMessage: Message) => {
+      const lastMessage = messages[messages.length - 1];
+      const hasActiveToolInvocations = lastMessage.toolInvocations?.some(
+        tool => tool.state === 'partial-call' || tool.state === 'call'
+      );
+
+      const isEmptyAssistantMessage = lastMessage.role === 'assistant' && !lastMessage.content;
+      const isStreamStarting = lastMessage.role === 'assistant' && lastMessage.content === '';
+
+      setIsToolStreaming(hasActiveToolInvocations || isStreamStarting);
+      return isEmptyAssistantMessage || isStreamStarting || hasActiveToolInvocations;
+    };
+
+    setIsThinking(shouldShowThinking() || isToolStreaming);
+  }, [isChatLoading, messages, isToolStreaming]);
+
+  const handleEditComplete = useCallback(async (editedMessage: MessageWithModel) => {
     if (!chatId) return;
     setIsRestreaming(true);
 
@@ -303,7 +347,7 @@ export function Chat({ chatId }: ChatProps) {
     ));
   };
 
-  const renderMessage = useCallback((message: Message) => {
+  const renderMessage = useCallback((message: MessageWithModel) => {
     if (message.id === 'edit-indicator') {
       return <EditIndicator key="edit-indicator" />;
     }
@@ -319,41 +363,57 @@ export function Chat({ chatId }: ChatProps) {
     );
   }, [chatId, handleEditComplete, handleModelChange]);
 
+  useEffect(() => {
+    const fetchChatTitle = async () => {
+      if (!chatId) return;
+      try {
+        const response = await fetch(`/api/chats`);
+        if (!response.ok) throw new Error('Failed to fetch chats');
+        const chats = await response.json();
+        const currentChat = chats.find((chat: any) => chat.id === chatId);
+        if (currentChat?.title) {
+          setTitle(currentChat.title);
+        }
+      } catch (error) {
+        console.error('Failed to fetch chat title:', error);
+      }
+    };
+
+    fetchChatTitle();
+    return () => setTitle('');
+  }, [chatId, setTitle]);
+
   return (
-    <div className="flex flex-col w-full h-[calc(100vh-4rem)] max-w-4xl mx-auto relative">
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
+      {/* Message container */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto px-4 pb-36 message-container"
+        className="flex-1 overflow-y-auto message-container"
       >
-        <div className="flex flex-col w-full gap-4 py-4">
+        <div className="flex flex-col w-full gap-4 px-4 py-4">
           {messages.map(renderMessage)}
-          {(isLoading || isThinking || isRestreaming) && <ThinkingMessage />}
+          {(isLoading || (isThinking && isToolStreaming)) && (
+            <ThinkingMessage isToolStreaming={isToolStreaming} />
+          )}
           <div ref={endRef} className="h-px w-full" />
         </div>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 border-t bg-background/80 backdrop-blur-sm">
-        <MultimodalInput
-          chatId={chatId || ''}
-          input={input}
-          setInput={setInput}
-          append={append}
-          stop={stop}
-          isLoading={isLoading}
-          messages={messages}
-          setMessages={setMessages}
-          handleSubmit={(event, options) => {
-            // Insert selectedModel into body
-            const newOptions = {
-              ...options,
-              body: {
-                ...options?.body,
-                // model: messages[0].model || "gpt-4o",
-              },
-            };
-            handleSubmit(event, newOptions);
-          }}
-        />
+      {/* Input container - fixed at bottom */}
+      <div className="sticky bottom-0 w-full bg-background border-t">
+        <div className="max-w-3xl mx-auto">
+          <MultimodalInput
+            chatId={chatId || ""}
+            input={input}
+            setInput={setInput}
+            isLoading={isLoading}
+            stop={stop}
+            messages={messages}
+            setMessages={setMessages}
+            append={append}
+            handleSubmit={handleSubmit}
+          />
+        </div>
       </div>
     </div>
   );

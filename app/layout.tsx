@@ -4,27 +4,12 @@ import { Toaster } from "sonner";
 import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/navbar";
 import { Sidebar } from "@/components/sidebar";
-import { SidebarProvider } from "@/components/sidebar-provider";
+import { Providers } from "@/components/providers";
 
 export const metadata = {
   title: "AI SDK Python Streaming Preview",
   description:
     "Use the Data Stream Protocol to stream chat completions from a Python endpoint (FastAPI) and display them using the useChat hook in your Next.js application.",
-  openGraph: {
-    images: [
-      {
-        url: "/og?title=AI SDK Python Streaming Preview",
-      },
-    ],
-  },
-  twitter: {
-    card: "summary_large_image",
-    images: [
-      {
-        url: "/og?title=AI SDK Python Streaming Preview",
-      },
-    ],
-  },
 };
 
 export default function RootLayout({
@@ -37,7 +22,7 @@ export default function RootLayout({
       <head></head>
       <body className={cn(GeistSans.className, "antialiased dark")}>
         <Toaster position="top-center" richColors />
-        <SidebarProvider>
+        <Providers>
           <div className="flex flex-col min-h-screen">
             <Navbar />
             <div className="flex-1 relative">
@@ -47,7 +32,7 @@ export default function RootLayout({
               <Sidebar />
             </div>
           </div>
-        </SidebarProvider>
+        </Providers>
       </body>
     </html>
   );
