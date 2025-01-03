@@ -354,7 +354,9 @@ export function Chat({ chatId }: ChatProps) {
       >
         <div className="flex flex-col w-full gap-4 px-4 py-4">
           {messages.map(renderMessage)}
-          {(isLoading || isThinking || isRestreaming) && <ThinkingMessage isToolStreaming={isToolStreaming} />}
+          {(isLoading || (isThinking && isToolStreaming)) && (
+            <ThinkingMessage isToolStreaming={isToolStreaming} />
+          )}
           <div ref={endRef} className="h-px w-full" />
         </div>
       </div>

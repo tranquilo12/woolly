@@ -16,12 +16,34 @@ export function Navbar() {
   const { refreshChats } = useChatList();
   const [isEditing, setIsEditing] = useState(false);
   const [editingTitle, setEditingTitle] = useState(title);
+  const [isTitleLoading, setIsTitleLoading] = useState(true);
   const pathname = usePathname();
   const chatId = pathname?.split("/").pop();
 
   useEffect(() => {
-    setEditingTitle(title);
-  }, [title]);
+    const fetchTitle = async () => {
+      if (!chatId) {
+        setIsTitleLoading(false);
+        return;
+      }
+      try {
+        const response = await fetch(`/api/chats`);
+        if (!response.ok) throw new Error('Failed to fetch chats');
+        const chats = await response.json();
+        const currentChat = chats.find((chat: any) => chat.id === chatId);
+        if (currentChat?.title) {
+          setTitle(currentChat.title);
+          setEditingTitle(currentChat.title);
+        }
+      } catch (error) {
+        console.error('Failed to fetch chat title:', error);
+      } finally {
+        setIsTitleLoading(false);
+      }
+    };
+
+    fetchTitle();
+  }, [chatId, setTitle]);
 
   const handleTitleUpdate = async (newTitle: string) => {
     if (!chatId || !newTitle.trim()) {
@@ -81,7 +103,9 @@ export function Navbar() {
         <MenuIcon />
       </Button>
       <div className="flex-1 flex justify-center items-center">
-        {title && !isEditing ? (
+        {isTitleLoading ? (
+          <div className="h-8 w-32 animate-pulse rounded bg-muted" />
+        ) : title && !isEditing ? (
           <div
             className="flex items-center gap-2 group cursor-pointer"
             onClick={() => setIsEditing(true)}
