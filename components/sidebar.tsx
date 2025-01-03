@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "./ui/button";
 import { PlusIcon, TrashIcon, PencilIcon } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSidebar } from "./sidebar-provider";
@@ -24,6 +24,7 @@ export function Sidebar() {
 	const [editingTitle, setEditingTitle] = useState("");
 	const { isOpen, toggle, setIsOpen } = useSidebar();
 	const sidebarRef = useRef<HTMLDivElement>(null);
+	const scrollContainerRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		fetchChats();
@@ -91,10 +92,31 @@ export function Sidebar() {
 	};
 
 	useClickOutside(sidebarRef, () => {
-		if (isOpen) {
+		const toggleButton = document.querySelector('[data-sidebar-toggle]');
+		if (isOpen && !toggleButton?.contains(document.activeElement)) {
 			setIsOpen(false);
 		}
 	});
+
+	const handleToggleClick = useCallback((e: React.MouseEvent) => {
+		e.stopPropagation();
+		toggle();
+	}, [toggle]);
+
+	useEffect(() => {
+		const handleScroll = () => {
+			if (scrollContainerRef.current) {
+				const isScrolling = scrollContainerRef.current.scrollTop > 0;
+				scrollContainerRef.current.classList.toggle('overflow-visible', isScrolling);
+			}
+		};
+
+		const scrollContainer = scrollContainerRef.current;
+		if (scrollContainer) {
+			scrollContainer.addEventListener('scroll', handleScroll);
+			return () => scrollContainer.removeEventListener('scroll', handleScroll);
+		}
+	}, []);
 
 	const containerVariants = {
 		hidden: {
@@ -152,103 +174,99 @@ export function Sidebar() {
 					data-sidebar
 				>
 					<motion.div
-						className="flex flex-col h-full px-4"
+						className="flex flex-col h-full items-center justify-center"
 						variants={contentVariants}
 						initial="hidden"
 						animate="visible"
 					>
-						<motion.div
-							className={cn(
-								"flex-1 overflow-auto py-4",
-								chats.length <= 3 ? "flex flex-col justify-center" : ""
-							)}
-						>
-							<div className="space-y-4">
-								<motion.div
-									variants={itemVariants}
-								>
-									<Button
-										onClick={createNewChat}
-										className="w-full justify-center"
-										variant="outline"
-									>
-										<PlusIcon className="mr-2 h-4 w-4" />
-										New Chat
-									</Button>
-								</motion.div>
+						<div className="w-full max-h-[70vh] flex flex-col items-center gap-6">
+							<h2 className="text-lg font-semibold text-foreground">Chat History</h2>
 
-								<div className="space-y-3">
-									{chats.map((chat) => (
-										<motion.div
-											key={chat.id}
-											variants={itemVariants}
-											className="group relative"
-										>
-											{editingId === chat.id ? (
-												<div className="flex justify-center w-full">
-													<input
-														placeholder="New Chat"
-														type="text"
-														value={editingTitle}
-														onChange={(e) => setEditingTitle(e.target.value)}
-														onBlur={() => updateChatTitle(chat.id, editingTitle)}
-														onKeyDown={(e) => {
-															if (e.key === 'Enter') {
-																updateChatTitle(chat.id, editingTitle);
-															} else if (e.key === 'Escape') {
-																setEditingId(null);
-															}
-														}}
-														className="w-full px-3 py-2 text-sm bg-transparent border rounded text-center focus:outline-none focus:ring-2 focus:ring-ring"
-														autoFocus
-													/>
-												</div>
-											) : (
-												<div className="relative rounded-md hover:bg-muted group/item">
-													<Link
-														href={`/chat/${chat.id}`}
-														className="flex items-center justify-center min-h-[44px] w-full px-3 py-2 text-sm"
-														onClick={() => setEditingTitle(chat.title)}
-													>
-														<span className="text-center truncate px-8">{chat.title}</span>
-													</Link>
-
-													{/* Action buttons without tooltips */}
-													<div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition-opacity">
-														<Button
-															variant="ghost"
-															size="sm"
-															className="h-7 w-7 p-0 opacity-70 hover:opacity-100"
-															onClick={(e) => {
-																e.preventDefault();
-																e.stopPropagation();
-																setEditingId(chat.id);
-																setEditingTitle(chat.title);
+							<div ref={scrollContainerRef} className="w-full px-4 overflow-auto sidebar-scroll">
+								<div className="rounded-lg border border-border/50 bg-background/50 backdrop-blur-sm">
+									<div className="p-2 space-y-2">
+										{chats.map((chat) => (
+											<motion.div
+												key={chat.id}
+												variants={itemVariants}
+												className="group relative"
+											>
+												{editingId === chat.id ? (
+													<div className="flex justify-center w-full">
+														<input
+															placeholder="New Chat"
+															type="text"
+															value={editingTitle}
+															onChange={(e) => setEditingTitle(e.target.value)}
+															onBlur={() => updateChatTitle(chat.id, editingTitle)}
+															onKeyDown={(e) => {
+																if (e.key === 'Enter') {
+																	updateChatTitle(chat.id, editingTitle);
+																} else if (e.key === 'Escape') {
+																	setEditingId(null);
+																}
 															}}
-														>
-															<PencilIcon className="h-3.5 w-3.5" />
-														</Button>
-
-														<Button
-															variant="ghost"
-															size="sm"
-															className="h-7 w-7 p-0 text-destructive opacity-70 hover:opacity-100 hover:bg-destructive/10"
-															onClick={(e) => {
-																e.preventDefault();
-																e.stopPropagation();
-																deleteChat(chat.id);
-															}}
-														>
-															<TrashIcon className="h-3.5 w-3.5" />
-														</Button>
+															className="w-full px-3 py-2 text-sm bg-transparent border rounded text-center focus:outline-none focus:ring-2 focus:ring-ring"
+															autoFocus
+														/>
 													</div>
-												</div>
-											)}
-										</motion.div>
-									))}
+												) : (
+													<div className="relative rounded-md hover:bg-muted group/item">
+														<Link
+															href={`/chat/${chat.id}`}
+															className="flex items-center justify-center min-h-[44px] w-full px-3 py-2 text-sm"
+															onClick={() => setEditingTitle(chat.title)}
+														>
+															<span className="text-center truncate px-8">{chat.title}</span>
+														</Link>
+
+														<div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition-opacity">
+															<Button
+																variant="ghost"
+																size="sm"
+																className="h-7 w-7 p-0 opacity-70 hover:opacity-100"
+																onClick={(e) => {
+																	e.preventDefault();
+																	e.stopPropagation();
+																	setEditingId(chat.id);
+																	setEditingTitle(chat.title);
+																}}
+															>
+																<PencilIcon className="h-3.5 w-3.5" />
+															</Button>
+
+															<Button
+																variant="ghost"
+																size="sm"
+																className="h-7 w-7 p-0 text-destructive opacity-70 hover:opacity-100 hover:bg-destructive/10"
+																onClick={(e) => {
+																	e.preventDefault();
+																	e.stopPropagation();
+																	deleteChat(chat.id);
+																}}
+															>
+																<TrashIcon className="h-3.5 w-3.5" />
+															</Button>
+														</div>
+													</div>
+												)}
+											</motion.div>
+										))}
+									</div>
 								</div>
 							</div>
-						</motion.div>
+
+							<div className="w-full px-4">
+								<Button
+									onClick={() => router.push('/')}
+									className="w-full justify-center"
+									variant="ghost"
+								>
+									<PlusIcon className="mr-2" size={16} />
+									New Chat
+								</Button>
+							</div>
+						</div>
 					</motion.div>
 				</motion.div>
 			)}

@@ -7,12 +7,16 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Query, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from openai import OpenAI
-from .utils.prompt import ClientMessage, convert_to_openai_messages
+from .utils.prompt import (
+    ClientMessage,
+    convert_to_openai_messages,
+)
 from .utils.tools import execute_python_code
 from .utils.models import (
     Chat,
     Message,
     is_complete_json,
+    Agent,
 )
 import uuid
 from sqlalchemy.orm import Session
@@ -31,6 +35,7 @@ client = OpenAI(
 
 class Request(BaseModel):
     messages: List[ClientMessage]
+    agent_id: Optional[str] = None
 
 
 class ChatTitleUpdate(BaseModel):
@@ -178,7 +183,7 @@ def stream_text(
 
 # Chat CRUD Operations
 @app.post("/api/chat/create")
-async def create_chat(db: Session = Depends(get_db)):
+async def create_chat(agent_id: Optional[str] = None, db: Session = Depends(get_db)):
     """Create a new chat and return its ID"""
     try:
         print("Creating new chat...")
@@ -187,6 +192,15 @@ async def create_chat(db: Session = Depends(get_db)):
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
+
+        if agent_id:
+            agent = (
+                db.query(Agent)
+                .filter(Agent.id == agent_id, Agent.is_active == True)
+                .first()
+            )
+            if agent:
+                new_chat.agent_id = agent.id
 
         db.add(new_chat)
         db.commit()

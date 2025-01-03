@@ -120,6 +120,13 @@
 .message-container {
   scroll-behavior: smooth;
   overflow-anchor: auto;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 40px,
+    black calc(100% - 100px),
+    transparent
+  );
 }
 
 .message-content {
@@ -168,19 +175,64 @@
 }
 
 /* Update scrollbar styles for sidebar */
-[data-sidebar]::-webkit-scrollbar {
-  width: 4px;
+[data-sidebar] {
+  scrollbar-width: none; /* For Firefox */
+  -ms-overflow-style: none; /* For IE and Edge */
 }
 
-[data-sidebar]::-webkit-scrollbar-track {
+[data-sidebar]::-webkit-scrollbar {
+  display: none; /* Hide scrollbar by default */
+}
+
+[data-sidebar]:hover {
+  scrollbar-width: thin;
+  -ms-overflow-style: auto;
+}
+
+[data-sidebar]:hover::-webkit-scrollbar {
+  display: block;
+  width: 4px;
+  transition: all 0.2s ease;
+}
+
+[data-sidebar]:hover::-webkit-scrollbar-track {
   background: transparent;
 }
 
-[data-sidebar]::-webkit-scrollbar-thumb {
+[data-sidebar]:hover::-webkit-scrollbar-thumb {
   background: hsl(var(--muted-foreground) / 0.2);
   border-radius: 2px;
 }
 
-[data-sidebar]::-webkit-scrollbar-thumb:hover {
+[data-sidebar]:hover::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Hide scrollbar by default but allow scrolling */
+.sidebar-scroll {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.sidebar-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Show scrollbar on hover or active scroll */
+.sidebar-scroll:hover::-webkit-scrollbar,
+.sidebar-scroll.overflow-visible::-webkit-scrollbar {
+  display: block;
+  width: 4px;
+}
+
+.sidebar-scroll:hover::-webkit-scrollbar-thumb,
+.sidebar-scroll.overflow-visible::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 2px;
+}
+
+.sidebar-scroll:hover::-webkit-scrollbar-track,
+.sidebar-scroll.overflow-visible::-webkit-scrollbar-track {
+  background: transparent;
 }

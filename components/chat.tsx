@@ -320,40 +320,34 @@ export function Chat({ chatId }: ChatProps) {
   }, [chatId, handleEditComplete, handleModelChange]);
 
   return (
-    <div className="flex flex-col w-full h-[calc(100vh-4rem)] max-w-4xl mx-auto relative">
+    <div className="flex flex-col h-full relative">
+      {/* Message container */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto px-4 pb-36 message-container"
+        className="flex-1 overflow-y-auto message-container"
       >
-        <div className="flex flex-col w-full gap-4 py-4">
+        <div className="flex flex-col w-full gap-4 px-4 py-4">
           {messages.map(renderMessage)}
           {(isLoading || isThinking || isRestreaming) && <ThinkingMessage />}
           <div ref={endRef} className="h-px w-full" />
         </div>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 border-t bg-background/80 backdrop-blur-sm">
-        <MultimodalInput
-          chatId={chatId || ''}
-          input={input}
-          setInput={setInput}
-          append={append}
-          stop={stop}
-          isLoading={isLoading}
-          messages={messages}
-          setMessages={setMessages}
-          handleSubmit={(event, options) => {
-            // Insert selectedModel into body
-            const newOptions = {
-              ...options,
-              body: {
-                ...options?.body,
-                // model: messages[0].model || "gpt-4o",
-              },
-            };
-            handleSubmit(event, newOptions);
-          }}
-        />
+      {/* Input container - fixed at bottom */}
+      <div className="sticky bottom-0 w-full bg-background border-t">
+        <div className="max-w-3xl mx-auto">
+          <MultimodalInput
+            chatId={chatId}
+            input={input}
+            setInput={setInput}
+            isLoading={isLoading}
+            stop={stop}
+            messages={messages}
+            setMessages={setMessages}
+            append={append}
+            handleSubmit={handleSubmit}
+          />
+        </div>
       </div>
     </div>
   );
