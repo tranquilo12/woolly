@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "ai/react";
-import { Message } from "ai";
+import { ChatRequestOptions, CreateMessage, Message } from "ai";
 import { MultimodalInput } from "./multimodal-input";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useState, useEffect, memo, useCallback } from "react";
@@ -21,10 +21,26 @@ interface ChatProps {
 }
 
 interface ChatMessageProps {
-  message: Message;
+  message: MessageWithModel;
   chatId: string | undefined;
-  onEditComplete: (message: Message) => void;
+  onEditComplete: (message: MessageWithModel) => void;
   onModelChange: (model: string, messageId: string) => void;
+}
+
+export interface MessageWithModel extends Message {
+  model?: string;
+}
+
+export function toMessage(messageWithModel: MessageWithModel): Message {
+  const { model, ...messageProps } = messageWithModel;
+  return messageProps;
+}
+
+export function toMessageWithModel(message: Message, model: string = 'gpt-4o'): MessageWithModel {
+  return {
+    ...message,
+    model,
+  };
 }
 
 // Memoized Message component to prevent unnecessary re-renders
@@ -105,7 +121,7 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
 ChatMessage.displayName = 'ChatMessage';
 
 export function Chat({ chatId }: ChatProps) {
-  const [initialMessages, setInitialMessages] = useState<Message[]>([]);
+  const [initialMessages, setInitialMessages] = useState<MessageWithModel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRestreaming, setIsRestreaming] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
@@ -128,26 +144,25 @@ export function Chat({ chatId }: ChatProps) {
         }
       }
     };
-
     container.addEventListener('scroll', handleScroll);
     return () => container.removeEventListener('scroll', handleScroll);
   }, [isLoading, isThinking, isRestreaming]);
 
   // Force scroll on message changes
 
-  const saveMessage = async (message: Message) => {
+  const saveMessage = async (message: MessageWithModel) => {
     if (!chatId) return;
     try {
       const messageToSave = {
         role: message.role,
         content: message.content,
+        model: message.model,
         toolInvocations: message.toolInvocations
           ? message.toolInvocations.map(tool => ({
             state: tool.state,
             toolCallId: tool.toolCallId,
             toolName: tool.toolName,
             args: tool.args,
-            result: tool.result
           }))
           : null
       };
@@ -196,19 +211,20 @@ export function Chat({ chatId }: ChatProps) {
     messages,
     input,
     handleSubmit,
-    append,
+    append: vercelAppend,
     stop,
-    setMessages,
+    setMessages: setVercelMessages,
     setInput,
     isLoading: isChatLoading,
   } = useChat({
     api: chatId ? `/api/chat/${chatId}` : "/api/chat",
     id: chatId,
-    initialMessages,
+    initialMessages: initialMessages.map(toMessage),
     streamProtocol: "data",
     onFinish: async (message) => {
       try {
-        await saveMessage(message);
+        const messageWithModel = toMessageWithModel(message);
+        await saveMessage(messageWithModel);
         setIsRestreaming(false);
         setIsThinking(false);
       } catch (error) {
@@ -217,6 +233,28 @@ export function Chat({ chatId }: ChatProps) {
       }
     },
   });
+
+  // Create a wrapped append function that handles MessageWithModel
+  const append = async (
+    message: MessageWithModel | CreateMessage,
+    options?: ChatRequestOptions
+  ) => {
+    return vercelAppend(toMessage(message as MessageWithModel), options);
+  };
+
+  // Create a wrapped setMessages function
+  const setMessages = (
+    messages: MessageWithModel[] | ((prev: MessageWithModel[]) => MessageWithModel[])
+  ) => {
+    if (typeof messages === 'function') {
+      setVercelMessages((prev) =>
+        messages(prev.map(message => toMessageWithModel(message, undefined)))
+          .map(toMessage)
+      );
+    } else {
+      setVercelMessages(messages.map(toMessage));
+    }
+  };
 
   useEffect(() => {
     const end = endRef.current;
@@ -246,7 +284,7 @@ export function Chat({ chatId }: ChatProps) {
     setIsThinking(shouldShowThinking() || isToolStreaming);
   }, [isChatLoading, messages, isToolStreaming]);
 
-  const handleEditComplete = useCallback(async (editedMessage: Message) => {
+  const handleEditComplete = useCallback(async (editedMessage: MessageWithModel) => {
     if (!chatId) return;
     setIsRestreaming(true);
 
@@ -309,7 +347,7 @@ export function Chat({ chatId }: ChatProps) {
     ));
   };
 
-  const renderMessage = useCallback((message: Message) => {
+  const renderMessage = useCallback((message: MessageWithModel) => {
     if (message.id === 'edit-indicator') {
       return <EditIndicator key="edit-indicator" />;
     }
