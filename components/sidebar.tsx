@@ -26,11 +26,15 @@ export function Sidebar() {
 	const { isOpen, toggle, setIsOpen } = useSidebar();
 	const sidebarRef = useRef<HTMLDivElement>(null);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
-	const { refreshChats } = useChatList();
+	const { refreshChats, refreshTrigger } = useChatList();
 
 	useEffect(() => {
 		fetchChats();
 	}, []);
+
+	useEffect(() => {
+		fetchChats();
+	}, [refreshTrigger]);
 
 	const fetchChats = async () => {
 		try {

@@ -2,9 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { useChatList } from "@/components/chat-list-context";
 
 export default function Page() {
   const router = useRouter();
+  const { refreshChats } = useChatList();
 
   useEffect(() => {
     const createChat = async () => {
@@ -26,13 +28,15 @@ export default function Page() {
         console.log("Created chat with ID:", data.id);
 
         router.push(`/chat/${data.id}`);
+        refreshChats();
+
       } catch (error) {
         console.error("Error creating chat:", error);
       }
     };
 
     createChat();
-  }, [router]);
+  }, [router, refreshChats]);
 
   return (
     <div className="flex items-center justify-center h-screen flex-col gap-4">
