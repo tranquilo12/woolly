@@ -86,6 +86,7 @@ export function Navbar() {
       console.log("Enter pressed, updating title...", editingTitle);
       await handleTitleUpdate(editingTitle);
     } else if (e.key === "Escape") {
+      e.preventDefault();
       setIsEditing(false);
       setEditingTitle(title);
     }

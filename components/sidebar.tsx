@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Button } from "./ui/button";
-import { PlusIcon, TrashIcon, PencilIcon } from "lucide-react";
+import { PlusIcon, TrashIcon, PenIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
@@ -159,104 +159,103 @@ export function Sidebar() {
 					exit="exit"
 					variants={containerVariants}
 					className={cn(
-						"fixed left-0 top-0 z-50 flex h-full w-full flex-col border-l bg-background/80 backdrop-blur-xl sm:w-[400px]",
-						"border-muted/30 shadow-[0_0_15px_rgba(0,0,0,0.1)] dark:shadow-[0_0_15px_rgba(0,0,0,0.2)]",
+						"fixed left-0 top-[var(--navbar-height)] z-50 flex h-content w-full flex-col border-l bg-background/80 backdrop-blur-xl sm:w-[400px]",
+						"border-muted/30 shadow-[0_0_30px_rgba(0,0,0,0.3)] dark:shadow-[0_2px_30px_rgba(0,0,0,0.6)]",
 					)}
 					data-sidebar
 				>
 					<motion.div
-						className="flex flex-col h-full items-center justify-center"
+						className="flex flex-col h-full items-center py-6"
 						variants={contentVariants}
 						initial="hidden"
 						animate="visible"
 					>
-						<div className="w-full max-h-[70vh] flex flex-col items-center gap-6">
+						<div className="w-full px-4 flex flex-col items-center gap-4">
 							<h2 className="text-lg font-semibold text-foreground">Chat History</h2>
 
-							<div ref={scrollContainerRef} className="w-full px-4 overflow-auto sidebar-scroll">
-								<div className="rounded-lg border border-border/50 bg-background/50 backdrop-blur-sm">
-									<div className="p-2 space-y-2">
-										{chats.map((chat) => (
-											<motion.div
-												key={chat.id}
-												variants={itemVariants}
-												className="group relative"
-											>
-												{editingId === chat.id ? (
-													<div className="flex justify-center w-full">
-														<input
-															placeholder="New Chat"
-															type="text"
-															value={editingTitle}
-															onChange={(e) => setEditingTitle(e.target.value)}
-															onBlur={() => updateChatTitle(chat.id, editingTitle)}
-															onKeyDown={(e) => {
-																if (e.key === 'Enter') {
-																	updateChatTitle(chat.id, editingTitle);
-																} else if (e.key === 'Escape') {
-																	setEditingId(null);
-																}
+							<div
+								ref={scrollContainerRef}
+								className="w-full flex-1 overflow-auto sidebar-scroll rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm shadow-[0_0_15px_rgba(20,20,20,0.1)] dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] dark:bg-muted/20"
+							>
+								<div className="p-2 space-y-2">
+									{chats.map((chat) => (
+										<motion.div
+											key={chat.id}
+											variants={itemVariants}
+											className="group relative"
+										>
+											{editingId === chat.id ? (
+												<div className="flex justify-center w-full">
+													<input
+														placeholder="New Chat"
+														type="text"
+														value={editingTitle}
+														onChange={(e) => setEditingTitle(e.target.value)}
+														onBlur={() => updateChatTitle(chat.id, editingTitle)}
+														onKeyDown={(e) => {
+															if (e.key === 'Enter') {
+																updateChatTitle(chat.id, editingTitle);
+															} else if (e.key === 'Escape') {
+																setEditingId(null);
+															}
+														}}
+														className="w-full px-3 py-2 text-sm bg-transparent border rounded text-center focus:outline-none focus:ring-2 focus:ring-ring"
+														autoFocus
+													/>
+												</div>
+											) : (
+												<div className="relative rounded-md hover:bg-muted group/item">
+													<Link
+														href={`/chat/${chat.id}`}
+														className="flex items-center justify-center min-h-[44px] w-full px-3 py-2 text-sm"
+														onClick={() => setEditingTitle(chat.title)}
+													>
+														<span className="text-center truncate px-8">{chat.title}</span>
+													</Link>
+
+													<div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition-opacity">
+														<Button
+															variant="ghost"
+															size="sm"
+															className="h-7 w-7 p-0 opacity-70 hover:opacity-100"
+															onClick={(e) => {
+																e.preventDefault();
+																e.stopPropagation();
+																setEditingId(chat.id);
+																setEditingTitle(chat.title);
 															}}
-															className="w-full px-3 py-2 text-sm bg-transparent border rounded text-center focus:outline-none focus:ring-2 focus:ring-ring"
-															autoFocus
-														/>
-													</div>
-												) : (
-													<div className="relative rounded-md hover:bg-muted group/item">
-														<Link
-															href={`/chat/${chat.id}`}
-															className="flex items-center justify-center min-h-[44px] w-full px-3 py-2 text-sm"
-															onClick={() => setEditingTitle(chat.title)}
 														>
-															<span className="text-center truncate px-8">{chat.title}</span>
-														</Link>
+															<PenIcon className="h-3.5 w-3.5" />
+														</Button>
 
-														<div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition-opacity">
-															<Button
-																variant="ghost"
-																size="sm"
-																className="h-7 w-7 p-0 opacity-70 hover:opacity-100"
-																onClick={(e) => {
-																	e.preventDefault();
-																	e.stopPropagation();
-																	setEditingId(chat.id);
-																	setEditingTitle(chat.title);
-																}}
-															>
-																<PencilIcon className="h-3.5 w-3.5" />
-															</Button>
-
-															<Button
-																variant="ghost"
-																size="sm"
-																className="h-7 w-7 p-0 text-destructive opacity-70 hover:opacity-100 hover:bg-destructive/10"
-																onClick={(e) => {
-																	e.preventDefault();
-																	e.stopPropagation();
-																	deleteChat(chat.id);
-																}}
-															>
-																<TrashIcon className="h-3.5 w-3.5" />
-															</Button>
-														</div>
+														<Button
+															variant="ghost"
+															size="sm"
+															className="h-7 w-7 p-0 text-destructive opacity-70 hover:opacity-100 hover:bg-destructive/10"
+															onClick={(e) => {
+																e.preventDefault();
+																e.stopPropagation();
+																deleteChat(chat.id);
+															}}
+														>
+															<TrashIcon className="h-3.5 w-3.5" />
+														</Button>
 													</div>
-												)}
-											</motion.div>
-										))}
-									</div>
+												</div>
+											)}
+										</motion.div>
+									))}
 								</div>
 							</div>
 
-							<div className="w-full px-4">
-								<Button
-									onClick={() => router.push('/')}
-									className="w-full justify-center"
-									variant="ghost"
-								>
-									<PlusIcon className="mr-2" size={16} />
-									New Chat
-								</Button>
-							</div>
+							<Button
+								onClick={() => router.push('/')}
+								className="w-full justify-center"
+								variant="ghost"
+							>
+								<PlusIcon className="mr-2" size={16} />
+								New Chat
+							</Button>
 						</div>
 					</motion.div>
 				</motion.div>
