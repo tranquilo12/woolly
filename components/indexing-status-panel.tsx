@@ -5,7 +5,7 @@ import { useRepositoryStatus } from "@/hooks/use-repository-status";
 import { AvailableRepository } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Trash2, X } from "lucide-react";
+import { Trash2, X, Loader2 } from "lucide-react";
 import {
 	Table,
 	TableBody,
@@ -43,7 +43,6 @@ interface IndexingStatusPanelProps {
 	repoName: AvailableRepository;
 	onClose?: () => void;
 	onDelete?: (name: AvailableRepository) => void;
-	onToggleWatch: (name: AvailableRepository, enabled: boolean) => void;
 	isLoading?: boolean;
 }
 
@@ -51,10 +50,9 @@ export function IndexingStatusPanel({
 	repoName,
 	onClose,
 	onDelete,
-	onToggleWatch,
 	isLoading = false,
 }: IndexingStatusPanelProps) {
-	const { repositories } = useRepositoryStatus();
+	const { repositories, startIndexing, subscribeToStatus } = useRepositoryStatus();
 	const repository = repositories.find((repo) => repo.name === repoName);
 	const [fileStats, setFileStats] = useState<FileStats | null>(null);
 
@@ -63,6 +61,14 @@ export function IndexingStatusPanel({
 			setFileStats(repository.file_stats);
 		}
 	}, [repository?.file_stats]);
+
+	useEffect(() => {
+		return () => {
+			if (repository?.indexing_status === 'in_progress') {
+				subscribeToStatus(repoName);
+			}
+		};
+	}, [repoName, repository?.indexing_status, subscribeToStatus]);
 
 	if (isLoading) {
 		return (
@@ -87,20 +93,28 @@ export function IndexingStatusPanel({
 		current_file: currentFile,
 		processed_count: processedCount,
 		total_files: totalFiles,
-		watch_enabled: isWatching,
-		needs_indexing: needsIndexing,
 	} = repository;
 
 	return (
 		<div className="w-full flex flex-col border border-border/50 p-4 rounded-md gap-4">
 			<div className="flex justify-between items-center">
-				<h2 className="font-semibold text-lg">Repository Details: {repoName}</h2>
+				<h2 className="font-semibold text-lg">{repoName}</h2>
 				<div className="flex items-center gap-2">
-					<Switch
-						checked={isWatching}
-						onCheckedChange={(checked) => onToggleWatch(repoName, checked)}
-						aria-label="Watch repository"
-					/>
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() => startIndexing(repoName)}
+						disabled={status === 'in_progress'}
+					>
+						{status === 'in_progress' ? (
+							<>
+								<Loader2 className="h-4 w-4 animate-spin mr-2" />
+								Indexing...
+							</>
+						) : (
+							'Start Indexing'
+						)}
+					</Button>
 					{onDelete && (
 						<Button
 							variant="outline"
