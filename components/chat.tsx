@@ -160,7 +160,6 @@ export function Chat({ chatId }: ChatProps) {
     };
   }, []);
 
-  // Force scroll on message changes
 
   const saveMessage = async (message: MessageWithModel) => {
     if (!chatId) return;
@@ -175,6 +174,7 @@ export function Chat({ chatId }: ChatProps) {
             toolCallId: tool.toolCallId,
             toolName: tool.toolName,
             args: tool.args,
+            result: tool.state === 'result' ? tool.result : undefined
           }))
           : null
       };
@@ -235,7 +235,26 @@ export function Chat({ chatId }: ChatProps) {
     streamProtocol: "data",
     onFinish: async (message) => {
       try {
+        // Convert any tool results to the correct format before saving
         const messageWithModel = toMessageWithModel(message);
+        if (message.toolInvocations) {
+          messageWithModel.toolInvocations = message.toolInvocations.map(tool => ({
+            ...tool,
+            // Handle both string and object results correctly
+            result: tool.state === 'result' ?
+              (typeof tool.result === 'string' ?
+                JSON.parse(tool.result) :
+                // If it's already an object, ensure it matches our expected format
+                {
+                  success: tool.result.success ?? false,
+                  error: tool.result.error ?? null,
+                  output: tool.result.output ?? '',
+                  metrics: tool.result.metrics ?? null,
+                  plots: tool.result.plots ?? null
+                }
+              ) : undefined
+          }));
+        }
         await saveMessage(messageWithModel);
         setIsRestreaming(false);
         setIsThinking(false);
