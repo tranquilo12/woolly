@@ -169,25 +169,6 @@
   transition: opacity 200ms ease-in;
 }
 
-@layer components {
-  .sidebar-gradient {
-    background: linear-gradient(
-      to bottom,
-      hsl(var(--background)) 0%,
-      hsla(var(--background) / 0.97) 100%
-    );
-  }
-
-  .sidebar-border {
-    border-image: linear-gradient(
-        to bottom,
-        hsl(var(--border)) 0%,
-        hsla(var(--border) / 0.3) 100%
-      )
-      1;
-  }
-}
-
 /* Update scrollbar styles for sidebar */
 [data-sidebar] {
   scrollbar-width: none;
