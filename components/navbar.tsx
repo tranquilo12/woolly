@@ -1,9 +1,6 @@
 "use client";
 
-import { cn } from "@/lib/utils";
-import { MenuIcon, PenIcon } from "./icons";
-import { Button } from "./ui/button";
-import { useSidebar } from "./sidebar-provider";
+import { PenIcon } from "./icons";
 import { useChatTitle } from "./chat-title-context";
 import { useChatList } from "./chat-list-context";
 import { useState, useEffect } from "react";
@@ -92,38 +89,40 @@ export function Navbar() {
   };
 
   return (
-    <header className="sticky top-0 z-50 flex items-center w-full h-16 px-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex-1 flex justify-center items-center">
-        {isTitleLoading ? (
-          <div className="h-8 w-32 animate-pulse rounded bg-muted" />
-        ) : title && !isEditing ? (
-          <div
-            className="flex items-center gap-2 group cursor-pointer"
-            onClick={() => setIsEditing(true)}
-          >
-            <h1 className="text-lg font-semibold truncate max-w-[200px] md:max-w-[400px]">
-              {title}
-            </h1>
-            <PenIcon size={16} />
-          </div>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleTitleUpdate(editingTitle);
-            }}
-          >
-            <input
-              title="Chat Title"
-              type="text"
-              value={editingTitle}
-              onChange={(e) => setEditingTitle(e.target.value)}
-              onKeyDown={handleKeyDown}
-              className="bg-transparent text-lg font-semibold text-center border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring w-[200px] md:w-[400px]"
-              autoFocus
-            />
-          </form>
-        )}
+    <header className="sticky top-0 z-50 flex items-center w-full h-16 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="w-full max-w-5xl mx-auto border-b border-border relative px-4">
+        <div className="flex-1 flex justify-center items-center h-16">
+          {isTitleLoading ? (
+            <div className="h-8 w-32 animate-pulse rounded bg-muted" />
+          ) : title && !isEditing ? (
+            <div
+              className="flex items-center gap-2 group cursor-pointer"
+              onClick={() => setIsEditing(true)}
+            >
+              <h1 className="text-lg font-semibold truncate max-w-[200px] md:max-w-[400px]">
+                {title}
+              </h1>
+              <PenIcon size={16} />
+            </div>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleTitleUpdate(editingTitle);
+              }}
+            >
+              <input
+                title="Chat Title"
+                type="text"
+                value={editingTitle}
+                onChange={(e) => setEditingTitle(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="bg-transparent text-lg font-semibold text-center border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring w-[200px] md:w-[400px]"
+                autoFocus
+              />
+            </form>
+          )}
+        </div>
       </div>
     </header>
   );

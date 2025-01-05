@@ -13,7 +13,6 @@ import { cn } from "@/lib/utils";
 import { useChatList } from "./chat-list-context";
 import { RepositorySection } from "./repository-section";
 import { Separator } from "@radix-ui/react-select";
-import { useLocalStorage } from "@/hooks/use-local-storage";
 
 interface Chat {
 	id: string;
