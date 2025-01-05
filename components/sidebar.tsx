@@ -86,16 +86,20 @@ export function Sidebar() {
 	};
 
 	useClickOutside(sidebarRef, () => {
-		const toggleButton = document.querySelector('[data-sidebar-toggle]');
-		if (isOpen && !isPinned && !toggleButton?.contains(document.activeElement)) {
+		if (isOpen && !isPinned) {
 			setIsOpen(false);
 		}
 	});
 
 	const handleToggleClick = useCallback((e: React.MouseEvent) => {
+		e.preventDefault();
 		e.stopPropagation();
-		toggle();
-	}, [toggle]);
+		if (isOpen && !isPinned) {
+			setIsOpen(false);
+		} else if (!isPinned) {
+			toggle();
+		}
+	}, [toggle, isOpen, isPinned, setIsOpen]);
 
 	useEffect(() => {
 		const sidebarElement = sidebarRef.current;
@@ -178,7 +182,7 @@ export function Sidebar() {
 					variants={containerVariants}
 					className={cn(
 						"fixed left-0 top-[var(--navbar-height)] z-50 flex h-content w-full items-center justify-center sm:w-[400px]",
-						"border-muted/30 shadow-[0_0_30px_rgba(0,0,0,0.3)] dark:shadow-[0_2px_30px_rgba(0,0,0,0.6)]",
+						"bg-background border-r border-border/30"
 					)}
 					data-sidebar
 				>

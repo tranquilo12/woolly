@@ -11,7 +11,6 @@ import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 
 export function Navbar() {
-  const { toggle } = useSidebar();
   const { title, setTitle } = useChatTitle();
   const { refreshChats } = useChatList();
   const [isEditing, setIsEditing] = useState(false);
@@ -94,15 +93,6 @@ export function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 flex items-center w-full h-16 px-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <Button
-        variant="ghost"
-        size="icon"
-        className="md:hidden absolute left-4"
-        onClick={toggle}
-        data-sidebar-toggle
-      >
-        <MenuIcon />
-      </Button>
       <div className="flex-1 flex justify-center items-center">
         {isTitleLoading ? (
           <div className="h-8 w-32 animate-pulse rounded bg-muted" />

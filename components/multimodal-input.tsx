@@ -54,7 +54,7 @@ export function MultimodalInput({
 }: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
-  const { toggle, setIsOpen } = useSidebar();
+  const { toggle, setIsOpen, isPinned, isOpen } = useSidebar();
   const containerRef = useRef<HTMLDivElement>(null);
   const isMobile = width < 1024;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -128,43 +128,6 @@ export function MultimodalInput({
     }
   }, [handleSubmit, setLocalStorageInput]);
 
-  useEffect(() => {
-    if (!containerRef.current || !isMobile) return;
-
-    // Get the sidebar element
-    const sidebar = document.querySelector('[data-sidebar]');
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          // If there's significant overlap, close the sidebar
-          if (entry.intersectionRatio > 0.1) {
-            setIsOpen(false);
-          }
-        });
-      },
-      {
-        threshold: [0, 0.1, 0.5, 1],
-        root: sidebar || null,
-      }
-    );
-
-    // Start observing
-    observer.observe(containerRef.current);
-
-    // Force a recalculation of intersections
-    requestAnimationFrame(() => {
-      if (containerRef.current) {
-        // Trigger a reflow
-        containerRef.current.style.display = 'none';
-        containerRef.current.offsetHeight; // Force reflow
-        containerRef.current.style.display = '';
-      }
-    });
-
-    return () => observer.disconnect();
-  }, [setIsOpen, isMobile]);
-
   return (
     <form onSubmit={(e) => handleSubmit(e)}>
       <div ref={containerRef} className="relative">
@@ -175,8 +138,13 @@ export function MultimodalInput({
               size="icon"
               className="shrink-0 bg-background hover:bg-accent/50 transition-colors"
               onClick={(e) => {
+                e.preventDefault();
                 e.stopPropagation();
-                toggle();
+                if (isOpen && !isPinned) {
+                  setIsOpen(false);
+                } else if (!isPinned) {
+                  toggle();
+                }
               }}
             >
               <MenuIcon size={16} />

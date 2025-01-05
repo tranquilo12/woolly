@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { useWindowSize } from 'usehooks-ts';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 
@@ -31,11 +31,11 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
 		}
 	}, [isPinned]);
 
-	const toggle = () => {
+	const toggle = useCallback(() => {
 		if (!isPinned) {
-			setIsOpen(!isOpen);
+			setIsOpen(current => !current);
 		}
-	};
+	}, [isPinned]);
 
 	return (
 		<SidebarContext.Provider value={{ isOpen, toggle, setIsOpen, isPinned, setIsPinned }}>
