@@ -77,7 +77,7 @@ export function useRepositoryStatus() {
 	const [activeSSEConnections, setActiveSSEConnections] = useState<{ [key: string]: EventSource }>({});
 	const [indexingProgress, setIndexingProgress] = useState<{ [key: string]: number }>({});
 	const [currentStatus, setCurrentStatus] = useState<{ [key: string]: string }>({});
-
+	const [watchStatus, setWatchStatus] = useState<{ [key: string]: boolean }>({});
 	// Fetch repository statuses for all known repos
 	const fetchAllRepositories = useCallback(async () => {
 		setIsLoading(true);
