@@ -285,3 +285,20 @@
     min-height: var(--content-height);
   }
 }
+
+/* Toast Overrides */
+.toast-override {
+  @apply rounded-lg shadow-lg;
+}
+
+.toast-override[data-type="success"] {
+  @apply border-primary text-primary;
+}
+
+.toast-override[data-type="error"] {
+  @apply border-destructive text-destructive;
+}
+
+.toaster-override {
+  @apply font-sans;
+}

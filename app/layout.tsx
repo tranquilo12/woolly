@@ -21,7 +21,26 @@ export default function RootLayout({
     <html lang="en">
       <head></head>
       <body className={cn(GeistSans.className, "antialiased dark")}>
-        <Toaster position="top-center" richColors />
+        <Toaster
+          position="bottom-left"
+          theme="dark"
+          closeButton
+          className="toaster-override"
+          toastOptions={{
+            className: "toast-override",
+            duration: 3000,
+            style: {
+              background: "hsl(var(--background))",
+              color: "hsl(var(--foreground))",
+              border: "1px solid hsl(var(--border))",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.75rem",
+              padding: "1rem",
+              margin: "1rem",
+            },
+          }}
+        />
         <Providers>
           <div className="flex flex-col min-h-screen">
             <Navbar />
