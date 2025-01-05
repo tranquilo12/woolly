@@ -15,7 +15,6 @@ from .utils.tools import execute_python_code
 from .utils.models import (
     Chat,
     Message,
-    is_complete_json,
     Agent,
 )
 import uuid

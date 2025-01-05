@@ -11,6 +11,8 @@ import { useSidebar } from "./sidebar-provider";
 import { useClickOutside } from '@/hooks/use-click-outside';
 import { cn } from "@/lib/utils";
 import { useChatList } from "./chat-list-context";
+import { RepositorySection } from "./repository-section";
+import { Separator } from "@radix-ui/react-select";
 
 interface Chat {
 	id: string;
@@ -262,7 +264,6 @@ export function Sidebar() {
 									))}
 								</div>
 							</div>
-
 							<Button
 								onClick={() => router.push('/')}
 								className="w-full justify-center"
@@ -271,6 +272,13 @@ export function Sidebar() {
 								<PlusIcon className="mr-2" size={16} />
 								New Chat
 							</Button>
+							<Separator />
+
+							<h2 className="text-lg font-semibold text-foreground">Repositories</h2>
+							<div className="w-full overflow-auto sidebar-scroll rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm shadow-[0_0_15px_rgba(20,20,20,0.1)] dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] dark:bg-muted/20">
+								<RepositorySection />
+							</div>
+
 						</div>
 					</motion.div>
 				</motion.div>
