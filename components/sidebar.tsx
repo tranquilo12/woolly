@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Button } from "./ui/button";
-import { PlusIcon, TrashIcon, PenIcon } from "lucide-react";
+import { PlusIcon, TrashIcon, PenIcon, Pin, PinOff } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { useChatList } from "./chat-list-context";
 import { RepositorySection } from "./repository-section";
 import { Separator } from "@radix-ui/react-select";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 
 interface Chat {
 	id: string;
@@ -25,7 +26,7 @@ export function Sidebar() {
 	const [chats, setChats] = useState<Chat[]>([]);
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editingTitle, setEditingTitle] = useState("");
-	const { isOpen, toggle, setIsOpen } = useSidebar();
+	const { isOpen, toggle, setIsOpen, isPinned, setIsPinned } = useSidebar();
 	const sidebarRef = useRef<HTMLDivElement>(null);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const { refreshChats, refreshTrigger } = useChatList();
@@ -86,7 +87,7 @@ export function Sidebar() {
 
 	useClickOutside(sidebarRef, () => {
 		const toggleButton = document.querySelector('[data-sidebar-toggle]');
-		if (isOpen && !toggleButton?.contains(document.activeElement)) {
+		if (isOpen && !isPinned && !toggleButton?.contains(document.activeElement)) {
 			setIsOpen(false);
 		}
 	});
@@ -277,6 +278,29 @@ export function Sidebar() {
 							<h2 className="text-lg font-semibold text-foreground">Repositories</h2>
 							<div className="w-full overflow-auto sidebar-scroll rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm shadow-[0_0_15px_rgba(20,20,20,0.1)] dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] dark:bg-muted/20">
 								<RepositorySection />
+							</div>
+
+
+							{/* Pin button at bottom */}
+							<div className="p-2 border-t border-border/50 mt-auto">
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() => setIsPinned(!isPinned)}
+									className={cn(
+										"w-full flex items-center justify-start gap-2 px-2 hover:bg-muted/50",
+										isPinned && "text-primary bg-muted/50"
+									)}
+								>
+									{isPinned ? (
+										<PinOff className="h-4 w-4" />
+									) : (
+										<Pin className="h-4 w-4" />
+									)}
+									<span className="text-sm">
+										{isPinned ? "Unpin Sidebar" : "Pin Sidebar"}
+									</span>
+								</Button>
 							</div>
 
 						</div>

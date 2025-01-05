@@ -2,27 +2,43 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useWindowSize } from 'usehooks-ts';
+import { useLocalStorage } from '@/hooks/use-local-storage';
 
 interface SidebarContextType {
 	isOpen: boolean;
 	toggle: () => void;
 	setIsOpen: (value: boolean) => void;
+	isPinned: boolean;
+	setIsPinned: (value: boolean) => void;
 }
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
 	const [isOpen, setIsOpen] = useState(false);
+	const [isPinned, setIsPinned] = useLocalStorage('sidebar-pinned', false);
 	const { width } = useWindowSize();
 
 	useEffect(() => {
-		setIsOpen(false);
-	}, [width]);
+		if (!isPinned) {
+			setIsOpen(false);
+		}
+	}, [width, isPinned]);
 
-	const toggle = () => setIsOpen(!isOpen);
+	useEffect(() => {
+		if (isPinned) {
+			setIsOpen(true);
+		}
+	}, [isPinned]);
+
+	const toggle = () => {
+		if (!isPinned) {
+			setIsOpen(!isOpen);
+		}
+	};
 
 	return (
-		<SidebarContext.Provider value={{ isOpen, toggle, setIsOpen }}>
+		<SidebarContext.Provider value={{ isOpen, toggle, setIsOpen, isPinned, setIsPinned }}>
 			{children}
 		</SidebarContext.Provider>
 	);
