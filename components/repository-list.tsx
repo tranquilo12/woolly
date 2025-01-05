@@ -10,6 +10,7 @@ export function RepositoryList() {
 	const {
 		repositories,
 		startIndexing,
+		deleteIndex,
 		subscribeToStatus,
 		fetchAllRepositories,
 		activeSSEConnections,
@@ -20,9 +21,15 @@ export function RepositoryList() {
 	const [isLoading, setIsLoading] = useState(false);
 
 	const handleShowDetails = async (name: AvailableRepository) => {
+		if (selectedRepo === name) {
+			setSelectedRepo(null);
+			return;
+		}
+
 		setIsLoading(true);
 		setSelectedRepo(name);
 		// Add small delay to ensure loading state is visible
+
 		await new Promise(resolve => setTimeout(resolve, 100));
 		setIsLoading(false);
 	};
@@ -45,7 +52,7 @@ export function RepositoryList() {
 				<div key={repository.name} className="space-y-4">
 					<RepositoryItem
 						repository={repository}
-						onStartIndexing={startIndexing}
+						onStartIndexing={startIndexing as (name: AvailableRepository) => void}
 						onToggleWatch={(name, enabled) => {
 							if (!enabled && activeSSEConnections[name]) {
 								activeSSEConnections[name].close();
@@ -55,32 +62,22 @@ export function RepositoryList() {
 									return next;
 								});
 							} else if (enabled) {
-								subscribeToStatus(name);
+								subscribeToStatus(name as AvailableRepository);
 							}
 						}}
-						onShowDetails={handleShowDetails}
+						onShowDetails={() => handleShowDetails(repository.name as AvailableRepository)}
+						isSelected={selectedRepo === repository.name}
 					/>
 					{selectedRepo === repository.name && (
 						<IndexingStatusPanel
-							repoName={selectedRepo}
+							repoName={repository.name}
 							onClose={() => setSelectedRepo(null)}
+							onDelete={deleteIndex}
 							isLoading={isLoading}
-							onToggleWatch={(name, enabled) => {
-								if (!enabled && activeSSEConnections[name]) {
-									activeSSEConnections[name].close();
-									setActiveSSEConnections(prev => {
-										const next = { ...prev };
-										delete next[name];
-										return next;
-									});
-								} else if (enabled) {
-									subscribeToStatus(name);
-								}
-							}}
 						/>
 					)}
 				</div>
 			))}
 		</div>
 	);
-} 
+}

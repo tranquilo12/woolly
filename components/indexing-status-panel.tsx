@@ -4,7 +4,6 @@ import React, { useEffect, useState } from "react";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
 import { AvailableRepository } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Trash2, X, Loader2 } from "lucide-react";
 import {
 	Table,
@@ -96,15 +95,15 @@ export function IndexingStatusPanel({
 	} = repository;
 
 	return (
-		<div className="w-full flex flex-col border border-border/50 p-4 rounded-md gap-4">
-			<div className="flex justify-between items-center">
-				<h2 className="font-semibold text-lg">{repoName}</h2>
+		<div className="w-full flex flex-col border-x border-b border-border/50 p-4 rounded-b-md gap-4 relative -mt-[1px] bg-background/95 backdrop-blur-sm shadow-[0_4px_12px_rgba(0,0,0,0.05)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.2)]">
+			<div className="flex flex-col gap-2">
 				<div className="flex items-center gap-2">
 					<Button
 						variant="outline"
 						size="sm"
 						onClick={() => startIndexing(repoName)}
 						disabled={status === 'in_progress'}
+						className="flex-1"
 					>
 						{status === 'in_progress' ? (
 							<>
@@ -120,13 +119,18 @@ export function IndexingStatusPanel({
 							variant="outline"
 							size="sm"
 							onClick={() => onDelete(repoName)}
-							className="text-destructive hover:text-destructive"
+							className="text-destructive hover:text-destructive hover:bg-destructive/10"
 						>
 							<Trash2 className="h-4 w-4" />
 						</Button>
 					)}
 					{onClose && (
-						<Button variant="ghost" size="sm" onClick={onClose}>
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={onClose}
+							className="hover:bg-muted/50"
+						>
 							<X className="h-4 w-4" />
 						</Button>
 					)}

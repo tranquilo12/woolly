@@ -292,6 +292,43 @@ export function useRepositoryStatus() {
 		}
 	}, []);
 
+	const deleteIndex = useCallback(async (repoName: AvailableRepository) => {
+		try {
+			const response = await fetch(`${INDEXER_BASE_URL}/indexer/${repoName}`, {
+				method: 'DELETE',
+			});
+
+			if (!response.ok) {
+				const errorData = await response.json();
+				throw new Error(errorData.detail || 'Failed to delete index');
+			}
+
+			toast.success(`Deleted index for ${repoName}`);
+
+			// Update repository status
+			setRepositories((prev) =>
+				prev.map((repo) =>
+					repo.name === repoName
+						? {
+							...repo,
+							indexing_status: 'not_indexed',
+							progress: 0,
+							current_file: undefined,
+							processed_count: 0,
+							total_files: undefined,
+							file_stats: undefined
+						}
+						: repo
+				)
+			);
+		} catch (error) {
+			console.error('Failed to delete index:', error);
+			toast.error(
+				`Failed to delete index for ${repoName}: ${error instanceof Error ? error.message : 'Unknown error'}`
+			);
+		}
+	}, [setRepositories]);
+
 	return {
 		repositories,
 		setRepositories,
@@ -309,5 +346,6 @@ export function useRepositoryStatus() {
 		setIndexingProgress,
 		currentStatus,
 		setCurrentStatus,
+		deleteIndex,
 	};
 } 
