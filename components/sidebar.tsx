@@ -177,20 +177,19 @@ export function Sidebar() {
 					exit="exit"
 					variants={containerVariants}
 					className={cn(
-						"fixed left-0 top-[var(--navbar-height)] z-50 flex h-content w-full flex-col border-l bg-background/80 backdrop-blur-xl sm:w-[400px]",
+						"fixed left-0 top-[var(--navbar-height)] z-50 flex h-content w-full items-center justify-center sm:w-[400px]",
 						"border-muted/30 shadow-[0_0_30px_rgba(0,0,0,0.3)] dark:shadow-[0_2px_30px_rgba(0,0,0,0.6)]",
 					)}
 					data-sidebar
 				>
 					<motion.div
-						className="flex flex-col h-full items-center py-6"
+						className="flex flex-col w-full px-4 gap-4"
 						variants={contentVariants}
 						initial="hidden"
 						animate="visible"
 					>
-						<div className="w-full px-4 flex flex-col items-center gap-4">
+						<div className="w-full flex-1 flex flex-col items-center gap-4">
 							<h2 className="text-lg font-semibold text-foreground">Chat History</h2>
-
 							<div
 								ref={scrollContainerRef}
 								className="w-full flex-1 overflow-auto sidebar-scroll rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm shadow-[0_0_15px_rgba(20,20,20,0.1)] dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] dark:bg-muted/20"
@@ -297,9 +296,6 @@ export function Sidebar() {
 									) : (
 										<Pin className="h-4 w-4" />
 									)}
-									<span className="text-sm">
-										{isPinned ? "Unpin Sidebar" : "Pin Sidebar"}
-									</span>
 								</Button>
 							</div>
 

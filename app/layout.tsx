@@ -25,8 +25,8 @@ export default function RootLayout({
         <Providers>
           <div className="flex flex-col min-h-screen">
             <Navbar />
-            <div className="flex-1 relative">
-              <main className="w-full max-w-5xl mx-auto">
+            <div className="flex-1 relative flex items-center justify-center">
+              <main className="w-full max-w-5xl mx-auto px-4">
                 {children}
               </main>
               <Sidebar />

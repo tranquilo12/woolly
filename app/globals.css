@@ -140,15 +140,7 @@
 }
 
 .message-container {
-  scroll-behavior: smooth;
   overflow-anchor: auto;
-  mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    black 40px,
-    black calc(100% - 100px),
-    transparent
-  );
 }
 
 .message-content {

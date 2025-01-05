@@ -268,13 +268,6 @@ export function Chat({ chatId }: ChatProps) {
     }
   };
 
-  useEffect(() => {
-    const end = endRef.current;
-    if (end && (isLoading || isThinking || isRestreaming)) {
-      end.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, isLoading, isThinking, isRestreaming]);
-
   // Update thinking state when chat loading state changes
   useEffect(() => {
     const shouldShowThinking = () => {
