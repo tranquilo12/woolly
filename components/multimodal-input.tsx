@@ -112,21 +112,34 @@ export function MultimodalInput({
     setAttachments(prev => [...prev, ...newAttachments]);
   };
 
-  const submitForm = useCallback((event?: React.FormEvent) => {
-    if (event) {
-      event.preventDefault();
-    }
+  const submitForm = useCallback(async () => {
+    try {
+      const messageData = {
+        role: 'user',
+        content: input,
+        id: crypto.randomUUID(),
+        attachments
+      };
 
-    handleSubmit(event, {
-      experimental_attachments: fileInputRef.current?.files || undefined,
-    });
+      await handleSubmit(undefined, {
+        body: {
+          chatId,
+          messages: [...messages, messageData].map(msg => ({
+            role: msg.role,
+            content: msg.content,
+            id: msg.id,
+          }))
+        }
+      });
 
-    setAttachments([]);
-    setLocalStorageInput("");
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      setInput('');
+      setLocalStorageInput('');
+      setAttachments([]);
+    } catch (error) {
+      console.error('Error submitting message:', error);
+      toast.error('Failed to send message');
     }
-  }, [handleSubmit, setLocalStorageInput]);
+  }, [input, chatId, messages, handleSubmit, setInput, setLocalStorageInput, attachments, setMessages]);
 
   return (
     <form onSubmit={(e) => handleSubmit(e)}>

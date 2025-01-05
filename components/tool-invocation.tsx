@@ -9,6 +9,11 @@ export function ToolInvocationDisplay({ toolInvocation }: { toolInvocation: Tool
 		| { state: 'result'; toolName: string; args: any; result: ToolResult }
 	);
 
+	// Parse result if it's a string or ensure it's properly typed
+	const parsedResult = state === 'result' && result ?
+		(typeof result === 'string' ? parseToolResult(result) : result)
+		: null;
+
 	return (
 		<div className="mt-2 text-sm rounded-lg border p-4 bg-muted/50">
 			<div className="flex items-center gap-2 mb-2">
@@ -34,35 +39,34 @@ export function ToolInvocationDisplay({ toolInvocation }: { toolInvocation: Tool
 				</details>
 			)}
 
-			{state === "result" && result && (
+			{state === "result" && parsedResult && (
 				<div className="space-y-2">
-					{/* Error Display */}
-					{result.error && typeof result.error === 'object' ? (
+					{parsedResult.error ? (
 						<div className="text-red-500 bg-red-100 dark:bg-red-900/30 dark:text-red-300 p-2 rounded text-xs">
-							{result.error.message || result.error.type || 'An error occurred'}
+							{typeof parsedResult.error === 'object'
+								? parsedResult.error.message || parsedResult.error.type || 'An error occurred'
+								: parsedResult.error}
 						</div>
 					) : (
 						<>
-							{/* Output Display */}
-							{result.output && (
+							{parsedResult.output && (
 								<details>
 									<summary className="text-xs text-muted-foreground mb-1 cursor-pointer hover:text-foreground">
 										Output
 									</summary>
 									<pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
-										{result.output}
+										{parsedResult.output}
 									</pre>
 								</details>
 							)}
 
-							{/* Plots Display */}
-							{result.plots && Object.entries(result.plots).length > 0 && (
+							{parsedResult.plots && Object.entries(parsedResult.plots).length > 0 && (
 								<details>
 									<summary className="text-xs text-muted-foreground mb-1 cursor-pointer hover:text-foreground">
 										Plots
 									</summary>
 									<div className="mt-2 space-y-4">
-										{Object.entries(result.plots).map(([name, plotData]) => (
+										{Object.entries(parsedResult.plots).map(([name, plotData]) => (
 											<div key={name} className="space-y-2">
 												<div className="text-xs text-muted-foreground">{name}</div>
 												<Image
@@ -79,12 +83,11 @@ export function ToolInvocationDisplay({ toolInvocation }: { toolInvocation: Tool
 								</details>
 							)}
 
-							{/* Metrics Display */}
-							{result.metrics && (
+							{parsedResult.metrics && (
 								<div className="flex gap-4 text-xs text-muted-foreground mt-2">
-									<div>Memory: {formatMetric(result.metrics.memory_usage, 'memory')}</div>
-									<div>CPU: {formatMetric(result.metrics.cpu_percent, 'cpu')}</div>
-									<div>Time: {formatMetric(result.metrics.execution_time, 'time')}</div>
+									<div>Memory: {formatMetric(parsedResult.metrics.memory_usage, 'memory')}</div>
+									<div>CPU: {formatMetric(parsedResult.metrics.cpu_percent, 'cpu')}</div>
+									<div>Time: {formatMetric(parsedResult.metrics.execution_time, 'time')}</div>
 								</div>
 							)}
 						</>
