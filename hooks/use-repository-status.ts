@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { INDEXER_BASE_URL, AVAILABLE_REPOSITORIES, AvailableRepository } from '@/lib/constants';
+import { debounce } from 'lodash';
 
 export interface Repository {
 	name: string;
@@ -38,6 +39,14 @@ export interface Repository {
 			};
 		}>;
 	};
+	stats?: RepositoryStats;
+	language?: string;
+	path?: string;
+	index_stats?: {
+		total_chunks: number;
+		collection: string;
+		has_index: boolean;
+	};
 }
 
 export interface IndexingStatus {
@@ -71,6 +80,12 @@ export interface GitDiffOptions {
 	context_lines?: number;
 }
 
+export interface RepositoryStats {
+	repository: string;
+	total_points: number;
+	collection: string;
+}
+
 export function useRepositoryStatus() {
 	const [repositories, setRepositories] = useState<Repository[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
@@ -78,6 +93,7 @@ export function useRepositoryStatus() {
 	const [indexingProgress, setIndexingProgress] = useState<{ [key: string]: number }>({});
 	const [currentStatus, setCurrentStatus] = useState<{ [key: string]: string }>({});
 	const [watchStatus, setWatchStatus] = useState<{ [key: string]: boolean }>({});
+
 	// Fetch repository statuses for all known repos
 	const fetchAllRepositories = useCallback(async () => {
 		setIsLoading(true);
@@ -119,6 +135,13 @@ export function useRepositoryStatus() {
 		}
 	}, []);
 
+	const debouncedSetRepositories = useCallback(
+		debounce((updateFn: (prev: Repository[]) => Repository[]) => {
+			setRepositories(updateFn);
+		}, 100),
+		[]
+	);
+
 	// Subscribe to SSE for a given repository
 	const subscribeToStatus = useCallback(
 		async (repoName: AvailableRepository) => {
@@ -133,37 +156,44 @@ export function useRepositoryStatus() {
 			eventSource.addEventListener("indexing_status", (event) => {
 				const data = JSON.parse(event.data);
 
-				setRepositories((prev) =>
-					prev.map((repo) =>
-						repo.name === repoName
-							? {
-								...repo,
-								indexing_status: data.status,
-								current_file: data.current_file,
-								total_files: data.total_files,
-								processed_count: data.processed_count,
-								progress: data.total_files
-									? (data.processed_count / data.total_files) * 100
-									: 0,
-								file_stats: data.file_stats,
-								message: data.message,
-								watch_enabled: true
-							}
-							: repo
-					)
-				);
-
-				setIndexingProgress((prev) => ({
-					...prev,
-					[repoName]: data.total_files
+				// Batch all state updates together
+				const updates = {
+					repositories: (prev: Repository[]) =>
+						prev.map((repo) =>
+							repo.name === repoName
+								? {
+									...repo,
+									indexing_status: data.status,
+									current_file: data.current_file,
+									total_files: data.total_files,
+									processed_count: data.processed_count,
+									progress: data.total_files
+										? (data.processed_count / data.total_files) * 100
+										: 0,
+									file_stats: data.file_stats,
+									message: data.message,
+									watch_enabled: true
+								}
+								: repo
+						),
+					progress: data.total_files
 						? (data.processed_count / data.total_files) * 100
-						: 0
-				}));
+						: 0,
+					status: data.status
+				};
 
-				setCurrentStatus((prev) => ({
-					...prev,
-					[repoName]: data.status
-				}));
+				// Use a single RAF call to batch updates
+				requestAnimationFrame(() => {
+					debouncedSetRepositories(updates.repositories);
+					setIndexingProgress((prev) => ({
+						...prev,
+						[repoName]: updates.progress
+					}));
+					setCurrentStatus((prev) => ({
+						...prev,
+						[repoName]: updates.status
+					}));
+				});
 			});
 
 			eventSource.onerror = () => {
@@ -180,19 +210,19 @@ export function useRepositoryStatus() {
 				[repoName]: eventSource
 			}));
 		},
-		[activeSSEConnections]
+		[activeSSEConnections, debouncedSetRepositories]
 	);
 
 	// Start indexing for a given repository and automatically subscribe to SSE
 	const startIndexing = useCallback(
-		async (repoName: AvailableRepository) => {
+		async (repoName: AvailableRepository, force: boolean = false) => {
 			try {
 				// Close any existing SSE connection first
 				if (activeSSEConnections[repoName]) {
 					activeSSEConnections[repoName].close();
 				}
 
-				const response = await fetch(`${INDEXER_BASE_URL}/indexer/${repoName}`, {
+				const response = await fetch(`${INDEXER_BASE_URL}/indexer/${repoName}${force ? '?force=true' : ''}`, {
 					method: 'POST',
 				});
 
@@ -205,7 +235,7 @@ export function useRepositoryStatus() {
 				subscribeToStatus(repoName);
 
 				const data = await response.json();
-				toast.success(data.message || `Started indexing ${repoName}`);
+				toast.success(data.message || `Started ${force ? 'force ' : ''}indexing ${repoName}`);
 
 				// Update repository status
 				setRepositories((prev) =>
@@ -226,8 +256,7 @@ export function useRepositoryStatus() {
 			} catch (error) {
 				console.error('Failed to start indexing:', error);
 				toast.error(
-					`Failed to start indexing ${repoName}: ${error instanceof Error ? error.message : 'Unknown error'
-					}`
+					`Failed to start indexing ${repoName}: ${error instanceof Error ? error.message : 'Unknown error'}`
 				);
 			}
 		},
@@ -329,6 +358,18 @@ export function useRepositoryStatus() {
 		}
 	}, [setRepositories]);
 
+	const getRepositoryStats = useCallback(async (repoName: AvailableRepository) => {
+		try {
+			const response = await fetch(`${INDEXER_BASE_URL}/indexer/${repoName}/stats`);
+			if (!response.ok) throw new Error('Failed to fetch repository statistics');
+			return await response.json();
+		} catch (error) {
+			console.error('Failed to fetch repository statistics:', error);
+			toast.error('Failed to load repository statistics');
+			throw error;
+		}
+	}, []);
+
 	return {
 		repositories,
 		setRepositories,
@@ -347,5 +388,6 @@ export function useRepositoryStatus() {
 		currentStatus,
 		setCurrentStatus,
 		deleteIndex,
+		getRepositoryStats,
 	};
 } 

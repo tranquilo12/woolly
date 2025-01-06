@@ -283,3 +283,45 @@
 .toaster-override {
   @apply font-sans;
 }
+
+/* Add these styles */
+[data-repository-panel] {
+  transform-origin: top;
+  will-change: transform, opacity, height;
+}
+
+.repository-content {
+  transform-origin: top;
+  will-change: transform;
+}
+
+.repository-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.repository-table td:first-child {
+  width: 30%;
+  white-space: nowrap;
+}
+
+.repository-table td:last-child {
+  width: 70%;
+}
+
+.repository-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.repository-table .truncate-cell {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repository-table-container {
+  min-height: 420px; /* Adjust based on your needs */
+  transition: height 0.2s ease-in-out;
+}

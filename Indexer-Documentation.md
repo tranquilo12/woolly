@@ -2,30 +2,39 @@
 
 ## Service Overview
 
-The Indexer service provides three main categories of functionality:
+The Indexer service provides a comprehensive solution for code repository management with four main categories of functionality:
 
-1. Repository Indexing
+1. Repository Indexing & Search
 2. Git Operations
 3. Repository Mapping
+4. Real-time Change Detection
 
 ```mermaid
 graph TB
     A[Frontend Client] --> B[Indexer Service API]
-    B --> C[Repository Indexing]
+    B --> C[Repository Management]
     B --> D[Git Operations]
     B --> E[Repository Mapping]
-    C --> F[Qdrant Vector DB]
-    D --> G[Git Repository]
-    E --> H[Code Structure Analysis]
+    B --> F[Real-time Monitoring]
+
+    C --> G[Indexing]
+    C --> H[Search]
+    C --> I[Delete]
+
+    G --> J[Qdrant Vector DB]
+    H --> J
+    I --> J
+
+    D --> K[Git Repository]
+    E --> L[Code Structure Analysis]
+    F --> M[File System Events]
 ```
 
 ## Base Configuration
 
-The service exposes two basic endpoints for health checking and configuration:
-
 ### 1. Health Check
 
-```
+```http
 GET /health
 ```
 
@@ -39,7 +48,7 @@ GET /health
 
 ### 2. Configuration
 
-```
+```http
 GET /config
 ```
 
@@ -57,22 +66,27 @@ GET /config
 }
 ```
 
-## 1. Repository Indexing Endpoints
+## 1. Repository Management Endpoints
 
 ### 1.1 Start Indexing
 
-```
-POST /indexer/{repo_name}
+```http
+POST /indexer/{repo_name}?force=true
 ```
 
 **Parameters:**
 
-- `repo_name` (path): Name of the repository to index
+- `repo_name`: Name of the repository to index
+- `force` (optional): Boolean flag to force full repository indexing, bypassing git change detection (default: false)
 
-**Example Request:**
+**Example Requests:**
 
 ```bash
+# Normal incremental indexing
 curl -X POST http://localhost:7779/indexer/IntoTheDeep
+
+# Force full repository indexing
+curl -X POST http://localhost:7779/indexer/IntoTheDeep?force=true
 ```
 
 **Response:**
@@ -83,42 +97,114 @@ curl -X POST http://localhost:7779/indexer/IntoTheDeep
 }
 ```
 
-### 1.2 Get Indexing Status
+**Notes:**
 
+- When `force=true`, the entire repository will be reindexed regardless of git history
+- When `force=false` (default), only changed files since the last indexing will be processed
+- Real-time file monitoring continues to use incremental indexing for efficiency
+
+### 1.2 Search Repository
+
+```http
+POST /indexer/{repo_name}/search
 ```
-GET /indexer/status/{repo_name}
+
+**Request Body:**
+
+```json
+{
+  "query": "function that handles authentication",
+  "limit": 10,
+  "threshold": 0.7,
+  "file_paths": ["src/auth/", "src/services/auth.ts"],
+  "chunk_types": ["function", "class"]
+}
 ```
-
-**Parameters:**
-
-- `repo_name` (path): Name of the repository
 
 **Response:**
 
 ```json
 {
-  "status": "in_progress",
-  "message": "Processing files...",
-  "last_updated": 1635724800.0,
-  "files_to_index": ["/path/to/file1.py", "/path/to/file2.py"],
-  "current_file": "/path/to/current.py",
-  "processed_files": ["/path/to/completed1.py"],
-  "total_files": 100,
-  "processed_count": 45
+  "results": [
+    {
+      "content": "async function authenticateUser(credentials) {...}",
+      "chunk_type": "function",
+      "file_path": "src/auth/authentication.ts",
+      "start_line": 10,
+      "end_line": 25,
+      "score": 0.89,
+      "repository": "IntoTheDeep"
+    }
+  ],
+  "total_found": 1,
+  "query_time_ms": 45.2
 }
 ```
 
-### 1.3 Real-time Indexing Updates
+### 1.3 Delete Repository Index
 
+```http
+DELETE /indexer/{repo_name}
 ```
+
+**Response:**
+
+```json
+{
+  "message": "Index deleted for IntoTheDeep"
+}
+```
+
+### 1.4 Get Repository Statistics
+
+```http
+GET /indexer/{repo_name}/stats
+```
+
+**Response:**
+
+```json
+{
+  "repository": "IntoTheDeep",
+  "total_points": 1250,
+  "collection": "code_chunks"
+}
+```
+
+### 1.5 Get All Repositories
+
+```http
+GET /indexer/repositories
+```
+
+**Response:**
+
+```json
+{
+  "repositories": [
+    {
+      "name": "IntoTheDeep",
+      "path": "/volumes/IntoTheDeep",
+      "language": "python",
+      "indexing_status": "completed",
+      "last_indexed": "abc123def456",
+      "index_stats": {
+        "total_chunks": 1250,
+        "collection": "code_chunks",
+        "has_index": true
+      }
+    }
+  ],
+  "total_count": 1,
+  "indexed_count": 1
+}
+```
+
+### 1.6 Real-time Indexing Status (SSE)
+
+```http
 GET /indexer/sse?repo={repo_name}
 ```
-
-**Parameters:**
-
-- `repo` (query): Name of the repository
-
-This endpoint uses Server-Sent Events (SSE) for real-time updates.
 
 **Example Client Implementation:**
 
@@ -133,25 +219,11 @@ eventSource.addEventListener("indexing_status", (event) => {
 });
 ```
 
-**SSE Event Data:**
-
-```json
-{
-  "repository": "IntoTheDeep",
-  "status": "in_progress",
-  "message": "Processing files...",
-  "progress": 45.0,
-  "current_file": "/path/to/current.py",
-  "processed_count": 45,
-  "total_files": 100
-}
-```
-
-## 2. Git Operations Endpoints
+## 2. Git Operations
 
 ### 2.1 Generate Git Diff
 
-```
+```http
 POST /git/diff
 ```
 
@@ -162,128 +234,89 @@ POST /git/diff
   "repo_name": "IntoTheDeep",
   "from_commit": "abc123",
   "to_commit": "def456",
-  "file_paths": ["src/main.py", "tests/test_main.py"],
+  "file_paths": ["src/main.py"],
   "ignore_whitespace": true,
   "context_lines": 3
 }
 ```
 
-**Response:**
-
-```json
-{
-  "diff": "diff --git a/src/main.py b/src/main.py\n..."
-}
-```
-
-## 3. Repository Mapping Endpoints
+## 3. Repository Mapping
 
 ### 3.1 Get Repository Map
 
-```
+```http
 GET /repo-map/{repo_name}
-```
-
-**Parameters:**
-
-- `repo_name` (path): Name of the repository
-
-**Response:**
-
-```json
-{
-  "name": "IntoTheDeep",
-  "root_path": "/volumes/IntoTheDeep",
-  "files": [
-    {
-      "path": "/volumes/IntoTheDeep/src/main.py",
-      "language": "python",
-      "symbols": [
-        {
-          "name": "MyClass",
-          "type": "class",
-          "start_line": 10,
-          "end_line": 50,
-          "code_snippet": "class MyClass:\n    ...",
-          "docstring": "This class does something",
-          "children": []
-        }
-      ]
-    }
-  ],
-  "total_files": 10,
-  "languages": {
-    "python": 8,
-    "typescript": 2
-  }
-}
 ```
 
 ### 3.2 Get Repository Summary
 
-```
+```http
 GET /repo-map/{repo_name}/summary
 ```
 
-**Parameters:**
-
-- `repo_name` (path): Name of the repository
-
-**Response:**
-
-```json
-{
-  "name": "IntoTheDeep",
-  "total_files": 10,
-  "languages": {
-    "python": 8,
-    "typescript": 2
-  },
-  "symbols": {
-    "classes": 15,
-    "functions": 45,
-    "interfaces": 5
-  }
-}
-```
-
 ## Service Architecture
+
+### Core Components Flow
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant API
     participant Indexer
+    participant Search
     participant VectorDB
-    participant Git
-    participant Parser
+    participant FileWatcher
 
     Client->>API: POST /indexer/{repo}
     API->>Indexer: Start indexing
-    Indexer->>Git: Get changed files
-    Git-->>Indexer: File list
-    loop Each File
-        Indexer->>Parser: Parse file
-        Parser-->>Indexer: Symbols & structure
+
+    par File Monitoring
+        FileWatcher->>Indexer: File change detected
+    and Indexing Process
         Indexer->>VectorDB: Store embeddings
+        Indexer-->>Client: SSE Updates
     end
-    Indexer-->>Client: SSE Updates
+
+    Client->>API: POST /search
+    API->>Search: Process query
+    Search->>VectorDB: Vector similarity search
+    VectorDB-->>Client: Search results
 ```
 
-## Error Responses
+### Search Flow
 
-All endpoints may return the following error responses:
+```mermaid
+graph LR
+    A[Query] --> B[Embedding Generation]
+    B --> C[Vector Search]
+    C --> D[Results Filtering]
+    D --> E[Score Threshold]
+    E --> F[Response]
+```
 
-- **400 Bad Request**: Invalid input parameters
-- **404 Not Found**: Repository or resource not found
-- **500 Internal Server Error**: Server-side processing error
+## Error Handling
 
-Example error response:
+All endpoints follow a consistent error response format:
 
 ```json
 {
-  "detail": "Repository IntoTheDeep not found"
+  "detail": "Error message description"
 }
 ```
 
-This documentation covers the main functionality exposed by the Indexer service. The service uses FastAPI, supports CORS, and integrates with Qdrant for vector storage. All endpoints are designed for asynchronous operation to handle large repositories efficiently.
+Common HTTP Status Codes:
+
+- 400: Bad Request (invalid parameters)
+- 404: Not Found (repository/resource not found)
+- 500: Internal Server Error
+
+## Real-time Monitoring
+
+The service includes automatic file system monitoring with:
+
+- Git-aware change detection
+- Configurable cooldown periods
+- Intelligent reindexing triggers
+- Ignore patterns support
+
+No additional configuration is needed as this functionality is built into the service.
