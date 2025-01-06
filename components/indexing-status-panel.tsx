@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
-import { useRepositoryStatus } from "@/hooks/use-repository-status";
+import React, { useEffect, useState, useMemo, useRef } from "react";
+import { useRepositoryStatus, RepositoryStats } from "@/hooks/use-repository-status";
 import { AvailableRepository } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Trash2, X, Loader2 } from "lucide-react";
@@ -22,59 +22,135 @@ interface IndexingStatusPanelProps {
 	isLoading?: boolean;
 }
 
+const tableRowClass = "h-[42px] min-h-[42px]";
+
 export function IndexingStatusPanel({
 	repoName,
 	onClose,
 	onDelete,
 	isLoading = false,
 }: IndexingStatusPanelProps) {
-	const { repositories, startIndexing } = useRepositoryStatus();
+	const contentRef = useRef<HTMLDivElement>(null);
+	const { repositories, startIndexing, getRepositoryStats } = useRepositoryStatus();
 	const repository = repositories.find((repo) => repo.name === repoName);
+	const [stats, setStats] = useState<RepositoryStats | null>(null);
+	const [isStatsLoading, setIsStatsLoading] = useState(false);
 
-	if (isLoading) {
+	// Fetch stats when panel opens
+	useEffect(() => {
+		const fetchStats = async () => {
+			if (!repository) return;
+			setIsStatsLoading(true);
+			try {
+				const stats = await getRepositoryStats(repoName as AvailableRepository);
+				setStats(stats);
+			} catch (error) {
+				console.error('Failed to fetch stats:', error);
+			} finally {
+				setIsStatsLoading(false);
+			}
+		};
+		fetchStats();
+	}, [repoName, repository, getRepositoryStats]);
+
+	// Memoize the table content to prevent unnecessary re-renders
+	const tableContent = useMemo(() => {
+		if (isLoading) {
+			return (
+				<TableRow>
+					<TableCell colSpan={2} className="text-center">Loading details...</TableCell>
+				</TableRow>
+			);
+		}
+
+		if (!repository) {
+			return (
+				<TableRow>
+					<TableCell colSpan={2} className="text-center italic">Waiting for repository data...</TableCell>
+				</TableRow>
+			);
+		}
+
 		return (
-			<div className="text-sm text-foreground p-4 border border-border/50 rounded-md">
-				Loading details...
-			</div>
+			<>
+				<TableRow className={tableRowClass}>
+					<TableCell className="font-medium">Status</TableCell>
+					<TableCell className="truncate-cell">{repository.indexing_status || '-'}</TableCell>
+				</TableRow>
+				<TableRow className={tableRowClass}>
+					<TableCell className="font-medium">Message</TableCell>
+					<TableCell className="truncate-cell">{repository.message || '-'}</TableCell>
+				</TableRow>
+				<TableRow className={tableRowClass}>
+					<TableCell className="font-medium">Current File</TableCell>
+					<TableCell className="truncate-cell">
+						<span className="font-mono text-xs">{repository.current_file || '-'}</span>
+					</TableCell>
+				</TableRow>
+				<TableRow className={tableRowClass}>
+					<TableCell className="font-medium">Files Processed</TableCell>
+					<TableCell className="truncate-cell">
+						{repository.processed_count !== undefined ? `${repository.processed_count} / ${repository.total_files || '?'}` : '-'}
+					</TableCell>
+				</TableRow>
+				<TableRow className={tableRowClass}>
+					<TableCell className="font-medium">Progress</TableCell>
+					<TableCell className="truncate-cell">
+						{repository.progress !== undefined ? `${Math.round(repository.progress)}%` : '-'}
+					</TableCell>
+				</TableRow>
+				<TableRow className={tableRowClass}>
+					<TableCell className="font-medium">Collection</TableCell>
+					<TableCell className="truncate-cell">{stats?.collection || '-'}</TableCell>
+				</TableRow>
+				<TableRow className={tableRowClass}>
+					<TableCell className="font-medium">Total Points</TableCell>
+					<TableCell className="truncate-cell">
+						{stats?.total_points ? stats.total_points.toLocaleString() : '-'}
+					</TableCell>
+				</TableRow>
+				<TableRow className={tableRowClass}>
+					<TableCell className="font-medium">Language</TableCell>
+					<TableCell className="truncate-cell">{repository.language || '-'}</TableCell>
+				</TableRow>
+				<TableRow className={tableRowClass}>
+					<TableCell className="font-medium">Last Indexed</TableCell>
+					<TableCell className="truncate-cell">
+						{repository.last_indexed ? new Date(repository.last_indexed).toLocaleString() : '-'}
+					</TableCell>
+				</TableRow>
+			</>
 		);
-	}
-
-	if (!repository) {
-		return (
-			<div className="text-sm italic p-4 border border-border/50 rounded-md">
-				Waiting for repository data...
-			</div>
-		);
-	}
-
-	const {
-		indexing_status: status,
-		message,
-		progress,
-		current_file: currentFile,
-		processed_count: processedCount,
-		total_files: totalFiles,
-		file_stats: fileStats,
-	} = repository;
+	}, [
+		isLoading,
+		repository,
+		stats,
+		tableRowClass
+	]);
 
 	return (
 		<motion.div
+			layout={false}
 			initial={{ height: 0, opacity: 0 }}
-			animate={{ height: "auto", opacity: 1 }}
+			animate={{ height: contentRef.current?.offsetHeight || 'auto', opacity: 1 }}
 			exit={{ height: 0, opacity: 0 }}
-			transition={{ duration: 0.2 }}
+			transition={{
+				height: { duration: 0.2, ease: "easeInOut" },
+				opacity: { duration: 0.15 }
+			}}
 			className="overflow-hidden border-x border-b border-border/50 rounded-b-md -mt-[1px] bg-background/95 backdrop-blur-sm"
+			style={{ willChange: 'height' }}
 		>
-			<div className="p-4 space-y-4">
+			<div ref={contentRef} className="p-4 space-y-4">
 				<div className="flex items-center gap-2">
 					<Button
 						variant="outline"
 						size="sm"
 						onClick={() => startIndexing(repoName)}
-						disabled={status === 'in_progress'}
+						disabled={repository?.indexing_status === 'in_progress'}
 						className="flex-1"
 					>
-						{status === 'in_progress' ? (
+						{repository?.indexing_status === 'in_progress' ? (
 							<>
 								<Loader2 className="h-4 w-4 animate-spin mr-2" />
 								Indexing...
@@ -105,7 +181,7 @@ export function IndexingStatusPanel({
 					)}
 				</div>
 
-				<Table>
+				<Table className="repository-table">
 					<TableHeader>
 						<TableRow>
 							<TableHead>Property</TableHead>
@@ -113,45 +189,10 @@ export function IndexingStatusPanel({
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						<TableRow>
-							<TableCell className="font-medium">Status</TableCell>
-							<TableCell>{status}</TableCell>
-						</TableRow>
-						{message && (
-							<TableRow>
-								<TableCell className="font-medium">Message</TableCell>
-								<TableCell>{message}</TableCell>
-							</TableRow>
-						)}
-						{currentFile && (
-							<TableRow>
-								<TableCell className="font-medium">Current File</TableCell>
-								<TableCell>
-									<span className="font-mono text-xs">{currentFile}</span>
-								</TableCell>
-							</TableRow>
-						)}
-						{processedCount !== undefined && totalFiles !== undefined && (
-							<TableRow>
-								<TableCell className="font-medium">Progress</TableCell>
-								<TableCell>
-									<div className="space-y-2">
-										<div>{processedCount} / {totalFiles} files</div>
-										{progress !== undefined && (
-											<div className="h-2 bg-muted/20 rounded">
-												<div
-													className="h-full bg-blue-500 transition-all duration-500"
-													style={{ width: `${progress}%` }}
-												/>
-											</div>
-										)}
-									</div>
-								</TableCell>
-							</TableRow>
-						)}
+						{tableContent}
 					</TableBody>
 				</Table>
 			</div>
 		</motion.div>
 	);
-} 
+}
