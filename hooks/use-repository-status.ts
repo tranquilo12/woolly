@@ -87,6 +87,16 @@ export interface RepositoryStats {
 	indexing_status: string;
 }
 
+export interface RepositorySearchResult {
+	content: string;
+	chunk_type: string;
+	file_path: string;
+	start_line: number;
+	end_line: number;
+	score: number;
+	repository: string;
+}
+
 export function useRepositoryStatus() {
 	const [repositories, setRepositories] = useState<Repository[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
@@ -371,6 +381,32 @@ export function useRepositoryStatus() {
 		}
 	}, []);
 
+	const searchRepository = useCallback(async (
+		repoName: AvailableRepository,
+		query: string
+	): Promise<RepositorySearchResult[]> => {
+		try {
+			const response = await fetch(`${INDEXER_BASE_URL}/indexer/${repoName}/search`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					query,
+					limit: 5,
+					threshold: 0.7
+				}),
+			});
+
+			if (!response.ok) throw new Error('Failed to search repository');
+			const data = await response.json();
+			return data.results;
+		} catch (error) {
+			console.error('Failed to search repository:', error);
+			throw error;
+		}
+	}, []);
+
 	return {
 		repositories,
 		setRepositories,
@@ -390,5 +426,6 @@ export function useRepositoryStatus() {
 		setCurrentStatus,
 		deleteIndex,
 		getRepositoryStats,
+		searchRepository,
 	};
 } 

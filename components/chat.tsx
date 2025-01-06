@@ -15,6 +15,7 @@ import { ThinkingMessage } from "./thinking-message";
 import { EditIndicator } from "./edit-indicator";
 import { ModelSelector } from "./model-selector";
 import { useChatTitle } from "./chat-title-context";
+import { useRepositoryStatus } from "@/hooks/use-repository-status";
 
 interface ChatProps {
   chatId?: string;
@@ -128,6 +129,7 @@ export function Chat({ chatId }: ChatProps) {
   const [isToolStreaming, setIsToolStreaming] = useState(false);
   const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
+  const { searchRepository } = useRepositoryStatus();
 
   // Add a debounced scroll handler
   useEffect(() => {
@@ -436,6 +438,7 @@ export function Chat({ chatId }: ChatProps) {
             setMessages={setMessages}
             append={append}
             handleSubmit={handleSubmit}
+            searchRepository={searchRepository}
           />
         </div>
       </div>

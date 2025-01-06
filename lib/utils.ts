@@ -72,3 +72,61 @@ export function parseToolResult(result: any): ToolResult {
     };
   }
 }
+
+interface CaretCoordinates {
+  top: number;
+  left: number;
+  lineHeight: number;
+}
+
+export function getCaretCoordinates(element: HTMLTextAreaElement, position: number): CaretCoordinates {
+  // Create a mirror div to measure text
+  const div = document.createElement('div');
+  const computed = window.getComputedStyle(element);
+
+  // Copy the textarea's styles that affect text layout
+  const properties = [
+    'fontFamily',
+    'fontSize',
+    'fontWeight',
+    'letterSpacing',
+    'lineHeight',
+    'padding',
+    'border',
+    'boxSizing',
+    'whiteSpace',
+    'wordWrap',
+    'overflowWrap'
+  ];
+
+  div.style.position = 'absolute';
+  div.style.visibility = 'hidden';
+  div.style.whiteSpace = 'pre-wrap';
+  div.style.width = `${element.offsetWidth}px`;
+
+  properties.forEach(prop => {
+    div.style[prop as any] = computed[prop];
+  });
+
+  // Create content and measure
+  const textContent = element.value.substring(0, position);
+  const span = document.createElement('span');
+
+  // Replace spaces with non-breaking spaces to preserve them
+  div.textContent = textContent.replace(/ /g, '\u00a0');
+
+  // Add a span at the caret position
+  span.textContent = element.value.charAt(position) || '.';
+  div.appendChild(span);
+
+  document.body.appendChild(div);
+  const rect = span.getBoundingClientRect();
+  const elementRect = element.getBoundingClientRect();
+  document.body.removeChild(div);
+
+  return {
+    top: rect.top - elementRect.top + element.scrollTop,
+    left: rect.left - elementRect.left,
+    lineHeight: parseInt(computed.lineHeight || '0')
+  };
+}

@@ -11,15 +11,20 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
-import { useLocalStorage, useWindowSize } from "usehooks-ts";
+import { useLocalStorage } from "usehooks-ts";
+import { AnimatePresence } from "framer-motion";
 
-import { cn, sanitizeUIMessages } from "@/lib/utils";
+import { cn, getCaretCoordinates, sanitizeUIMessages } from "@/lib/utils";
 
 import { ArrowUpIcon, StopIcon, MenuIcon, AttachmentIcon } from "./icons";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { useSidebar } from "./sidebar-provider";
 import { PreviewAttachment } from "./preview-attachment";
+import { AvailableRepository } from "@/lib/constants";
+import { parseRepositoryCommand } from "@/lib/commands";
+import { RepositorySearchResult } from "@/hooks/use-repository-status";
+import { RepositoryMentionMenu } from "./repository-mention-menu";
 
 interface MultimodalInputProps {
   chatId: string;
@@ -38,7 +43,37 @@ interface MultimodalInputProps {
     chatRequestOptions?: ChatRequestOptions,
   ) => void;
   className?: string;
+  searchRepository: (repoName: AvailableRepository, query: string) => Promise<RepositorySearchResult[]>;
 }
+
+interface ProcessedCommand {
+  originalMessage: string;
+  repoName: AvailableRepository | null;
+  query: string;
+}
+
+const processRepositoryCommand = (input: string): ProcessedCommand => {
+  const command = parseRepositoryCommand(input);
+  if (!command) {
+    return { originalMessage: input, repoName: null, query: input };
+  }
+
+  return {
+    originalMessage: input,
+    repoName: command.repository,
+    query: command.query
+  };
+};
+
+const isValidMentionContext = (text: string): boolean => {
+  // Find the last @ symbol
+  const lastAtIndex = text.lastIndexOf('@');
+  if (lastAtIndex === -1) return false;
+
+  // Check if there's a space between the @ and the cursor
+  const textAfterAt = text.slice(lastAtIndex + 1);
+  return !textAfterAt.includes(' ');
+};
 
 export function MultimodalInput({
   chatId,
@@ -51,14 +86,16 @@ export function MultimodalInput({
   append,
   handleSubmit,
   className,
+  searchRepository,
 }: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { width } = useWindowSize();
   const { toggle, setIsOpen, isPinned, isOpen } = useSidebar();
   const containerRef = useRef<HTMLDivElement>(null);
-  const isMobile = width < 1024;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showMentionMenu, setShowMentionMenu] = useState(false);
+  const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0, placement: 'below' as 'below' | 'above' });
+  const [mentionSearchTerm, setMentionSearchTerm] = useState("");
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -95,7 +132,16 @@ export function MultimodalInput({
   }, [input, setLocalStorageInput]);
 
   const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(event.target.value);
+    const newValue = event.target.value;
+    setInput(newValue);
+
+    // Check if we should hide the menu
+    const { selectionStart } = event.target;
+    const textBeforeCursor = newValue.slice(0, selectionStart);
+    if (!isValidMentionContext(textBeforeCursor)) {
+      setShowMentionMenu(false);
+    }
+
     adjustHeight();
   };
 
@@ -112,37 +158,101 @@ export function MultimodalInput({
     setAttachments(prev => [...prev, ...newAttachments]);
   };
 
-  const submitForm = useCallback(async () => {
-    try {
-      const messageData = {
-        role: 'user',
-        content: input,
-        id: crypto.randomUUID(),
-        attachments
-      };
 
-      await handleSubmit(undefined, {
-        body: {
-          chatId,
-          messages: [...messages, messageData].map(msg => ({
-            role: msg.role,
-            content: msg.content,
-            id: msg.id,
-          }))
-        }
+  const handleSubmitWithCommands = async (
+    event?: { preventDefault?: () => void },
+    chatRequestOptions?: ChatRequestOptions,
+  ) => {
+
+    if (!input) return;
+
+    const { repoName, query, originalMessage } = processRepositoryCommand(input);
+
+    if (repoName) {
+      try {
+        const results = await searchRepository(repoName, query);
+        const contextMessage = results.length > 0
+          ? `Based on the repository ${repoName}, here's what I found:\n\n${results.map(r => `File: ${r.file_path}\n${r.content}`).join('\n\n')
+          }\n\nQuery: ${query}`
+          : originalMessage;
+
+        await append({
+          role: 'user',
+          content: contextMessage,
+        }, chatRequestOptions);
+
+        setInput('');
+      } catch (error) {
+        toast.error(`Failed to search repository: ${error}`);
+        return;
+      }
+    } else {
+      handleSubmit(event, chatRequestOptions);
+    }
+  };
+
+  const submitForm = useCallback(async () => {
+    if (!input) return;
+    await handleSubmitWithCommands();
+  }, [input, handleSubmitWithCommands]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "@") {
+      const textarea = event.currentTarget;
+      const { selectionStart } = textarea;
+      const textareaRect = textarea.getBoundingClientRect();
+      const { top, left } = getCaretCoordinates(textarea, selectionStart);
+
+      const viewportHeight = window.innerHeight;
+      const menuHeight = 300;
+
+      // Calculate absolute position relative to viewport
+      const absoluteTop = textareaRect.top + (top + 80);
+      const absoluteLeft = textareaRect.left - (left / 80);
+
+      // Check available space below
+      const spaceBelow = viewportHeight - absoluteTop;
+
+      setMentionPosition({
+        top: absoluteTop + window.scrollY + (spaceBelow < menuHeight ? -menuHeight : 20),
+        left: absoluteLeft,
+        placement: spaceBelow < menuHeight ? 'above' : 'below'
       });
 
-      setInput('');
-      setLocalStorageInput('');
-      setAttachments([]);
-    } catch (error) {
-      console.error('Error submitting message:', error);
-      toast.error('Failed to send message');
+      setShowMentionMenu(true);
+      setMentionSearchTerm("");
+    } else if (event.key === " " || event.key === "Backspace" || event.key === "Delete") {
+      const textarea = event.currentTarget;
+      const { selectionStart } = textarea;
+      const textBeforeCursor = textarea.value.slice(0, selectionStart);
+
+      if (!isValidMentionContext(textBeforeCursor)) {
+        setShowMentionMenu(false);
+      }
+    } else if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (isLoading) {
+        toast.error("Please wait for the model to finish its response!");
+      } else {
+        submitForm();
+      }
+    } else if (showMentionMenu && event.key === "Escape") {
+      setShowMentionMenu(false);
     }
-  }, [input, chatId, messages, handleSubmit, setInput, setLocalStorageInput, attachments, setMessages]);
+  };
+
+  const handleRepositorySelect = (repo: AvailableRepository) => {
+    const cursorPosition = textareaRef.current?.selectionStart || 0;
+    const textBeforeCursor = input.slice(0, cursorPosition);
+    const textAfterCursor = input.slice(cursorPosition);
+
+    setInput(`${textBeforeCursor}${repo} ${textAfterCursor}`);
+    setShowMentionMenu(false);
+    textareaRef.current?.focus();
+  };
 
   return (
-    <form onSubmit={(e) => handleSubmit(e)}>
+    <form onSubmit={(e) => handleSubmitWithCommands(e)}>
       <div ref={containerRef} className="relative">
         <div className="p-4">
           <div className="mx-auto max-w-3xl relative flex items-center gap-2">
@@ -206,17 +316,18 @@ export function MultimodalInput({
                   )}
                   rows={3}
                   autoFocus
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      if (isLoading) {
-                        toast.error("Please wait for the model to finish its response!");
-                      } else {
-                        submitForm();
-                      }
-                    }
-                  }}
+                  onKeyDown={handleKeyDown}
                 />
+                <AnimatePresence>
+                  {showMentionMenu && (
+                    <RepositoryMentionMenu
+                      isOpen={showMentionMenu}
+                      searchTerm={mentionSearchTerm}
+                      onSelect={handleRepositorySelect}
+                      position={mentionPosition}
+                    />
+                  )}
+                </AnimatePresence>
               </div>
 
               {isLoading ? (
@@ -235,7 +346,7 @@ export function MultimodalInput({
                   className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 hover:bg-accent/50 transition-colors"
                   onClick={(event) => {
                     event.preventDefault();
-                    submitForm();
+                    handleSubmitWithCommands();
                   }}
                   disabled={input.length === 0}
                 >
