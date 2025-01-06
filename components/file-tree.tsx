@@ -17,7 +17,7 @@ export function FileTree() {
 	const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
 	// Get the currently active repository (you might want to add this to your state management)
-	const activeRepository = repositories.find(repo => repo.status === "completed");
+	const activeRepository = repositories.find(repo => repo.stats?.indexing_status === "completed");
 
 	const toggleFolder = (path: string) => {
 		setExpandedFolders(prev => {

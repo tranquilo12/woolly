@@ -84,6 +84,7 @@ export interface RepositoryStats {
 	repository: string;
 	total_points: number;
 	collection: string;
+	indexing_status: string;
 }
 
 export function useRepositoryStatus() {
