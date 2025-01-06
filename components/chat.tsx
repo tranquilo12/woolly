@@ -129,7 +129,12 @@ export function Chat({ chatId }: ChatProps) {
   const [isToolStreaming, setIsToolStreaming] = useState(false);
   const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
-  const { searchRepository } = useRepositoryStatus();
+  const {
+    searchRepository,
+    getRepositoryStats,
+    getRepositoryMap,
+    getRepositorySummary
+  } = useRepositoryStatus();
 
   // Add a debounced scroll handler
   useEffect(() => {
@@ -429,7 +434,7 @@ export function Chat({ chatId }: ChatProps) {
       <div className="sticky bottom-0 w-full bg-background border-t">
         <div className="max-w-3xl mx-auto">
           <MultimodalInput
-            chatId={chatId || ""}
+            chatId={chatId || ''}
             input={input}
             setInput={setInput}
             isLoading={isLoading}

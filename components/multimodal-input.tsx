@@ -23,8 +23,9 @@ import { useSidebar } from "./sidebar-provider";
 import { PreviewAttachment } from "./preview-attachment";
 import { AvailableRepository } from "@/lib/constants";
 import { parseRepositoryCommand } from "@/lib/commands";
-import { RepositorySearchResult } from "@/hooks/use-repository-status";
+import { RepositorySearchResult, SearchRepositoryRequest } from "@/hooks/use-repository-status";
 import { RepositoryMentionMenu } from "./repository-mention-menu";
+import { randomUUID } from "crypto";
 
 interface MultimodalInputProps {
   chatId: string;
@@ -43,7 +44,7 @@ interface MultimodalInputProps {
     chatRequestOptions?: ChatRequestOptions,
   ) => void;
   className?: string;
-  searchRepository: (repoName: AvailableRepository, query: string) => Promise<RepositorySearchResult[]>;
+  searchRepository: (repoName: AvailableRepository, query: SearchRepositoryRequest) => Promise<RepositorySearchResult[]>;
 }
 
 interface ProcessedCommand {
@@ -163,31 +164,77 @@ export function MultimodalInput({
     event?: { preventDefault?: () => void },
     chatRequestOptions?: ChatRequestOptions,
   ) => {
-
     if (!input) return;
 
     const { repoName, query, originalMessage } = processRepositoryCommand(input);
 
     if (repoName) {
       try {
-        const results = await searchRepository(repoName, query);
+
+        const results = await searchRepository(repoName,
+          { query: query, limit: 10, threshold: 0.7 }
+        );
+
         const contextMessage = results.length > 0
-          ? `Based on the repository ${repoName}, here's what I found:\n\n${results.map(r => `File: ${r.file_path}\n${r.content}`).join('\n\n')
-          }\n\nQuery: ${query}`
+          ? `Based on the repository ${repoName}, here's what I found:\n\n${results.map(r => `File: ${r.file_path}\n${r.content}`).join('\n\n')}\n\nQuery: ${query}`
           : originalMessage;
 
-        await append({
-          role: 'user',
-          content: contextMessage,
-        }, chatRequestOptions);
+        const messageBody = {
+          messages: [
+            ...messages.map(m => ({
+              role: m.role,
+              content: m.content,
+              id: m.id
+            })),
+            {
+              role: 'user',
+              content: contextMessage,
+            }
+          ],
+          model: "gpt-4o"
+        };
+
+        await append(
+          {
+            role: 'user',
+            content: contextMessage,
+          },
+          {
+            body: messageBody
+          }
+        );
 
         setInput('');
       } catch (error) {
-        toast.error(`Failed to search repository: ${error}`);
+        toast.error(`Failed to search repository: ${error instanceof Error ? error.message : 'Unknown error'}`);
         return;
       }
     } else {
-      handleSubmit(event, chatRequestOptions);
+      const messageBody = {
+        messages: [
+          ...messages.map(m => ({
+            role: m.role,
+            content: m.content,
+            id: m.id
+          })),
+          {
+            role: 'user',
+            content: input,
+          }
+        ],
+        model: "gpt-4o"
+      };
+
+      await append(
+        {
+          role: 'user',
+          content: input,
+        },
+        {
+          body: messageBody
+        }
+      );
+      setInput('');
     }
   };
 
@@ -242,13 +289,22 @@ export function MultimodalInput({
   };
 
   const handleRepositorySelect = (repo: AvailableRepository) => {
-    const cursorPosition = textareaRef.current?.selectionStart || 0;
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const cursorPosition = textarea.selectionStart;
     const textBeforeCursor = input.slice(0, cursorPosition);
+    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+    const textBeforeAt = textBeforeCursor.slice(0, lastAtIndex);
     const textAfterCursor = input.slice(cursorPosition);
 
-    setInput(`${textBeforeCursor}${repo} ${textAfterCursor}`);
+    setInput(`${textBeforeAt}@${repo}${textAfterCursor}`);
     setShowMentionMenu(false);
-    textareaRef.current?.focus();
+
+    // Restore focus and move cursor after the repository name
+    textarea.focus();
+    const newCursorPosition = textBeforeAt.length + repo.length + 1; // +1 for @
+    textarea.setSelectionRange(newCursorPosition, newCursorPosition);
   };
 
   return (

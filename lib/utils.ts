@@ -105,7 +105,7 @@ export function getCaretCoordinates(element: HTMLTextAreaElement, position: numb
   div.style.width = `${element.offsetWidth}px`;
 
   properties.forEach(prop => {
-    div.style[prop as any] = computed[prop];
+    div.style[prop as any] = computed[prop as any];
   });
 
   // Create content and measure

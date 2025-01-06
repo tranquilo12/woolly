@@ -39,7 +39,12 @@ export function RepositoryMentionMenu({
 				{filteredRepos.map((repo) => (
 					<button
 						key={repo}
-						onClick={() => onSelect(repo)}
+						type="button"
+						onClick={(e) => {
+							e.preventDefault();
+							e.stopPropagation();
+							onSelect(repo);
+						}}
 						className="w-full px-4 py-2 text-left hover:bg-accent/50 text-sm"
 					>
 						{repo}
