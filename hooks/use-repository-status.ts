@@ -215,14 +215,14 @@ export function useRepositoryStatus() {
 
 	// Start indexing for a given repository and automatically subscribe to SSE
 	const startIndexing = useCallback(
-		async (repoName: AvailableRepository) => {
+		async (repoName: AvailableRepository, force: boolean = false) => {
 			try {
 				// Close any existing SSE connection first
 				if (activeSSEConnections[repoName]) {
 					activeSSEConnections[repoName].close();
 				}
 
-				const response = await fetch(`${INDEXER_BASE_URL}/indexer/${repoName}`, {
+				const response = await fetch(`${INDEXER_BASE_URL}/indexer/${repoName}${force ? '?force=true' : ''}`, {
 					method: 'POST',
 				});
 
@@ -235,7 +235,7 @@ export function useRepositoryStatus() {
 				subscribeToStatus(repoName);
 
 				const data = await response.json();
-				toast.success(data.message || `Started indexing ${repoName}`);
+				toast.success(data.message || `Started ${force ? 'force ' : ''}indexing ${repoName}`);
 
 				// Update repository status
 				setRepositories((prev) =>
@@ -256,8 +256,7 @@ export function useRepositoryStatus() {
 			} catch (error) {
 				console.error('Failed to start indexing:', error);
 				toast.error(
-					`Failed to start indexing ${repoName}: ${error instanceof Error ? error.message : 'Unknown error'
-					}`
+					`Failed to start indexing ${repoName}: ${error instanceof Error ? error.message : 'Unknown error'}`
 				);
 			}
 		},

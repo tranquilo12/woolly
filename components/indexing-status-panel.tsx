@@ -4,7 +4,7 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useRepositoryStatus, RepositoryStats } from "@/hooks/use-repository-status";
 import { AvailableRepository } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
-import { Trash2, X, Loader2 } from "lucide-react";
+import { Trash2, X, Loader2, RefreshCw } from "lucide-react";
 import {
 	Table,
 	TableBody,
@@ -158,6 +158,16 @@ export function IndexingStatusPanel({
 						) : (
 							'Start Indexing'
 						)}
+					</Button>
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() => startIndexing(repoName, true)}
+						disabled={repository?.indexing_status === 'in_progress'}
+						className="text-yellow-600 dark:text-yellow-500 hover:text-yellow-700 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/50"
+					>
+						<RefreshCw className="h-4 w-4" />
+						Force
 					</Button>
 					{onDelete && (
 						<Button

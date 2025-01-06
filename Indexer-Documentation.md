@@ -71,14 +71,37 @@ GET /config
 ### 1.1 Start Indexing
 
 ```http
-POST /indexer/{repo_name}
+POST /indexer/{repo_name}?force=true
 ```
 
-**Example Request:**
+**Parameters:**
+
+- `repo_name`: Name of the repository to index
+- `force` (optional): Boolean flag to force full repository indexing, bypassing git change detection (default: false)
+
+**Example Requests:**
 
 ```bash
+# Normal incremental indexing
 curl -X POST http://localhost:7779/indexer/IntoTheDeep
+
+# Force full repository indexing
+curl -X POST http://localhost:7779/indexer/IntoTheDeep?force=true
 ```
+
+**Response:**
+
+```json
+{
+  "message": "Indexing started for IntoTheDeep"
+}
+```
+
+**Notes:**
+
+- When `force=true`, the entire repository will be reindexed regardless of git history
+- When `force=false` (default), only changed files since the last indexing will be processed
+- Real-time file monitoring continues to use incremental indexing for efficiency
 
 ### 1.2 Search Repository
 
