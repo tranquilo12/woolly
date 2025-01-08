@@ -165,7 +165,7 @@ export function Chat({ chatId }: ChatProps) {
         clearTimeout(scrollTimeout);
       }
     };
-  }, []);
+  }, [chatId, containerRef, endRef]);
 
 
   const saveMessage = async (message: MessageWithModel) => {
@@ -273,15 +273,15 @@ export function Chat({ chatId }: ChatProps) {
   });
 
   // Create a wrapped append function that handles MessageWithModel
-  const append = async (
+  const append = useCallback(async (
     message: MessageWithModel | CreateMessage,
     options?: ChatRequestOptions
   ) => {
     return vercelAppend(toMessage(message as MessageWithModel), options);
-  };
+  }, [vercelAppend]);
 
   // Create a wrapped setMessages function
-  const setMessages = (
+  const setMessages = useCallback((
     messages: MessageWithModel[] | ((prev: MessageWithModel[]) => MessageWithModel[])
   ) => {
     if (typeof messages === 'function') {
@@ -292,7 +292,7 @@ export function Chat({ chatId }: ChatProps) {
     } else {
       setVercelMessages(messages.map(toMessage));
     }
-  };
+  }, [setVercelMessages]);
 
   // Update thinking state when chat loading state changes
   useEffect(() => {
@@ -357,7 +357,7 @@ export function Chat({ chatId }: ChatProps) {
     }
   }, [chatId, messages, setMessages, append]);
 
-  const handleModelChange = async (model: string, messageId: string) => {
+  const handleModelChange = useCallback(async (model: string, messageId: string) => {
     // Update the message's model in the database
     const response = await fetch(`/api/chat/${chatId}/messages/${messageId}/model`, {
       method: 'PATCH',
@@ -376,7 +376,7 @@ export function Chat({ chatId }: ChatProps) {
     setMessages(messages.map(msg =>
       msg.id === messageId ? { ...msg, model } : msg
     ));
-  };
+  }, [chatId, setMessages, messages]);
 
   const renderMessage = useCallback((message: MessageWithModel) => {
     if (message.id === 'edit-indicator') {

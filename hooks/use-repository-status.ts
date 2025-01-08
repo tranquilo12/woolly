@@ -111,7 +111,6 @@ export function useRepositoryStatus() {
 	const [activeSSEConnections, setActiveSSEConnections] = useState<{ [key: string]: EventSource }>({});
 	const [indexingProgress, setIndexingProgress] = useState<{ [key: string]: number }>({});
 	const [currentStatus, setCurrentStatus] = useState<{ [key: string]: string }>({});
-	const [watchStatus, setWatchStatus] = useState<{ [key: string]: boolean }>({});
 
 	// Fetch repository statuses for all known repos
 	const fetchAllRepositories = useCallback(async () => {
@@ -152,14 +151,11 @@ export function useRepositoryStatus() {
 		} finally {
 			setIsLoading(false);
 		}
-	}, []);
+	}, []); // Added empty dependencies array as second argument
 
-	const debouncedSetRepositories = useCallback(
-		debounce((updateFn: (prev: Repository[]) => Repository[]) => {
-			setRepositories(updateFn);
-		}, 100),
-		[]
-	);
+	const debouncedSetRepositories = debounce((updateFn: (prev: Repository[]) => Repository[]) => {
+		setRepositories(updateFn);
+	}, 100);
 
 	// Subscribe to SSE for a given repository
 	const subscribeToStatus = useCallback(

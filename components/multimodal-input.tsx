@@ -25,7 +25,6 @@ import { AvailableRepository } from "@/lib/constants";
 import { parseRepositoryCommand } from "@/lib/commands";
 import { RepositorySearchResult, SearchRepositoryRequest } from "@/hooks/use-repository-status";
 import { RepositoryMentionMenu } from "./repository-mention-menu";
-import { randomUUID } from "crypto";
 
 interface MultimodalInputProps {
   chatId: string;
@@ -95,7 +94,11 @@ export function MultimodalInput({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
-  const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0, placement: 'below' as 'below' | 'above' });
+  const [mentionPosition, setMentionPosition] = useState({
+    top: 0,
+    left: 0,
+    placement: 'below' as 'below' | 'above'
+  });
   const [mentionSearchTerm, setMentionSearchTerm] = useState("");
 
   useEffect(() => {
@@ -160,7 +163,7 @@ export function MultimodalInput({
   };
 
 
-  const handleSubmitWithCommands = async (
+  const handleSubmitWithCommands = useCallback(async (
     event?: { preventDefault?: () => void },
     chatRequestOptions?: ChatRequestOptions,
   ) => {
@@ -170,14 +173,18 @@ export function MultimodalInput({
 
     if (repoName) {
       try {
+        const results = await searchRepository(repoName, {
+          query: query,
+          limit: 10,
+          threshold: 0.7
+        });
 
-        const results = await searchRepository(repoName,
-          { query: query, limit: 10, threshold: 0.7 }
-        );
-
-        const contextMessage = results.length > 0
-          ? `Based on the repository ${repoName}, here's what I found:\n\n${results.map(r => `File: ${r.file_path}\n${r.content}`).join('\n\n')}\n\nQuery: ${query}`
-          : originalMessage;
+        const contextMessage =
+          results.length > 0
+            ? `Based on the repository ${repoName}, here's what I found:\n\n${results
+              .map(r => `File: ${r.file_path}\n${r.content}`)
+              .join('\n\n')}\n\nQuery: ${query}`
+            : originalMessage;
 
         const messageBody = {
           messages: [
@@ -206,7 +213,10 @@ export function MultimodalInput({
 
         setInput('');
       } catch (error) {
-        toast.error(`Failed to search repository: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        toast.error(
+          `Failed to search repository: ${error instanceof Error ? error.message : 'Unknown error'
+          }`
+        );
         return;
       }
     } else {
@@ -236,7 +246,7 @@ export function MultimodalInput({
       );
       setInput('');
     }
-  };
+  }, [input, searchRepository, messages, append, setInput]);
 
   const submitForm = useCallback(async () => {
     if (!input) return;
@@ -248,26 +258,34 @@ export function MultimodalInput({
       const textarea = event.currentTarget;
       const { selectionStart } = textarea;
       const textareaRect = textarea.getBoundingClientRect();
-      const { top, left } = getCaretCoordinates(textarea, selectionStart);
+      const { top: caretTop, left: caretLeft } = getCaretCoordinates(textarea, selectionStart);
 
-      const viewportHeight = window.innerHeight;
-      const menuHeight = 300;
+      const menuHeight = 300; // approximate mention menu height
+      const absoluteTop = textareaRect.top + window.scrollY + caretTop;
+      const absoluteLeft = textareaRect.left + caretLeft;
 
-      // Calculate absolute position relative to viewport
-      const absoluteTop = textareaRect.top + (top + 80);
-      const absoluteLeft = textareaRect.left - (left / 80);
+      // Check available space above
+      const spaceAbove = absoluteTop;
+      const spaceBelow = window.innerHeight - absoluteTop;
 
-      // Check available space below
-      const spaceBelow = viewportHeight - absoluteTop;
+      let placement: 'above' | 'below' = 'below';
+      let menuTop = absoluteTop + 20;
+
+      // If there's not enough room below, but enough room above, we switch
+      if (spaceBelow < menuHeight && spaceAbove >= menuHeight) {
+        placement = 'above';
+        menuTop = absoluteTop - menuHeight - 8;
+      }
 
       setMentionPosition({
-        top: absoluteTop + window.scrollY + (spaceBelow < menuHeight ? -menuHeight : 20),
+        top: menuTop,
         left: absoluteLeft,
-        placement: spaceBelow < menuHeight ? 'above' : 'below'
+        placement
       });
 
       setShowMentionMenu(true);
       setMentionSearchTerm("");
+
     } else if (event.key === " " || event.key === "Backspace" || event.key === "Delete") {
       const textarea = event.currentTarget;
       const { selectionStart } = textarea;
@@ -333,10 +351,7 @@ export function MultimodalInput({
               {attachments.length > 0 && (
                 <div className="flex flex-row gap-2 mb-2">
                   {attachments.map((attachment) => (
-                    <PreviewAttachment
-                      key={attachment.url}
-                      attachment={attachment}
-                    />
+                    <PreviewAttachment key={attachment.url} attachment={attachment} />
                   ))}
                 </div>
               )}
