@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { AvailableRepository, AVAILABLE_REPOSITORIES } from "@/lib/constants";
+import { cn } from "@/lib/utils";
 
 interface RepositoryMentionMenuProps {
 	isOpen: boolean;
@@ -10,6 +11,7 @@ interface RepositoryMentionMenuProps {
 		left: number;
 		placement: 'above' | 'below';
 	};
+	selectedIndex: number;
 }
 
 export function RepositoryMentionMenu({
@@ -17,6 +19,7 @@ export function RepositoryMentionMenu({
 	searchTerm,
 	onSelect,
 	position,
+	selectedIndex,
 }: RepositoryMentionMenuProps) {
 	if (!isOpen) return null;
 
@@ -36,7 +39,7 @@ export function RepositoryMentionMenu({
 			}}
 		>
 			<div className="py-1">
-				{filteredRepos.map((repo) => (
+				{filteredRepos.map((repo, index) => (
 					<button
 						key={repo}
 						type="button"
@@ -45,7 +48,10 @@ export function RepositoryMentionMenu({
 							e.stopPropagation();
 							onSelect(repo);
 						}}
-						className="w-full px-4 py-2 text-left hover:bg-accent/50 text-sm"
+						className={cn(
+							"w-full px-4 py-2 text-left hover:bg-accent/50 text-sm",
+							selectedIndex === index && "bg-accent/50"
+						)}
 					>
 						{repo}
 					</button>

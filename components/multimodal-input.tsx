@@ -21,7 +21,7 @@ import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { useSidebar } from "./sidebar-provider";
 import { PreviewAttachment } from "./preview-attachment";
-import { AvailableRepository } from "@/lib/constants";
+import { AVAILABLE_REPOSITORIES, AvailableRepository } from "@/lib/constants";
 import { parseRepositoryCommand } from "@/lib/commands";
 import { RepositorySearchResult, SearchRepositoryRequest } from "@/hooks/use-repository-status";
 import { RepositoryMentionMenu } from "./repository-mention-menu";
@@ -100,6 +100,7 @@ export function MultimodalInput({
     placement: 'below' as 'below' | 'above'
   });
   const [mentionSearchTerm, setMentionSearchTerm] = useState("");
+  const [selectedMenuIndex, setSelectedMenuIndex] = useState(0);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -254,24 +255,29 @@ export function MultimodalInput({
   }, [input, handleSubmitWithCommands]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showMentionMenu) {
+      if (["ArrowUp", "ArrowDown", "Enter"].includes(event.key)) {
+        handleMenuNavigation(event);
+        return;
+      }
+    }
+
     if (event.key === "@") {
       const textarea = event.currentTarget;
       const { selectionStart } = textarea;
       const textareaRect = textarea.getBoundingClientRect();
       const { top: caretTop, left: caretLeft } = getCaretCoordinates(textarea, selectionStart);
 
-      const menuHeight = 300; // approximate mention menu height
+      const menuHeight = 300;
       const absoluteTop = textareaRect.top + window.scrollY + caretTop;
       const absoluteLeft = textareaRect.left + caretLeft;
 
-      // Check available space above
       const spaceAbove = absoluteTop;
       const spaceBelow = window.innerHeight - absoluteTop;
 
       let placement: 'above' | 'below' = 'below';
       let menuTop = absoluteTop + 20;
 
-      // If there's not enough room below, but enough room above, we switch
       if (spaceBelow < menuHeight && spaceAbove >= menuHeight) {
         placement = 'above';
         menuTop = absoluteTop - menuHeight - 8;
@@ -285,24 +291,17 @@ export function MultimodalInput({
 
       setShowMentionMenu(true);
       setMentionSearchTerm("");
-
-    } else if (event.key === " " || event.key === "Backspace" || event.key === "Delete") {
-      const textarea = event.currentTarget;
-      const { selectionStart } = textarea;
-      const textBeforeCursor = textarea.value.slice(0, selectionStart);
-
-      if (!isValidMentionContext(textBeforeCursor)) {
-        setShowMentionMenu(false);
-      }
-    } else if (event.key === "Enter" && !event.shiftKey) {
+      setSelectedMenuIndex(0);
+    } else if (event.key === "Escape" && showMentionMenu) {
+      event.preventDefault();
+      setShowMentionMenu(false);
+    } else if (event.key === "Enter" && !event.shiftKey && !showMentionMenu) {
       event.preventDefault();
       if (isLoading) {
         toast.error("Please wait for the model to finish its response!");
       } else {
         submitForm();
       }
-    } else if (showMentionMenu && event.key === "Escape") {
-      setShowMentionMenu(false);
     }
   };
 
@@ -323,6 +322,29 @@ export function MultimodalInput({
     textarea.focus();
     const newCursorPosition = textBeforeAt.length + repo.length + 1; // +1 for @
     textarea.setSelectionRange(newCursorPosition, newCursorPosition);
+  };
+
+  const handleMenuNavigation = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const filteredRepos = AVAILABLE_REPOSITORIES.filter(repo =>
+      repo.toLowerCase().includes(mentionSearchTerm.toLowerCase())
+    );
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSelectedMenuIndex(prev =>
+        prev > 0 ? prev - 1 : filteredRepos.length - 1
+      );
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSelectedMenuIndex(prev =>
+        prev < filteredRepos.length - 1 ? prev + 1 : 0
+      );
+    } else if (event.key === "Enter" && showMentionMenu) {
+      event.preventDefault();
+      if (filteredRepos[selectedMenuIndex]) {
+        handleRepositorySelect(filteredRepos[selectedMenuIndex]);
+      }
+    }
   };
 
   return (
@@ -396,6 +418,7 @@ export function MultimodalInput({
                       searchTerm={mentionSearchTerm}
                       onSelect={handleRepositorySelect}
                       position={mentionPosition}
+                      selectedIndex={selectedMenuIndex}
                     />
                   )}
                 </AnimatePresence>
