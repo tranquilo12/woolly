@@ -91,8 +91,8 @@ export interface RepositorySearchResult {
 	content: string;
 	chunk_type: string;
 	file_path: string;
-	start_line: number;
-	end_line: number;
+	start_line: number[];
+	end_line: number[];
 	score: number;
 	repository: string;
 }

@@ -79,8 +79,7 @@ const formatRepositoryResponse = (
   template: RepositorySearchTemplate = DEFAULT_REPOSITORY_TEMPLATE
 ): string => {
   if (results.length === 0) {
-    return `I couldn't find any relevant code in the repository "${repoName}" for your query: "${query}".
-Can you please respond that the repository is not indexed?`;
+    return `I couldn't find any relevant code in the repository "${repoName}" for your query: "${query}".\n\nCan you please respond that the repository is not indexed?`;
   }
 
   const formattedResults = results.map(r =>
