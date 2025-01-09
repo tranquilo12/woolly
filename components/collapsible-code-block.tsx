@@ -10,13 +10,13 @@ interface CollapsibleCodeBlockProps {
 }
 
 export function CollapsibleCodeBlock({ language, value, filePath }: CollapsibleCodeBlockProps) {
-	const [isExpanded, setIsExpanded] = useState(true);
+	const [isExpanded, setIsExpanded] = useState(false);
 
 	return (
-		<div className="border rounded-lg my-2 bg-zinc-950">
+		<div className="border rounded-lg my-1 bg-zinc-950">
 			<button
 				onClick={() => setIsExpanded(!isExpanded)}
-				className="w-full px-4 py-2 flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-300 border-b border-zinc-800"
+				className="w-full px-3 py-1.5 flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-300 border-b border-zinc-800"
 			>
 				{isExpanded ? (
 					<ChevronDown className="h-4 w-4" />
@@ -35,7 +35,7 @@ export function CollapsibleCodeBlock({ language, value, filePath }: CollapsibleC
 						transition={{ duration: 0.2 }}
 						className="overflow-hidden"
 					>
-						<div className="p-1">
+						<div className="p-0.5">
 							<CodeBlock language={language} value={value} />
 						</div>
 					</motion.div>
@@ -43,4 +43,4 @@ export function CollapsibleCodeBlock({ language, value, filePath }: CollapsibleC
 			</AnimatePresence>
 		</div>
 	);
-} 
+}

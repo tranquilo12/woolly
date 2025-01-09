@@ -54,7 +54,7 @@ const NonMemoizedMarkdown = ({ children, isToolCallLoading }: MarkdownProps) => 
     },
     li: ({ node, children, ...props }) => {
       return (
-        <li className="" {...props}>
+        <li className="prose-li:my-1" {...props}>
           {children}
         </li>
       );
