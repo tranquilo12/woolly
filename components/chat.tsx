@@ -127,7 +127,7 @@ export function Chat({ chatId }: ChatProps) {
   const [isRestreaming, setIsRestreaming] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [isToolStreaming, setIsToolStreaming] = useState(false);
-  const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();
+  const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
   const {
     searchRepository,
@@ -166,6 +166,13 @@ export function Chat({ chatId }: ChatProps) {
       }
     };
   }, [chatId, containerRef, endRef]);
+
+  // Scroll during streaming
+  // useEffect(() => {
+  //   if (isThinking || isToolStreaming) {
+  //     scrollToBottom({ behavior: 'smooth' });
+  //   }
+  // }, [isThinking, isToolStreaming, scrollToBottom]);
 
 
   const saveMessage = async (message: MessageWithModel) => {
@@ -272,6 +279,17 @@ export function Chat({ chatId }: ChatProps) {
     },
   });
 
+  // Scroll on new message
+  useEffect(() => {
+    if (!isLoading && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.role === 'user') {
+        scrollToBottom({ force: true, behavior: 'smooth' });
+      }
+      scrollToBottom({ force: false, behavior: 'auto' });
+    }
+  }, [isLoading, messages, scrollToBottom]);
+
   // Create a wrapped append function that handles MessageWithModel
   const append = useCallback(async (
     message: MessageWithModel | CreateMessage,
@@ -349,13 +367,14 @@ export function Chat({ chatId }: ChatProps) {
           },
         }
       );
+      scrollToBottom({ force: true, behavior: 'auto' });
 
     } catch (error) {
       console.error('Failed to restream messages:', error);
       toast.error('Failed to continue conversation after edit');
       setIsRestreaming(false);
     }
-  }, [chatId, messages, setMessages, append]);
+  }, [chatId, messages, setMessages, append, scrollToBottom]);
 
   const handleModelChange = useCallback(async (model: string, messageId: string) => {
     // Update the message's model in the database
