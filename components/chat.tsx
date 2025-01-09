@@ -109,12 +109,19 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
       exit="exit"
       transition={{ duration: 0.2, ease: "easeOut" }}
       className={cn(
-        "group relative w-full max-w-3xl mx-auto",
-        message.role === "user" ? "mb-8" : "mb-8"
+        "group relative w-full max-w-3xl mx-auto transition-all duration-300",
+        message.role === "user"
+          ? "mb-8 hover:bg-muted/30 hover:shadow-muted/20 rounded-lg hover:translate-x-1"
+          : "mb-8 hover:bg-primary/5 hover:shadow-primary/10 rounded-lg hover:-translate-x-1",
       )}
     >
-      <div className="flex items-start gap-4 px-4">
-        <div className="min-w-[30px] text-sm font-medium text-muted-foreground pt-2">
+      <div className="flex items-start gap-4 px-4 py-4">
+        <div className={cn(
+          "min-w-[30px] text-sm font-medium transition-colors duration-300",
+          message.role === "user"
+            ? "text-muted-foreground group-hover:text-foreground"
+            : "text-muted-foreground group-hover:text-primary"
+        )}>
           {message.role === "user" ? "You" : "AI"}
         </div>
 
@@ -519,19 +526,6 @@ export function Chat({ chatId }: ChatProps) {
         className="flex-1 overflow-y-auto message-container"
       >
         <div className="flex flex-col w-full gap-4 px-4 py-4">
-          <CodeContextContainer codeBlockCount={codeContextBlocks.length}>
-            <div className="space-y-2">
-              {codeContextBlocks.map((block, index) => (
-                <CollapsibleCodeBlock
-                  key={`${block.filePath}-${index}`}
-                  language={block.language}
-                  value={block.value}
-                  filePath={block.filePath}
-                />
-              ))}
-            </div>
-          </CodeContextContainer>
-
           {messages.map(renderMessage)}
           {(isLoading || (isThinking && isToolStreaming)) && (
             <ThinkingMessage isToolStreaming={isToolStreaming} />
