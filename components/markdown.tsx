@@ -3,6 +3,7 @@ import React, { memo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "./code-block";
+import { CollapsibleCodeBlock } from "./collapsible-code-block";
 
 type MarkdownProps = {
   children: string;
@@ -20,107 +21,63 @@ const NonMemoizedMarkdown = ({ children, isToolCallLoading }: MarkdownProps) => 
 
   const components: Partial<Components> = {
     code: ({ node, className, children, ...props }) => {
-      const match = /language-(\w+)/.exec(className || "");
       const value = String(children).replace(/\n$/, "");
+      const [language, filePath] = (className?.replace('language-', '') || '').split('::');
 
-      return match ? (
-        <CodeBlock language={match[1]} value={value} />
+      if (filePath) {
+        return (
+          <CollapsibleCodeBlock
+            language={language}
+            value={value}
+            filePath={filePath}
+          />
+        );
+      }
+
+      return language ? (
+        <CodeBlock language={language} value={value} />
       ) : (
-        <code
-          className={`${className} text-xs bg-zinc-100 dark:bg-zinc-800 py-0.5 px-1 rounded-md`}
-          {...props}
-        >
+        <code className="rounded-md bg-muted/50 px-1.5 py-0.5 text-sm font-medium" {...props}>
           {children}
         </code>
       );
     },
-    ol: ({ node, children, ...props }) => {
-      return (
-        <ol className="list-decimal list-outside ml-4" {...props}>
-          {children}
-        </ol>
-      );
-    },
-    li: ({ node, children, ...props }) => {
-      return (
-        <li className="py-1" {...props}>
-          {children}
-        </li>
-      );
-    },
-    ul: ({ node, children, ...props }) => {
-      return (
-        <ul className="list-decimal list-outside ml-4" {...props}>
-          {children}
-        </ul>
-      );
-    },
-    strong: ({ node, children, ...props }) => {
-      return (
-        <span className="font-semibold" {...props}>
-          {children}
-        </span>
-      );
-    },
-    a: ({ node, children, ...props }) => {
-      return (
-        // @ts-expect-error
-        <Link
-          className="text-blue-500 hover:underline"
-          target="_blank"
-          rel="noreferrer"
-          {...props}
-        >
-          {children}
-        </Link>
-      );
-    },
-    h1: ({ node, children, ...props }) => {
-      return (
-        <h1 className="text-3xl font-semibold mt-6 mb-2" {...props}>
-          {children}
-        </h1>
-      );
-    },
-    h2: ({ node, children, ...props }) => {
-      return (
-        <h2 className="text-2xl font-semibold mt-6 mb-2" {...props}>
-          {children}
-        </h2>
-      );
-    },
-    h3: ({ node, children, ...props }) => {
-      return (
-        <h3 className="text-xl font-semibold mt-6 mb-2" {...props}>
-          {children}
-        </h3>
-      );
-    },
-    h4: ({ node, children, ...props }) => {
-      return (
-        <h4 className="text-lg font-semibold mt-6 mb-2" {...props}>
-          {children}
-        </h4>
-      );
-    },
-    h5: ({ node, children, ...props }) => {
-      return (
-        <h5 className="text-base font-semibold mt-6 mb-2" {...props}>
-          {children}
-        </h5>
-      );
-    },
-    h6: ({ node, children, ...props }) => {
-      return (
-        <h6 className="text-sm font-semibold mt-6 mb-2" {...props}>
-          {children}
-        </h6>
-      );
-    },
+    p: ({ children }) => (
+      <p className="mb-4 last:mb-0 leading-7">{children}</p>
+    ),
+    ul: ({ children }) => (
+      <ul className="mb-4 list-disc pl-8 space-y-2">{children}</ul>
+    ),
+    ol: ({ children }) => (
+      <ol className="mb-4 list-decimal pl-8 space-y-2">{children}</ol>
+    ),
+    li: ({ children }) => (
+      <li className="leading-7">{children}</li>
+    ),
+    strong: ({ children }) => (
+      <strong className="font-semibold">{children}</strong>
+    ),
+    a: ({ href, children }) => (
+      <Link
+        href={href || ''}
+        className="font-medium underline underline-offset-4 hover:text-primary"
+        target="_blank"
+        rel="noreferrer"
+      >
+        {children}
+      </Link>
+    ),
+    blockquote: ({ children }) => (
+      <blockquote className="mt-6 border-l-2 pl-6 italic">{children}</blockquote>
+    ),
   };
 
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={components}
+      className="prose dark:prose-invert max-w-none break-words"
+    >
       {children}
     </ReactMarkdown>
   );

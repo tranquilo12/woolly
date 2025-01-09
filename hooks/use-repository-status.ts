@@ -87,13 +87,30 @@ export interface RepositoryStats {
 	indexing_status: string;
 }
 
+export interface RepositorySearchResult {
+	content: string;
+	chunk_type: string;
+	file_path: string;
+	start_line: number[];
+	end_line: number[];
+	score: number;
+	repository: string;
+}
+
+export interface SearchRepositoryRequest {
+	query: string;
+	limit?: number;
+	threshold?: number;
+	file_paths?: string[];
+	chunk_types?: string[];
+}
+
 export function useRepositoryStatus() {
 	const [repositories, setRepositories] = useState<Repository[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [activeSSEConnections, setActiveSSEConnections] = useState<{ [key: string]: EventSource }>({});
 	const [indexingProgress, setIndexingProgress] = useState<{ [key: string]: number }>({});
 	const [currentStatus, setCurrentStatus] = useState<{ [key: string]: string }>({});
-	const [watchStatus, setWatchStatus] = useState<{ [key: string]: boolean }>({});
 
 	// Fetch repository statuses for all known repos
 	const fetchAllRepositories = useCallback(async () => {
@@ -134,14 +151,11 @@ export function useRepositoryStatus() {
 		} finally {
 			setIsLoading(false);
 		}
-	}, []);
+	}, []); // Added empty dependencies array as second argument
 
-	const debouncedSetRepositories = useCallback(
-		debounce((updateFn: (prev: Repository[]) => Repository[]) => {
-			setRepositories(updateFn);
-		}, 100),
-		[]
-	);
+	const debouncedSetRepositories = debounce((updateFn: (prev: Repository[]) => Repository[]) => {
+		setRepositories(updateFn);
+	}, 100);
 
 	// Subscribe to SSE for a given repository
 	const subscribeToStatus = useCallback(
@@ -371,6 +385,23 @@ export function useRepositoryStatus() {
 		}
 	}, []);
 
+	const searchRepository = useCallback(async (repoName: AvailableRepository, options: SearchRepositoryRequest) => {
+		const response = await fetch(`${INDEXER_BASE_URL}/indexer/${repoName}/search`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify(options),
+		});
+
+		if (!response.ok) {
+			const errorData = await response.json();
+			throw new Error(errorData.detail || 'Failed to search repository');
+		}
+
+		return response.json();
+	}, []);
+
 	return {
 		repositories,
 		setRepositories,
@@ -390,5 +421,6 @@ export function useRepositoryStatus() {
 		setCurrentStatus,
 		deleteIndex,
 		getRepositoryStats,
+		searchRepository,
 	};
 } 

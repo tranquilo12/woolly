@@ -228,29 +228,94 @@
 
 .prose {
   max-width: none;
-  overflow-wrap: break-word;
-  word-wrap: break-word;
-  word-break: break-word;
-  hyphens: auto;
-}
-
-.prose pre {
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  overflow-x: auto;
+  color: hsl(var(--foreground));
 }
 
 .prose p {
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  margin-bottom: 1em;
+  margin-bottom: 1rem;
+  line-height: 1.75;
+}
+
+.prose strong {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+
+.prose a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  font-weight: 500;
+}
+
+.prose ul {
+  list-style-type: disc;
+  padding-left: 1.5em;
+}
+
+.prose ol {
+  list-style-type: decimal;
+  padding-left: 1.5em;
+}
+
+.prose li {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose blockquote {
+  border-left: 2px solid hsl(var(--border));
+  padding-left: 1em;
+  font-style: italic;
+  margin: 1.5em 0;
 }
 
 .prose code {
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  max-width: 100%;
+  font-size: 0.75rem !important;
+  font-weight: 500;
+  background: hsl(var(--muted));
+  border-radius: 0.25rem;
+  padding: 0.2rem 0.4rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+.prose pre {
+  margin: 1.5rem 0;
+  padding: 0;
+  background: transparent;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.prose pre + p {
+  margin-top: 1.5rem;
+}
+
+.prose p + pre {
+  margin-top: 1.5rem;
+}
+
+.prose pre > div {
+  margin: 0 !important;
+}
+
+.prose pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  color: inherit;
+  font-size: 0.75rem !important;
+  line-height: 1.5;
+}
+
+.dark .prose {
+  --tw-prose-body: hsl(var(--foreground));
+  --tw-prose-headings: hsl(var(--foreground));
+  --tw-prose-links: hsl(var(--primary));
+  --tw-prose-bold: hsl(var(--foreground));
+  --tw-prose-code: hsl(var(--foreground));
+  --tw-prose-quotes: hsl(var(--foreground));
 }
 
 @layer utilities {
@@ -324,4 +389,52 @@
 .repository-table-container {
   min-height: 420px; /* Adjust based on your needs */
   transition: height 0.2s ease-in-out;
+}
+
+/* Code Context Container */
+.code-context-container {
+  position: relative;
+  transition: all 0.2s ease-in-out;
+  will-change: height, opacity, transform;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  background: hsl(var(--background));
+  backdrop-filter: blur(8px);
+}
+
+.code-context-minimized {
+  position: absolute;
+  right: 1rem;
+  top: 1rem;
+  width: auto;
+  height: 2.5rem;
+  opacity: 0.7;
+  cursor: pointer;
+  transform: translateY(0);
+  z-index: 50;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.code-context-minimized:hover {
+  opacity: 1;
+  transform: translateY(-2px);
+}
+
+.code-context-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.code-context-content {
+  overflow: hidden;
+  transition: height 0.2s ease-in-out;
+}
+
+.code-context-expanded {
+  height: auto;
+  opacity: 1;
+  width: 100%;
 }

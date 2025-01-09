@@ -72,3 +72,57 @@ export function parseToolResult(result: any): ToolResult {
     };
   }
 }
+
+interface CaretCoordinates {
+  top: number;
+  left: number;
+  lineHeight: number;
+}
+
+export function getCaretCoordinates(element: HTMLTextAreaElement, position: number): CaretCoordinates {
+  // Create a mirror div to measure text that exactly matches the textarea
+  const div = document.createElement('div');
+  const computed = window.getComputedStyle(element);
+
+  // Copy ALL styles that could affect text layout and positioning
+  const styles = computed.cssText;
+  div.style.cssText = styles;
+  
+  // Critical positioning styles
+  div.style.position = 'absolute';
+  div.style.top = '0';
+  div.style.left = '0';
+  div.style.visibility = 'hidden';
+  div.style.whiteSpace = 'pre-wrap';
+  div.style.width = `${element.offsetWidth}px`; // Match textarea width exactly
+  div.style.height = 'auto';
+
+  // Create a span for the text before cursor
+  const textBeforeCursor = element.value.substring(0, position);
+  const textNode = document.createTextNode(textBeforeCursor);
+  div.appendChild(textNode);
+
+  // Create a span element that will represent the cursor position
+  const span = document.createElement('span');
+  span.textContent = element.value.charAt(position) || '.';
+  div.appendChild(span);
+
+  // Add the hidden div to the same container as the textarea
+  element.parentNode?.appendChild(div);
+
+  // Get the coordinates relative to the textarea
+  const spanRect = span.getBoundingClientRect();
+  const textareaRect = element.getBoundingClientRect();
+
+  // Calculate the exact position considering scroll
+  const coordinates = {
+    top: spanRect.top - (textareaRect.top * 0.86) + element.scrollTop,
+    left: spanRect.left - textareaRect.left + element.scrollLeft,
+    lineHeight: parseInt(computed.lineHeight || '0')
+  };
+
+  // Clean up
+  element.parentNode?.removeChild(div);
+
+  return coordinates;
+}

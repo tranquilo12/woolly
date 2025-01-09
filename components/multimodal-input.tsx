@@ -11,15 +11,20 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
-import { useLocalStorage, useWindowSize } from "usehooks-ts";
+import { useLocalStorage } from "usehooks-ts";
+import { AnimatePresence } from "framer-motion";
 
-import { cn, sanitizeUIMessages } from "@/lib/utils";
+import { cn, getCaretCoordinates, sanitizeUIMessages } from "@/lib/utils";
 
 import { ArrowUpIcon, StopIcon, MenuIcon, AttachmentIcon } from "./icons";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { useSidebar } from "./sidebar-provider";
 import { PreviewAttachment } from "./preview-attachment";
+import { AVAILABLE_REPOSITORIES, AvailableRepository } from "@/lib/constants";
+import { parseRepositoryCommand } from "@/lib/commands";
+import { RepositorySearchResult, SearchRepositoryRequest } from "@/hooks/use-repository-status";
+import { RepositoryMentionMenu } from "./repository-mention-menu";
 
 interface MultimodalInputProps {
   chatId: string;
@@ -38,7 +43,56 @@ interface MultimodalInputProps {
     chatRequestOptions?: ChatRequestOptions,
   ) => void;
   className?: string;
+  searchRepository: (repoName: AvailableRepository, query: SearchRepositoryRequest) => Promise<{ results: RepositorySearchResult[] }>;
 }
+
+const isValidMentionContext = (text: string): boolean => {
+  // Find the last @ symbol
+  const lastAtIndex = text.lastIndexOf('@');
+  if (lastAtIndex === -1) return false;
+
+  // Check if there's a space between the @ and the cursor
+  const textAfterAt = text.slice(lastAtIndex + 1);
+  return !textAfterAt.includes(' ');
+};
+
+interface RepositorySearchTemplate {
+  prefix: string;
+  resultFormat: string;
+  separator: string;
+  suffix: string;
+  emptyResult: string;
+}
+
+const DEFAULT_REPOSITORY_TEMPLATE: RepositorySearchTemplate = {
+  prefix: "Based on the repository {repoName}, here's what I found:\n\n",
+  resultFormat: "```{language}::{filePath}\n{content}\n```",
+  separator: "\n\n",
+  suffix: "\n\nQuery: {query}",
+  emptyResult: "No relevant code found in repository {repoName} for query: {query}"
+};
+
+const formatRepositoryResponse = (
+  repoName: string,
+  results: RepositorySearchResult[],
+  query: string,
+  template: RepositorySearchTemplate = DEFAULT_REPOSITORY_TEMPLATE
+): string => {
+  if (results.length === 0) {
+    return `I couldn't find any relevant code in the repository "${repoName}" for your query: "${query}".\n\nCan you please respond that the repository is not indexed?`;
+  }
+
+  const formattedResults = results.map(r =>
+    template.resultFormat
+      .replace("{filePath}", r.file_path)
+      .replace("{content}", r.content)
+      .replace("{language}", r.file_path.split('.').pop() || 'text')
+  );
+
+  return template.prefix.replace("{repoName}", repoName) +
+    formattedResults.join(template.separator) +
+    template.suffix.replace("{query}", query);
+};
 
 export function MultimodalInput({
   chatId,
@@ -51,14 +105,21 @@ export function MultimodalInput({
   append,
   handleSubmit,
   className,
+  searchRepository,
 }: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { width } = useWindowSize();
   const { toggle, setIsOpen, isPinned, isOpen } = useSidebar();
   const containerRef = useRef<HTMLDivElement>(null);
-  const isMobile = width < 1024;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showMentionMenu, setShowMentionMenu] = useState(false);
+  const [mentionPosition, setMentionPosition] = useState({
+    top: 0,
+    left: 0,
+    placement: 'below' as 'below' | 'above'
+  });
+  const [mentionSearchTerm, setMentionSearchTerm] = useState("");
+  const [selectedMenuIndex, setSelectedMenuIndex] = useState(0);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -95,7 +156,16 @@ export function MultimodalInput({
   }, [input, setLocalStorageInput]);
 
   const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(event.target.value);
+    const newValue = event.target.value;
+    setInput(newValue);
+
+    // Check if we should hide the menu
+    const { selectionStart } = event.target;
+    const textBeforeCursor = newValue.slice(0, selectionStart);
+    if (!isValidMentionContext(textBeforeCursor)) {
+      setShowMentionMenu(false);
+    }
+
     adjustHeight();
   };
 
@@ -112,37 +182,199 @@ export function MultimodalInput({
     setAttachments(prev => [...prev, ...newAttachments]);
   };
 
-  const submitForm = useCallback(async () => {
-    try {
-      const messageData = {
-        role: 'user',
-        content: input,
-        id: crypto.randomUUID(),
-        attachments
-      };
 
-      await handleSubmit(undefined, {
-        body: {
-          chatId,
-          messages: [...messages, messageData].map(msg => ({
-            role: msg.role,
-            content: msg.content,
-            id: msg.id,
-          }))
-        }
-      });
+  const handleSubmitWithCommands = useCallback(async (
+    event?: { preventDefault?: () => void },
+    chatRequestOptions?: ChatRequestOptions,
+  ) => {
+    if (event?.preventDefault) {
+      event.preventDefault();
+    }
+
+    if (!input) return;
+
+    console.log('🎯 Processing input:', input);
+    const command = parseRepositoryCommand(input);
+    console.log('🔄 Processed command:', command);
+
+    try {
+      if (command) {
+        console.log('🔎 Searching repository:', { repoName: command.repository, query: command.query });
+        const searchResponse = await searchRepository(command.repository, {
+          query: command.query,
+          limit: 10,
+          threshold: 0.7
+        });
+        console.log('📊 Search results:', searchResponse);
+
+        const contextMessage = formatRepositoryResponse(
+          command.repository,
+          searchResponse.results || [], // Extract just the results array
+          command.query
+        );
+        console.log('📝 Formatted response:', contextMessage);
+
+        const messageBody = {
+          messages: [
+            ...messages.map(m => ({
+              role: m.role,
+              content: m.content,
+              id: m.id
+            })),
+            {
+              role: 'user',
+              content: contextMessage,
+            }
+          ],
+          model: "gpt-4o"
+        };
+
+        await append(
+          {
+            role: 'user',
+            content: contextMessage,
+          },
+          {
+            body: messageBody
+          }
+        );
+      } else {
+        // Handle regular message without repository context
+        const messageBody = {
+          messages: [
+            ...messages.map(m => ({
+              role: m.role,
+              content: m.content,
+              id: m.id
+            })),
+            {
+              role: 'user',
+              content: input,
+            }
+          ],
+          model: "gpt-4o"
+        };
+
+        await append(
+          {
+            role: 'user',
+            content: input,
+          },
+          {
+            body: messageBody
+          }
+        );
+      }
 
       setInput('');
-      setLocalStorageInput('');
-      setAttachments([]);
     } catch (error) {
-      console.error('Error submitting message:', error);
-      toast.error('Failed to send message');
+      console.error('Error in handleSubmitWithCommands:', error);
+      toast.error(
+        `Failed to process message: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
-  }, [input, chatId, messages, handleSubmit, setInput, setLocalStorageInput, attachments, setMessages]);
+  }, [input, searchRepository, messages, append, setInput]);
+
+  const submitForm = useCallback(async () => {
+    if (!input) return;
+    await handleSubmitWithCommands();
+  }, [input, handleSubmitWithCommands]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showMentionMenu) {
+      if (["ArrowUp", "ArrowDown", "Enter"].includes(event.key)) {
+        handleMenuNavigation(event);
+        return;
+      }
+    }
+
+    if (event.key === "@") {
+      const textarea = event.currentTarget;
+      const { selectionStart } = textarea;
+      const textareaRect = textarea.getBoundingClientRect();
+      const { top: caretTop, left: caretLeft } = getCaretCoordinates(textarea, selectionStart);
+
+      const menuHeight = 300;
+      const absoluteTop = textareaRect.top + window.scrollY + caretTop;
+      const absoluteLeft = textareaRect.left + caretLeft;
+
+      const spaceAbove = absoluteTop;
+      const spaceBelow = window.innerHeight - absoluteTop;
+
+      let placement: 'above' | 'below' = 'below';
+      let menuTop = absoluteTop + 20;
+
+      if (spaceBelow < menuHeight && spaceAbove >= menuHeight) {
+        placement = 'above';
+        menuTop = absoluteTop - menuHeight - 8;
+      }
+
+      setMentionPosition({
+        top: menuTop,
+        left: absoluteLeft,
+        placement
+      });
+
+      setShowMentionMenu(true);
+      setMentionSearchTerm("");
+      setSelectedMenuIndex(0);
+    } else if (event.key === "Escape" && showMentionMenu) {
+      event.preventDefault();
+      setShowMentionMenu(false);
+    } else if (event.key === "Enter" && !event.shiftKey && !showMentionMenu) {
+      event.preventDefault();
+      if (isLoading) {
+        toast.error("Please wait for the model to finish its response!");
+      } else {
+        submitForm();
+      }
+    }
+  };
+
+  const handleRepositorySelect = (repo: AvailableRepository) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const cursorPosition = textarea.selectionStart;
+    const textBeforeCursor = input.slice(0, cursorPosition);
+    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+    const textBeforeAt = textBeforeCursor.slice(0, lastAtIndex);
+    const textAfterCursor = input.slice(cursorPosition);
+
+    setInput(`${textBeforeAt}@${repo}${textAfterCursor}`);
+    setShowMentionMenu(false);
+
+    // Restore focus and move cursor after the repository name
+    textarea.focus();
+    const newCursorPosition = textBeforeAt.length + repo.length + 1; // +1 for @
+    textarea.setSelectionRange(newCursorPosition, newCursorPosition);
+  };
+
+  const handleMenuNavigation = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const filteredRepos = AVAILABLE_REPOSITORIES.filter(repo =>
+      repo.toLowerCase().includes(mentionSearchTerm.toLowerCase())
+    );
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSelectedMenuIndex(prev =>
+        prev > 0 ? prev - 1 : filteredRepos.length - 1
+      );
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSelectedMenuIndex(prev =>
+        prev < filteredRepos.length - 1 ? prev + 1 : 0
+      );
+    } else if (event.key === "Enter" && showMentionMenu) {
+      event.preventDefault();
+      if (filteredRepos[selectedMenuIndex]) {
+        handleRepositorySelect(filteredRepos[selectedMenuIndex]);
+      }
+    }
+  };
 
   return (
-    <form onSubmit={(e) => handleSubmit(e)}>
+    <form onSubmit={(e) => handleSubmitWithCommands(e)}>
       <div ref={containerRef} className="relative">
         <div className="p-4">
           <div className="mx-auto max-w-3xl relative flex items-center gap-2">
@@ -167,10 +399,7 @@ export function MultimodalInput({
               {attachments.length > 0 && (
                 <div className="flex flex-row gap-2 mb-2">
                   {attachments.map((attachment) => (
-                    <PreviewAttachment
-                      key={attachment.url}
-                      attachment={attachment}
-                    />
+                    <PreviewAttachment key={attachment.url} attachment={attachment} />
                   ))}
                 </div>
               )}
@@ -206,17 +435,19 @@ export function MultimodalInput({
                   )}
                   rows={3}
                   autoFocus
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      if (isLoading) {
-                        toast.error("Please wait for the model to finish its response!");
-                      } else {
-                        submitForm();
-                      }
-                    }
-                  }}
+                  onKeyDown={handleKeyDown}
                 />
+                <AnimatePresence>
+                  {showMentionMenu && (
+                    <RepositoryMentionMenu
+                      isOpen={showMentionMenu}
+                      searchTerm={mentionSearchTerm}
+                      onSelect={handleRepositorySelect}
+                      position={mentionPosition}
+                      selectedIndex={selectedMenuIndex}
+                    />
+                  )}
+                </AnimatePresence>
               </div>
 
               {isLoading ? (
@@ -235,7 +466,7 @@ export function MultimodalInput({
                   className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 hover:bg-accent/50 transition-colors"
                   onClick={(event) => {
                     event.preventDefault();
-                    submitForm();
+                    handleSubmitWithCommands();
                   }}
                   disabled={input.length === 0}
                 >

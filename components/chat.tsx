@@ -15,6 +15,9 @@ import { ThinkingMessage } from "./thinking-message";
 import { EditIndicator } from "./edit-indicator";
 import { ModelSelector } from "./model-selector";
 import { useChatTitle } from "./chat-title-context";
+import { useRepositoryStatus } from "@/hooks/use-repository-status";
+import { CodeContextContainer } from "./code-context-container";
+import { CollapsibleCodeBlock } from "./collapsible-code-block";
 
 interface ChatProps {
   chatId?: string;
@@ -47,6 +50,12 @@ export function toMessageWithModel(message: Message, model: string = 'gpt-4o'): 
 const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: ChatMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
 
+  const messageVariants = {
+    initial: { opacity: 0, y: 10 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -10 }
+  };
+
   const handleEdit = async (newContent: string) => {
     if (!chatId || !message.id) return;
     try {
@@ -75,45 +84,75 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
 
   if (isEditing) {
     return (
-      <EditMessageInput
-        initialContent={message.content}
-        onSave={handleEdit}
-        onCancel={() => setIsEditing(false)}
-      />
+      <motion.div
+        variants={messageVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        transition={{ duration: 0.2, ease: "easeOut" }}
+      >
+        <EditMessageInput
+          initialContent={message.content}
+          onSave={handleEdit}
+          onCancel={() => setIsEditing(false)}
+        />
+      </motion.div>
     );
   }
 
   return (
     <motion.div
-      key={message.id}
-      initial={{ opacity: 0, y: 50 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="group relative flex items-start md:gap-6 gap-4 pb-4 w-full"
+      layout
+      variants={messageVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.2, ease: "easeOut" }}
+      className={cn(
+        "group relative w-full max-w-3xl mx-auto transition-all duration-300",
+        message.role === "user"
+          ? "mb-8 hover:bg-muted/30 hover:shadow-muted/20 rounded-lg hover:translate-x-1"
+          : "mb-8 hover:bg-primary/5 hover:shadow-primary/10 rounded-lg hover:-translate-x-1",
+      )}
     >
-      <div className="flex-1 overflow-hidden">
+      <div className="flex items-start gap-4 px-4 py-4">
         <div className={cn(
-          "p-4 pb-8 rounded-lg relative overflow-hidden",
-          "break-words whitespace-pre-wrap",
+          "min-w-[30px] text-sm font-medium transition-colors duration-300",
           message.role === "user"
-            ? "bg-primary/10 ml-auto max-w-[85%] float-right clear-both"
-            : "bg-muted mr-auto max-w-[85%] float-left clear-both"
+            ? "text-muted-foreground group-hover:text-foreground"
+            : "text-muted-foreground group-hover:text-primary"
         )}>
-          <div className="prose prose-neutral dark:prose-invert max-w-none">
+          {message.role === "user" ? "You" : "AI"}
+        </div>
+
+        <motion.div
+          className="flex-1 space-y-4 overflow-hidden"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3, delay: 0.1 }}
+        >
+          <div className="prose dark:prose-invert">
             <Markdown>{message.content}</Markdown>
           </div>
+
           {message.toolInvocations?.map((tool, i) => (
             <ToolInvocationDisplay key={i} toolInvocation={tool} />
           ))}
-          {message.role === "user" && (
-            <div className="absolute bottom-1.5 left-2 opacity-20 hover:opacity-100 transition-opacity">
-              <ModelSelector
-                currentModel={message.model || "gpt-4o"}
-                onModelChange={(model) => onModelChange(model, message.id)}
-              />
-            </div>
-          )}
-        </div>
+        </motion.div>
+
+        {message.role === "user" && (
+          <motion.div
+            className="opacity-0 group-hover:opacity-100 transition-opacity"
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <ModelSelector
+              currentModel={message.model || "gpt-4o"}
+              onModelChange={(model) => onModelChange(model, message.id)}
+            />
+          </motion.div>
+        )}
       </div>
     </motion.div>
   );
@@ -126,8 +165,19 @@ export function Chat({ chatId }: ChatProps) {
   const [isRestreaming, setIsRestreaming] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [isToolStreaming, setIsToolStreaming] = useState(false);
-  const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();
+  const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
+  const {
+    searchRepository,
+    getRepositoryStats,
+    getRepositoryMap,
+    getRepositorySummary
+  } = useRepositoryStatus();
+  const [codeContextBlocks, setCodeContextBlocks] = useState<Array<{
+    language: string;
+    value: string;
+    filePath?: string;
+  }>>([]);
 
   // Add a debounced scroll handler
   useEffect(() => {
@@ -158,7 +208,14 @@ export function Chat({ chatId }: ChatProps) {
         clearTimeout(scrollTimeout);
       }
     };
-  }, []);
+  }, [chatId, containerRef, endRef]);
+
+  // Scroll during streaming
+  // useEffect(() => {
+  //   if (isThinking || isToolStreaming) {
+  //     scrollToBottom({ behavior: 'smooth' });
+  //   }
+  // }, [isThinking, isToolStreaming, scrollToBottom]);
 
 
   const saveMessage = async (message: MessageWithModel) => {
@@ -265,16 +322,27 @@ export function Chat({ chatId }: ChatProps) {
     },
   });
 
+  // Scroll on new message
+  useEffect(() => {
+    if (!isLoading && messages.length > 0) {
+      // Only force scroll when user sends a message
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.role === 'user') {
+        scrollToBottom({ behavior: 'smooth' });
+      }
+    }
+  }, [isLoading, messages, scrollToBottom]);
+
   // Create a wrapped append function that handles MessageWithModel
-  const append = async (
+  const append = useCallback(async (
     message: MessageWithModel | CreateMessage,
     options?: ChatRequestOptions
   ) => {
     return vercelAppend(toMessage(message as MessageWithModel), options);
-  };
+  }, [vercelAppend]);
 
   // Create a wrapped setMessages function
-  const setMessages = (
+  const setMessages = useCallback((
     messages: MessageWithModel[] | ((prev: MessageWithModel[]) => MessageWithModel[])
   ) => {
     if (typeof messages === 'function') {
@@ -285,7 +353,7 @@ export function Chat({ chatId }: ChatProps) {
     } else {
       setVercelMessages(messages.map(toMessage));
     }
-  };
+  }, [setVercelMessages]);
 
   // Update thinking state when chat loading state changes
   useEffect(() => {
@@ -342,15 +410,16 @@ export function Chat({ chatId }: ChatProps) {
           },
         }
       );
+      scrollToBottom({ force: true, behavior: 'auto' });
 
     } catch (error) {
       console.error('Failed to restream messages:', error);
       toast.error('Failed to continue conversation after edit');
       setIsRestreaming(false);
     }
-  }, [chatId, messages, setMessages, append]);
+  }, [chatId, messages, setMessages, append, scrollToBottom]);
 
-  const handleModelChange = async (model: string, messageId: string) => {
+  const handleModelChange = useCallback(async (model: string, messageId: string) => {
     // Update the message's model in the database
     const response = await fetch(`/api/chat/${chatId}/messages/${messageId}/model`, {
       method: 'PATCH',
@@ -369,23 +438,8 @@ export function Chat({ chatId }: ChatProps) {
     setMessages(messages.map(msg =>
       msg.id === messageId ? { ...msg, model } : msg
     ));
-  };
+  }, [chatId, setMessages, messages]);
 
-  const renderMessage = useCallback((message: MessageWithModel) => {
-    if (message.id === 'edit-indicator') {
-      return <EditIndicator key="edit-indicator" />;
-    }
-
-    return (
-      <ChatMessage
-        key={message.id}
-        message={message}
-        chatId={chatId}
-        onEditComplete={handleEditComplete}
-        onModelChange={handleModelChange}
-      />
-    );
-  }, [chatId, handleEditComplete, handleModelChange]);
 
   useEffect(() => {
     const fetchChatTitle = async () => {
@@ -407,6 +461,63 @@ export function Chat({ chatId }: ChatProps) {
     return () => setTitle('');
   }, [chatId, setTitle]);
 
+  const updateCodeContext = useCallback((blocks: Array<{
+    language: string;
+    value: string;
+    filePath?: string;
+  }>) => {
+    setCodeContextBlocks(blocks);
+  }, []);
+
+  const handleCodeContextUpdate = useCallback((message: MessageWithModel) => {
+    // Extract code blocks from message content
+    const codeBlocks = message.content.match(/```[\s\S]*?```/g) || [];
+
+    const parsedBlocks = codeBlocks.map(block => {
+      const [firstLine, ...rest] = block.split('\n');
+      const language = firstLine.replace('```', '').trim();
+      const value = rest.slice(0, -1).join('\n');
+
+      // Extract file path if present (format: ```language:filepath)
+      const [lang, filePath] = language.split(':');
+
+      return {
+        language: lang,
+        value,
+        filePath
+      };
+    });
+
+    updateCodeContext(parsedBlocks);
+  }, [updateCodeContext]);
+
+  useEffect(() => {
+    // Only process the last assistant message for code blocks
+    const lastAssistantMessage = [...messages]
+      .reverse()
+      .find(msg => msg.role === 'assistant');
+
+    if (lastAssistantMessage) {
+      handleCodeContextUpdate(lastAssistantMessage);
+    }
+  }, [messages, handleCodeContextUpdate]);
+
+  const renderMessage = useCallback((message: MessageWithModel) => {
+    if (message.id === 'edit-indicator') {
+      return <EditIndicator key="edit-indicator" />;
+    }
+
+    return (
+      <ChatMessage
+        key={message.id}
+        message={message}
+        chatId={chatId}
+        onEditComplete={handleEditComplete}
+        onModelChange={handleModelChange}
+      />
+    );
+  }, [chatId, handleEditComplete, handleModelChange]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       {/* Message container */}
@@ -427,7 +538,7 @@ export function Chat({ chatId }: ChatProps) {
       <div className="sticky bottom-0 w-full bg-background border-t">
         <div className="max-w-3xl mx-auto">
           <MultimodalInput
-            chatId={chatId || ""}
+            chatId={chatId || ''}
             input={input}
             setInput={setInput}
             isLoading={isLoading}
@@ -436,6 +547,7 @@ export function Chat({ chatId }: ChatProps) {
             setMessages={setMessages}
             append={append}
             handleSubmit={handleSubmit}
+            searchRepository={searchRepository}
           />
         </div>
       </div>
