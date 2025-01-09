@@ -16,6 +16,8 @@ import { EditIndicator } from "./edit-indicator";
 import { ModelSelector } from "./model-selector";
 import { useChatTitle } from "./chat-title-context";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
+import { CodeContextContainer } from "./code-context-container";
+import { CollapsibleCodeBlock } from "./collapsible-code-block";
 
 interface ChatProps {
   chatId?: string;
@@ -164,6 +166,11 @@ export function Chat({ chatId }: ChatProps) {
     getRepositoryMap,
     getRepositorySummary
   } = useRepositoryStatus();
+  const [codeContextBlocks, setCodeContextBlocks] = useState<Array<{
+    language: string;
+    value: string;
+    filePath?: string;
+  }>>([]);
 
   // Add a debounced scroll handler
   useEffect(() => {
@@ -311,11 +318,11 @@ export function Chat({ chatId }: ChatProps) {
   // Scroll on new message
   useEffect(() => {
     if (!isLoading && messages.length > 0) {
+      // Only force scroll when user sends a message
       const lastMessage = messages[messages.length - 1];
       if (lastMessage.role === 'user') {
-        scrollToBottom({ force: true, behavior: 'smooth' });
+        scrollToBottom({ behavior: 'smooth' });
       }
-      scrollToBottom({ force: false, behavior: 'auto' });
     }
   }, [isLoading, messages, scrollToBottom]);
 
@@ -426,21 +433,6 @@ export function Chat({ chatId }: ChatProps) {
     ));
   }, [chatId, setMessages, messages]);
 
-  const renderMessage = useCallback((message: MessageWithModel) => {
-    if (message.id === 'edit-indicator') {
-      return <EditIndicator key="edit-indicator" />;
-    }
-
-    return (
-      <ChatMessage
-        key={message.id}
-        message={message}
-        chatId={chatId}
-        onEditComplete={handleEditComplete}
-        onModelChange={handleModelChange}
-      />
-    );
-  }, [chatId, handleEditComplete, handleModelChange]);
 
   useEffect(() => {
     const fetchChatTitle = async () => {
@@ -462,6 +454,63 @@ export function Chat({ chatId }: ChatProps) {
     return () => setTitle('');
   }, [chatId, setTitle]);
 
+  const updateCodeContext = useCallback((blocks: Array<{
+    language: string;
+    value: string;
+    filePath?: string;
+  }>) => {
+    setCodeContextBlocks(blocks);
+  }, []);
+
+  const handleCodeContextUpdate = useCallback((message: MessageWithModel) => {
+    // Extract code blocks from message content
+    const codeBlocks = message.content.match(/```[\s\S]*?```/g) || [];
+
+    const parsedBlocks = codeBlocks.map(block => {
+      const [firstLine, ...rest] = block.split('\n');
+      const language = firstLine.replace('```', '').trim();
+      const value = rest.slice(0, -1).join('\n');
+
+      // Extract file path if present (format: ```language:filepath)
+      const [lang, filePath] = language.split(':');
+
+      return {
+        language: lang,
+        value,
+        filePath
+      };
+    });
+
+    updateCodeContext(parsedBlocks);
+  }, [updateCodeContext]);
+
+  useEffect(() => {
+    // Only process the last assistant message for code blocks
+    const lastAssistantMessage = [...messages]
+      .reverse()
+      .find(msg => msg.role === 'assistant');
+
+    if (lastAssistantMessage) {
+      handleCodeContextUpdate(lastAssistantMessage);
+    }
+  }, [messages, handleCodeContextUpdate]);
+
+  const renderMessage = useCallback((message: MessageWithModel) => {
+    if (message.id === 'edit-indicator') {
+      return <EditIndicator key="edit-indicator" />;
+    }
+
+    return (
+      <ChatMessage
+        key={message.id}
+        message={message}
+        chatId={chatId}
+        onEditComplete={handleEditComplete}
+        onModelChange={handleModelChange}
+      />
+    );
+  }, [chatId, handleEditComplete, handleModelChange]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       {/* Message container */}
@@ -470,6 +519,19 @@ export function Chat({ chatId }: ChatProps) {
         className="flex-1 overflow-y-auto message-container"
       >
         <div className="flex flex-col w-full gap-4 px-4 py-4">
+          <CodeContextContainer codeBlockCount={codeContextBlocks.length}>
+            <div className="space-y-2">
+              {codeContextBlocks.map((block, index) => (
+                <CollapsibleCodeBlock
+                  key={`${block.filePath}-${index}`}
+                  language={block.language}
+                  value={block.value}
+                  filePath={block.filePath}
+                />
+              ))}
+            </div>
+          </CodeContextContainer>
+
           {messages.map(renderMessage)}
           {(isLoading || (isThinking && isToolStreaming)) && (
             <ThinkingMessage isToolStreaming={isToolStreaming} />
