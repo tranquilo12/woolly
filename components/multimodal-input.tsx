@@ -43,27 +43,8 @@ interface MultimodalInputProps {
     chatRequestOptions?: ChatRequestOptions,
   ) => void;
   className?: string;
-  searchRepository: (repoName: AvailableRepository, query: SearchRepositoryRequest) => Promise<RepositorySearchResult[]>;
+  searchRepository: (repoName: AvailableRepository, query: SearchRepositoryRequest) => Promise<{ results: RepositorySearchResult[] }>;
 }
-
-interface ProcessedCommand {
-  originalMessage: string;
-  repoName: AvailableRepository | null;
-  query: string;
-}
-
-const processRepositoryCommand = (input: string): ProcessedCommand => {
-  const command = parseRepositoryCommand(input);
-  if (!command) {
-    return { originalMessage: input, repoName: null, query: input };
-  }
-
-  return {
-    originalMessage: input,
-    repoName: command.repository,
-    query: command.query
-  };
-};
 
 const isValidMentionContext = (text: string): boolean => {
   // Find the last @ symbol
@@ -73,6 +54,45 @@ const isValidMentionContext = (text: string): boolean => {
   // Check if there's a space between the @ and the cursor
   const textAfterAt = text.slice(lastAtIndex + 1);
   return !textAfterAt.includes(' ');
+};
+
+interface RepositorySearchTemplate {
+  prefix: string;
+  resultFormat: string;
+  separator: string;
+  suffix: string;
+  emptyResult: string;
+}
+
+const DEFAULT_REPOSITORY_TEMPLATE: RepositorySearchTemplate = {
+  prefix: "Based on the repository {repoName}, here's what I found:\n\n",
+  resultFormat: "```{language}\n# File: {filePath}\n{content}\n```",
+  separator: "\n\n",
+  suffix: "\n\nQuery: {query}",
+  emptyResult: "No relevant code found in repository {repoName} for query: {query}"
+};
+
+const formatRepositoryResponse = (
+  repoName: string,
+  results: RepositorySearchResult[],
+  query: string,
+  template: RepositorySearchTemplate = DEFAULT_REPOSITORY_TEMPLATE
+): string => {
+  if (results.length === 0) {
+    return `I couldn't find any relevant code in the repository "${repoName}" for your query: "${query}".
+Can you please respond that the repository is not indexed?`;
+  }
+
+  const formattedResults = results.map(r =>
+    template.resultFormat
+      .replace("{filePath}", r.file_path)
+      .replace("{content}", r.content)
+      .replace("{language}", r.file_path.split('.').pop() || 'text')
+  );
+
+  return template.prefix.replace("{repoName}", repoName) +
+    formattedResults.join(template.separator) +
+    template.suffix.replace("{query}", query);
 };
 
 export function MultimodalInput({
@@ -168,24 +188,32 @@ export function MultimodalInput({
     event?: { preventDefault?: () => void },
     chatRequestOptions?: ChatRequestOptions,
   ) => {
+    if (event?.preventDefault) {
+      event.preventDefault();
+    }
+
     if (!input) return;
 
-    const { repoName, query, originalMessage } = processRepositoryCommand(input);
+    console.log('🎯 Processing input:', input);
+    const command = parseRepositoryCommand(input);
+    console.log('🔄 Processed command:', command);
 
-    if (repoName) {
-      try {
-        const results = await searchRepository(repoName, {
-          query: query,
+    try {
+      if (command) {
+        console.log('🔎 Searching repository:', { repoName: command.repository, query: command.query });
+        const searchResponse = await searchRepository(command.repository, {
+          query: command.query,
           limit: 10,
           threshold: 0.7
         });
+        console.log('📊 Search results:', searchResponse);
 
-        const contextMessage =
-          results.length > 0
-            ? `Based on the repository ${repoName}, here's what I found:\n\n${results
-              .map(r => `File: ${r.file_path}\n${r.content}`)
-              .join('\n\n')}\n\nQuery: ${query}`
-            : originalMessage;
+        const contextMessage = formatRepositoryResponse(
+          command.repository,
+          searchResponse.results || [], // Extract just the results array
+          command.query
+        );
+        console.log('📝 Formatted response:', contextMessage);
 
         const messageBody = {
           messages: [
@@ -211,41 +239,40 @@ export function MultimodalInput({
             body: messageBody
           }
         );
+      } else {
+        // Handle regular message without repository context
+        const messageBody = {
+          messages: [
+            ...messages.map(m => ({
+              role: m.role,
+              content: m.content,
+              id: m.id
+            })),
+            {
+              role: 'user',
+              content: input,
+            }
+          ],
+          model: "gpt-4o"
+        };
 
-        setInput('');
-      } catch (error) {
-        toast.error(
-          `Failed to search repository: ${error instanceof Error ? error.message : 'Unknown error'
-          }`
-        );
-        return;
-      }
-    } else {
-      const messageBody = {
-        messages: [
-          ...messages.map(m => ({
-            role: m.role,
-            content: m.content,
-            id: m.id
-          })),
+        await append(
           {
             role: 'user',
             content: input,
+          },
+          {
+            body: messageBody
           }
-        ],
-        model: "gpt-4o"
-      };
+        );
+      }
 
-      await append(
-        {
-          role: 'user',
-          content: input,
-        },
-        {
-          body: messageBody
-        }
-      );
       setInput('');
+    } catch (error) {
+      console.error('Error in handleSubmitWithCommands:', error);
+      toast.error(
+        `Failed to process message: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }, [input, searchRepository, messages, append, setInput]);
 
