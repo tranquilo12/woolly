@@ -48,6 +48,12 @@ export function toMessageWithModel(message: Message, model: string = 'gpt-4o'): 
 const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: ChatMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
 
+  const messageVariants = {
+    initial: { opacity: 0, y: 10 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -10 }
+  };
+
   const handleEdit = async (newContent: string) => {
     if (!chatId || !message.id) return;
     try {
@@ -76,45 +82,68 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
 
   if (isEditing) {
     return (
-      <EditMessageInput
-        initialContent={message.content}
-        onSave={handleEdit}
-        onCancel={() => setIsEditing(false)}
-      />
+      <motion.div
+        variants={messageVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        transition={{ duration: 0.2, ease: "easeOut" }}
+      >
+        <EditMessageInput
+          initialContent={message.content}
+          onSave={handleEdit}
+          onCancel={() => setIsEditing(false)}
+        />
+      </motion.div>
     );
   }
 
   return (
     <motion.div
-      key={message.id}
-      initial={{ opacity: 0, y: 50 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="group relative flex items-start md:gap-6 gap-4 pb-4 w-full"
+      layout
+      variants={messageVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.2, ease: "easeOut" }}
+      className={cn(
+        "group relative w-full max-w-3xl mx-auto",
+        message.role === "user" ? "mb-8" : "mb-8"
+      )}
     >
-      <div className="flex-1 overflow-hidden">
-        <div className={cn(
-          "p-4 pb-8 rounded-lg relative overflow-hidden",
-          "break-words whitespace-pre-wrap",
-          message.role === "user"
-            ? "bg-primary/10 ml-auto max-w-[85%] float-right clear-both"
-            : "bg-muted mr-auto max-w-[85%] float-left clear-both"
-        )}>
-          <div className="prose prose-neutral dark:prose-invert max-w-none">
+      <div className="flex items-start gap-4 px-4">
+        <div className="min-w-[30px] text-sm font-medium text-muted-foreground pt-2">
+          {message.role === "user" ? "You" : "AI"}
+        </div>
+
+        <motion.div
+          className="flex-1 space-y-4 overflow-hidden"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3, delay: 0.1 }}
+        >
+          <div className="prose dark:prose-invert">
             <Markdown>{message.content}</Markdown>
           </div>
+
           {message.toolInvocations?.map((tool, i) => (
             <ToolInvocationDisplay key={i} toolInvocation={tool} />
           ))}
-          {message.role === "user" && (
-            <div className="absolute bottom-1.5 left-2 opacity-20 hover:opacity-100 transition-opacity">
-              <ModelSelector
-                currentModel={message.model || "gpt-4o"}
-                onModelChange={(model) => onModelChange(model, message.id)}
-              />
-            </div>
-          )}
-        </div>
+        </motion.div>
+
+        {message.role === "user" && (
+          <motion.div
+            className="opacity-0 group-hover:opacity-100 transition-opacity"
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <ModelSelector
+              currentModel={message.model || "gpt-4o"}
+              onModelChange={(model) => onModelChange(model, message.id)}
+            />
+          </motion.div>
+        )}
       </div>
     </motion.div>
   );
