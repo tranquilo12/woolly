@@ -66,7 +66,7 @@ interface RepositorySearchTemplate {
 
 const DEFAULT_REPOSITORY_TEMPLATE: RepositorySearchTemplate = {
   prefix: "Based on the repository {repoName}, here's what I found:\n\n",
-  resultFormat: "```{language}\n# File: {filePath}\n{content}\n```",
+  resultFormat: "```{language}::{filePath}\n{content}\n```",
   separator: "\n\n",
   suffix: "\n\nQuery: {query}",
   emptyResult: "No relevant code found in repository {repoName} for query: {query}"

@@ -3,6 +3,7 @@ import React, { memo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "./code-block";
+import { CollapsibleCodeBlock } from "./collapsible-code-block";
 
 type MarkdownProps = {
   children: string;
@@ -20,30 +21,40 @@ const NonMemoizedMarkdown = ({ children, isToolCallLoading }: MarkdownProps) => 
 
   const components: Partial<Components> = {
     code: ({ node, className, children, ...props }) => {
-      const match = /language-(\w+)/.exec(className || "");
       const value = String(children).replace(/\n$/, "");
 
-      return match ? (
-        <CodeBlock language={match[1]} value={value} />
+      // Check for our custom format with filepath
+      const [language, filePath] = (className?.replace('language-', '') || '').split('::');
+
+      if (filePath) {
+        return (
+          <CollapsibleCodeBlock
+            language={language}
+            value={value}
+            filePath={filePath}
+          />
+        );
+      }
+
+      // Handle regular code blocks
+      return language ? (
+        <CodeBlock language={language} value={value} />
       ) : (
-        <code
-          className={`${className} text-xs bg-zinc-100 dark:bg-zinc-800 py-0.5 px-1 rounded-md`}
-          {...props}
-        >
+        <code className="rounded-md bg-muted px-1 py-0.5" {...props}>
           {children}
         </code>
       );
     },
     ol: ({ node, children, ...props }) => {
       return (
-        <ol className="list-decimal list-outside ml-4" {...props}>
+        <ol className="list-decimal" {...props}>
           {children}
         </ol>
       );
     },
     li: ({ node, children, ...props }) => {
       return (
-        <li className="py-1" {...props}>
+        <li className="" {...props}>
           {children}
         </li>
       );
@@ -120,7 +131,11 @@ const NonMemoizedMarkdown = ({ children, isToolCallLoading }: MarkdownProps) => 
   };
 
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={components}
+      className="prose dark:prose-invert max-w-none"
+    >
       {children}
     </ReactMarkdown>
   );
