@@ -45,6 +45,9 @@ class MessageCreate(BaseModel):
     role: str
     content: str
     toolInvocations: Optional[List[dict]] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
 
 
 class MessageEdit(BaseModel):
@@ -87,6 +90,7 @@ def do_stream(messages: List[ChatCompletionMessageParam], model: str = "gpt-4o")
         messages=formatted_messages,
         model=model,
         stream=True,
+        stream_options={"include_usage": True},
         tools=[
             {
                 "type": "function",
@@ -119,64 +123,43 @@ def stream_text(
     messages: List[ChatCompletionMessageParam],
     protocol: str = "data",
     model: str = "gpt-4o",
+    db: Session = None,
+    message_id: uuid.UUID = None,
 ):
     stream = do_stream(messages, model=model)
     draft_tool_calls = []
     draft_tool_calls_index = -1
+    content_buffer = ""
+
     for chunk in stream:
         for choice in chunk.choices:
             if choice.finish_reason == "stop":
                 continue
-
-            elif choice.finish_reason == "tool_calls":
-                for tool_call in draft_tool_calls:
-                    yield '9:{{"toolCallId":"{id}","toolName":"{name}","args":{args}}}\n'.format(
-                        id=tool_call["id"],
-                        name=tool_call["name"],
-                        args=tool_call["arguments"],
-                    )
-
-                for tool_call in draft_tool_calls:
-                    tool_result = available_tools[tool_call["name"]](
-                        **json.loads(tool_call["arguments"])
-                    )
-
-                    yield 'a:{{"toolCallId":"{id}","toolName":"{name}","args":{args},"result":{result}}}\n'.format(
-                        id=tool_call["id"],
-                        name=tool_call["name"],
-                        args=tool_call["arguments"],
-                        result=json.dumps(tool_result),
-                    )
-
-            elif choice.delta.tool_calls:
-                for tool_call in choice.delta.tool_calls:
-                    id = tool_call.id
-                    name = tool_call.function.name
-                    arguments = tool_call.function.arguments
-
-                    if id is not None:
-                        draft_tool_calls_index += 1
-                        draft_tool_calls.append(
-                            {"id": id, "name": name, "arguments": ""}
-                        )
-
-                    else:
-                        draft_tool_calls[draft_tool_calls_index][
-                            "arguments"
-                        ] += arguments
-
-            else:
+            elif choice.delta.content:
+                content_buffer += choice.delta.content
                 yield "0:{text}\n".format(text=json.dumps(choice.delta.content))
 
-        if chunk.choices == []:
+        if hasattr(chunk, "usage") and chunk.usage:
             usage = chunk.usage
-            prompt_tokens = usage.prompt_tokens
-            completion_tokens = usage.completion_tokens
+            if db and message_id:
+                try:
+                    message = db.query(Message).filter(Message.id == message_id).first()
+                    if message:
+                        message.content = content_buffer
+                        message.prompt_tokens = usage.prompt_tokens
+                        message.completion_tokens = usage.completion_tokens
+                        message.total_tokens = (
+                            usage.prompt_tokens + usage.completion_tokens
+                        )
+                        db.commit()
+                except Exception as e:
+                    print(f"Failed to update token counts: {e}")
 
-            yield 'e:{{"finishReason":"{reason}","usage":{{"promptTokens":{prompt},"completionTokens":{completion}}},"isContinued":false}}\n'.format(
-                reason="tool-calls" if len(draft_tool_calls) > 0 else "stop",
-                prompt=prompt_tokens,
-                completion=completion_tokens,
+            yield 'e:{{"finishReason":"{reason}","usage":{{"promptTokens":{prompt},"completionTokens":{completion},"totalTokens":{total}}},"isContinued":false}}\n'.format(
+                reason="tool-calls" if draft_tool_calls else "stop",
+                prompt=usage.prompt_tokens,
+                completion=usage.completion_tokens,
+                total=usage.prompt_tokens + usage.completion_tokens,
             )
 
 
@@ -304,6 +287,9 @@ async def get_chat_messages(chat_id: uuid.UUID, db: Session = Depends(get_db)):
             "content": message.content,
             "created_at": message.created_at.isoformat(),
             "toolInvocations": message.tool_invocations or [],
+            "prompt_tokens": message.prompt_tokens,
+            "completion_tokens": message.completion_tokens,
+            "total_tokens": message.total_tokens,
         }
         for message in messages
     ]
@@ -316,7 +302,6 @@ async def save_chat_message(
     try:
         tool_invocations = None
         if message.toolInvocations:
-            # Convert to list of dictionaries if not already
             tool_invocations = [
                 t if isinstance(t, dict) else t.dict() for t in message.toolInvocations
             ]
@@ -327,6 +312,9 @@ async def save_chat_message(
             content=message.content,
             tool_invocations=tool_invocations,
             created_at=datetime.now(timezone.utc),
+            prompt_tokens=message.prompt_tokens,
+            completion_tokens=message.completion_tokens,
+            total_tokens=message.total_tokens,
         )
 
         db.add(db_message)
@@ -362,6 +350,17 @@ async def chat(
         db.add(user_message)
         db.commit()
 
+        # Create assistant message placeholder to track tokens
+        assistant_message = Message(
+            chat_id=chat_id,
+            role="assistant",
+            content="",
+            model=getattr(request.messages[-1], "model", "gpt-4o"),
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(assistant_message)
+        db.commit()
+
         # Convert messages to OpenAI format
         openai_messages = convert_to_openai_messages(request.messages)
 
@@ -369,7 +368,13 @@ async def chat(
         model = getattr(request.messages[-1], "model", "gpt-4o")
 
         return StreamingResponse(
-            stream_text(openai_messages, protocol, model=model),
+            stream_text(
+                openai_messages,
+                protocol,
+                model=model,
+                db=db,
+                message_id=assistant_message.id,
+            ),
             headers={"x-vercel-ai-data-stream": "v1"},
         )
 

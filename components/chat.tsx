@@ -16,8 +16,7 @@ import { EditIndicator } from "./edit-indicator";
 import { ModelSelector } from "./model-selector";
 import { useChatTitle } from "./chat-title-context";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
-import { CodeContextContainer } from "./code-context-container";
-import { CollapsibleCodeBlock } from "./collapsible-code-block";
+import { TokenCount } from "./token-count";
 
 interface ChatProps {
   chatId?: string;
@@ -32,6 +31,9 @@ interface ChatMessageProps {
 
 export interface MessageWithModel extends Message {
   model?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
 }
 
 export function toMessage(messageWithModel: MessageWithModel): Message {
@@ -138,6 +140,13 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
           {message.toolInvocations?.map((tool, i) => (
             <ToolInvocationDisplay key={i} toolInvocation={tool} />
           ))}
+
+          <TokenCount
+            prompt_tokens={message.prompt_tokens}
+            completion_tokens={message.completion_tokens}
+            total_tokens={message.total_tokens}
+            isLoading={message.role === 'assistant' && !message.total_tokens}
+          />
         </motion.div>
 
         {message.role === "user" && (
@@ -211,12 +220,11 @@ export function Chat({ chatId }: ChatProps) {
   }, [chatId, containerRef, endRef]);
 
   // Scroll during streaming
-  // useEffect(() => {
-  //   if (isThinking || isToolStreaming) {
-  //     scrollToBottom({ behavior: 'smooth' });
-  //   }
-  // }, [isThinking, isToolStreaming, scrollToBottom]);
-
+  useEffect(() => {
+    if (isThinking || isToolStreaming) {
+      scrollToBottom({ behavior: 'smooth' });
+    }
+  }, [isThinking, isToolStreaming, scrollToBottom]);
 
   const saveMessage = async (message: MessageWithModel) => {
     if (!chatId) return;
@@ -225,6 +233,9 @@ export function Chat({ chatId }: ChatProps) {
         role: message.role,
         content: message.content,
         model: message.model,
+        prompt_tokens: message.prompt_tokens,
+        completion_tokens: message.completion_tokens,
+        total_tokens: message.total_tokens,
         toolInvocations: message.toolInvocations
           ? message.toolInvocations.map(tool => ({
             state: tool.state,
@@ -289,35 +300,32 @@ export function Chat({ chatId }: ChatProps) {
     api: chatId ? `/api/chat/${chatId}` : "/api/chat",
     id: chatId,
     initialMessages: initialMessages.map(toMessage),
-    streamProtocol: "data",
-    onFinish: async (message) => {
+    body: {
+      id: chatId
+    },
+    onResponse: (response) => {
+      if (!response.ok) {
+        console.error('Stream response error:', response.status);
+        toast.error('Error in chat response');
+      }
+    },
+    onFinish: async (message, usage) => {
       try {
-        // Convert any tool results to the correct format before saving
         const messageWithModel = toMessageWithModel(message);
-        if (message.toolInvocations) {
-          messageWithModel.toolInvocations = message.toolInvocations.map(tool => ({
-            ...tool,
-            // Handle both string and object results correctly
-            result: tool.state === 'result' ?
-              (typeof tool.result === 'string' ?
-                JSON.parse(tool.result) :
-                // If it's already an object, ensure it matches our expected format
-                {
-                  success: tool.result.success ?? false,
-                  error: tool.result.error ?? null,
-                  output: tool.result.output ?? '',
-                  metrics: tool.result.metrics ?? null,
-                  plots: tool.result.plots ?? null
-                }
-              ) : undefined
-          }));
+
+        // Restore token counting
+        if (usage?.usage) {
+          messageWithModel.prompt_tokens = usage.usage.promptTokens;
+          messageWithModel.completion_tokens = usage.usage.completionTokens;
+          messageWithModel.total_tokens = usage.usage.totalTokens;
         }
+
         await saveMessage(messageWithModel);
         setIsRestreaming(false);
         setIsThinking(false);
       } catch (error) {
         console.error('Error in onFinish:', error);
-        toast.error('Failed to save or refresh messages');
+        toast.error('Failed to save message');
       }
     },
   });
@@ -517,6 +525,15 @@ export function Chat({ chatId }: ChatProps) {
       />
     );
   }, [chatId, handleEditComplete, handleModelChange]);
+
+  // Debug streaming state
+  useEffect(() => {
+    console.log('Streaming state:', {
+      isThinking,
+      isToolStreaming,
+      isChatLoading
+    });
+  }, [isThinking, isToolStreaming, isChatLoading]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">

@@ -2,7 +2,17 @@ from datetime import datetime
 import json
 from typing import Literal, Dict, Any, List, Optional
 from pydantic import BaseModel
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, func, JSON, Boolean
+from sqlalchemy import (
+    Column,
+    String,
+    DateTime,
+    ForeignKey,
+    Text,
+    func,
+    JSON,
+    Boolean,
+    Integer,
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
@@ -153,9 +163,12 @@ class Message(Base):
     chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id"))
     role = Column(String)
     content = Column(Text)
-    tool_invocations = Column(JSON, default=list)  # Store as JSON array
+    tool_invocations = Column(JSON, default=list)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     model = Column(String, nullable=True, default="gpt-4o")
+    prompt_tokens = Column(Integer, nullable=True)
+    completion_tokens = Column(Integer, nullable=True)
+    total_tokens = Column(Integer, nullable=True)
 
     chat = relationship("Chat", back_populates="messages")
 
