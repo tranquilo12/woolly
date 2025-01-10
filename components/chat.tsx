@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "ai/react";
-import { ChatRequestOptions, CreateMessage, Message } from "ai";
+import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message } from "ai";
 import { MultimodalInput } from "./multimodal-input";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useState, useEffect, memo, useCallback } from "react";
@@ -41,10 +41,17 @@ export function toMessage(messageWithModel: MessageWithModel): Message {
   return messageProps;
 }
 
-export function toMessageWithModel(message: Message, model: string = 'gpt-4o'): MessageWithModel {
+export function toMessageWithModel(
+  message: Message,
+  usage: LanguageModelUsage | null,
+  model: string = 'gpt-4o'
+): MessageWithModel {
   return {
     ...message,
     model,
+    prompt_tokens: usage?.promptTokens,
+    completion_tokens: usage?.completionTokens,
+    total_tokens: usage?.totalTokens,
   };
 }
 
@@ -265,23 +272,48 @@ export function Chat({ chatId }: ChatProps) {
       if (!response.ok) {
         console.error('Stream response error:', response.status);
         toast.error('Error in chat response');
+        return;
       }
+      // Add response debugging
+      console.debug('[Token Stats] Response received:', {
+        status: response.status,
+        headers: Object.fromEntries(response.headers.entries())
+      });
     },
-    onFinish: async (message, usage) => {
+    onFinish: async (message, options) => {
       try {
-        const messageWithModel = toMessageWithModel(message);
+        // Add detailed usage debugging
+        console.debug('[Token Stats] Message completed:', {
+          messageId: message.id,
+          usage: options.usage,
+          hasUsage: Boolean(options.usage)
+        });
 
-        // Restore token counting
-        if (usage?.usage) {
-          messageWithModel.prompt_tokens = usage.usage.promptTokens;
-          messageWithModel.completion_tokens = usage.usage.completionTokens;
-          messageWithModel.total_tokens = usage.usage.totalTokens;
-        }
+        const messageWithModel = {
+          ...message,
+          model: 'gpt-4o',
+          prompt_tokens: options.usage?.promptTokens,
+          completion_tokens: options.usage?.completionTokens,
+          total_tokens: options.usage?.totalTokens
+        };
+
+        // Log the final message state
+        console.debug('[Token Stats] Final message state:', {
+          prompt_tokens: messageWithModel.prompt_tokens,
+          completion_tokens: messageWithModel.completion_tokens,
+          total_tokens: messageWithModel.total_tokens
+        });
+
+        setVercelMessages(prevMessages =>
+          prevMessages.map(m =>
+            m.id === messageWithModel.id ? messageWithModel : m
+          )
+        );
 
         setIsRestreaming(false);
         setIsThinking(false);
       } catch (error) {
-        console.error('Error in onFinish:', error);
+        console.error('[Token Stats] Error in onFinish:', error);
         toast.error('Failed to save message');
       }
     },
@@ -311,12 +343,17 @@ export function Chat({ chatId }: ChatProps) {
     messages: MessageWithModel[] | ((prev: MessageWithModel[]) => MessageWithModel[])
   ) => {
     if (typeof messages === 'function') {
-      setVercelMessages((prev) =>
-        messages(prev.map(message => toMessageWithModel(message, undefined)))
-          .map(toMessage)
+      setVercelMessages((prev: MessageWithModel[]) =>
+        messages(prev.map(message => ({
+          ...message,
+          model: message.model || 'gpt-4o',
+          prompt_tokens: message.prompt_tokens,
+          completion_tokens: message.completion_tokens,
+          total_tokens: message.total_tokens
+        })))
       );
     } else {
-      setVercelMessages(messages.map(toMessage));
+      setVercelMessages(messages);
     }
   }, [setVercelMessages]);
 

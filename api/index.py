@@ -127,9 +127,8 @@ def stream_text(
     message_id: uuid.UUID = None,
 ):
     stream = do_stream(messages, model=model)
-    draft_tool_calls = []
-    draft_tool_calls_index = -1
     content_buffer = ""
+    final_usage = None
 
     for chunk in stream:
         for choice in chunk.choices:
@@ -139,28 +138,32 @@ def stream_text(
                 content_buffer += choice.delta.content
                 yield "0:{text}\n".format(text=json.dumps(choice.delta.content))
 
+        # Store usage but don't yield it yet
         if hasattr(chunk, "usage") and chunk.usage:
-            usage = chunk.usage
-            if db and message_id:
-                try:
-                    message = db.query(Message).filter(Message.id == message_id).first()
-                    if message:
-                        message.content = content_buffer
-                        message.prompt_tokens = usage.prompt_tokens
-                        message.completion_tokens = usage.completion_tokens
-                        message.total_tokens = (
-                            usage.prompt_tokens + usage.completion_tokens
-                        )
-                        db.commit()
-                except Exception as e:
-                    print(f"Failed to update token counts: {e}")
+            final_usage = chunk.usage
 
-            yield 'e:{{"finishReason":"{reason}","usage":{{"promptTokens":{prompt},"completionTokens":{completion},"totalTokens":{total}}},"isContinued":false}}\n'.format(
-                reason="tool-calls" if draft_tool_calls else "stop",
-                prompt=usage.prompt_tokens,
-                completion=usage.completion_tokens,
-                total=usage.prompt_tokens + usage.completion_tokens,
-            )
+    # After the stream is complete, send the completion event with usage
+    if final_usage:
+        if db and message_id:
+            try:
+                message = db.query(Message).filter(Message.id == message_id).first()
+                if message:
+                    message.content = content_buffer
+                    message.prompt_tokens = final_usage.prompt_tokens
+                    message.completion_tokens = final_usage.completion_tokens
+                    message.total_tokens = (
+                        final_usage.prompt_tokens + final_usage.completion_tokens
+                    )
+                    db.commit()
+            except Exception as e:
+                print(f"Failed to update token counts: {e}")
+
+        # Send single completion event at the end with both content and usage
+        yield 'd:{{"finishReason":"stop","usage":{{"promptTokens":{prompt},"completionTokens":{completion},"totalTokens":{total}}}}}\n'.format(
+            prompt=final_usage.prompt_tokens,
+            completion=final_usage.completion_tokens,
+            total=final_usage.prompt_tokens + final_usage.completion_tokens,
+        )
 
 
 # Chat CRUD Operations
