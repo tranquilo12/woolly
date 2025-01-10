@@ -12,7 +12,6 @@ export function useScrollToBottom<T extends HTMLElement>(): [
 ] {
   const containerRef = useRef<T>(null);
   const endRef = useRef<T>(null);
-  const scrollTimeout = useRef<number>();
   const isUserScrolling = useRef(false);
   const lastScrollTop = useRef(0);
 
@@ -23,19 +22,13 @@ export function useScrollToBottom<T extends HTMLElement>(): [
     const { behavior = 'smooth', force = false } = options;
 
     if (force || !isUserScrolling.current) {
-      const buffer = 200;
-      container.scrollTo({
-        top: container.scrollHeight + buffer,
-        behavior
-      });
+      endRef.current?.scrollIntoView({ behavior });
     }
   };
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
-    let scrollDebounceTimeout: NodeJS.Timeout;
 
     const isNearBottom = () => {
       const threshold = 100;
@@ -44,15 +37,9 @@ export function useScrollToBottom<T extends HTMLElement>(): [
     };
 
     const observer = new MutationObserver(() => {
-      if (scrollDebounceTimeout) {
-        clearTimeout(scrollDebounceTimeout);
+      if (!isUserScrolling.current && isNearBottom()) {
+        scrollToBottom();
       }
-
-      scrollDebounceTimeout = setTimeout(() => {
-        if (!isUserScrolling.current && isNearBottom()) {
-          scrollToBottom({ behavior: 'smooth' });
-        }
-      }, 50);
     });
 
     const handleScroll = () => {
@@ -60,13 +47,12 @@ export function useScrollToBottom<T extends HTMLElement>(): [
       isUserScrolling.current = currentScrollTop < lastScrollTop.current;
       lastScrollTop.current = currentScrollTop;
 
-      container.classList.add('is-scrolling');
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
-      scrollTimeout.current = window.setTimeout(() => {
-        container.classList.remove('is-scrolling');
+      container.classList.toggle('is-scrolling', true);
+      const timeoutId = setTimeout(() => {
+        container.classList.toggle('is-scrolling', false);
       }, 1000);
+
+      return () => clearTimeout(timeoutId);
     };
 
     observer.observe(container, {
@@ -80,12 +66,6 @@ export function useScrollToBottom<T extends HTMLElement>(): [
     return () => {
       observer.disconnect();
       container.removeEventListener('scroll', handleScroll);
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
-      if (scrollDebounceTimeout) {
-        clearTimeout(scrollDebounceTimeout);
-      }
     };
   }, []);
 

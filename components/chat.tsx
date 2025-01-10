@@ -226,13 +226,12 @@ export function Chat({ chatId }: ChatProps) {
     };
   }, [chatId, containerRef, endRef]);
 
-  // Scroll during streaming
+  // Optimize scroll during streaming
   useEffect(() => {
     if (isThinking || isToolStreaming) {
-      scrollToBottom({ behavior: 'smooth' });
+      scrollToBottom({ behavior: 'smooth', force: true });
     }
   }, [isThinking, isToolStreaming, scrollToBottom]);
-
 
   useEffect(() => {
     const fetchMessages = async () => {
