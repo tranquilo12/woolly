@@ -452,7 +452,8 @@ export function MultimodalInput({
 
               {isLoading ? (
                 <Button
-                  className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 border dark:border-zinc-600"
+                  variant="ghost"
+                  className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 hover:bg-accent/50 transition-colors"
                   onClick={(event) => {
                     event.preventDefault();
                     stop();

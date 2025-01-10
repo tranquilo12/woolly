@@ -551,7 +551,7 @@ export function Chat({ chatId }: ChatProps) {
             chatId={chatId || ''}
             input={input}
             setInput={setInput}
-            isLoading={isLoading}
+            isLoading={isChatLoading}
             stop={stop}
             messages={messages}
             setMessages={setMessages}
