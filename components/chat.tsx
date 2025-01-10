@@ -194,6 +194,7 @@ export function Chat({ chatId }: ChatProps) {
     value: string;
     filePath?: string;
   }>>([]);
+  const [currentModel, setCurrentModel] = useState("gpt-4o");
 
   // Add a debounced scroll handler
   useEffect(() => {
@@ -558,6 +559,8 @@ export function Chat({ chatId }: ChatProps) {
             append={append}
             handleSubmit={handleSubmit}
             searchRepository={searchRepository}
+            currentModel={currentModel}
+            onModelChange={setCurrentModel}
           />
         </div>
       </div>

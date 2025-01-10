@@ -25,6 +25,7 @@ import { AVAILABLE_REPOSITORIES, AvailableRepository } from "@/lib/constants";
 import { parseRepositoryCommand } from "@/lib/commands";
 import { RepositorySearchResult, SearchRepositoryRequest } from "@/hooks/use-repository-status";
 import { RepositoryMentionMenu } from "./repository-mention-menu";
+import { ModelSelector } from "./model-selector";
 
 interface MultimodalInputProps {
   chatId: string;
@@ -44,6 +45,8 @@ interface MultimodalInputProps {
   ) => void;
   className?: string;
   searchRepository: (repoName: AvailableRepository, query: SearchRepositoryRequest) => Promise<{ results: RepositorySearchResult[] }>;
+  currentModel: string;
+  onModelChange: (model: string) => void;
 }
 
 const isValidMentionContext = (text: string): boolean => {
@@ -120,6 +123,8 @@ export function MultimodalInput({
   });
   const [mentionSearchTerm, setMentionSearchTerm] = useState("");
   const [selectedMenuIndex, setSelectedMenuIndex] = useState(0);
+  const [currentModel, setCurrentModel] = useState("gpt-4o");
+  const [onModelChange, setOnModelChange] = useState(() => () => { });
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -377,103 +382,113 @@ export function MultimodalInput({
     <form onSubmit={(e) => handleSubmitWithCommands(e)}>
       <div ref={containerRef} className="relative">
         <div className="p-4">
-          <div className="mx-auto max-w-3xl relative flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              className="shrink-0 bg-background hover:bg-accent/50 transition-colors"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (isOpen && !isPinned) {
-                  setIsOpen(false);
-                } else if (!isPinned) {
-                  toggle();
-                }
-              }}
-            >
-              <MenuIcon size={16} />
-            </Button>
+          <div className="mx-auto max-w-3xl relative flex flex-col gap-2">
+            <div className="flex justify-between items-center mb-2">
+              <Button
+                variant="outline"
+                size="icon"
+                className="w-[120px] shrink-0 bg-background hover:bg-accent/50 transition-colors h-7"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (isOpen && !isPinned) {
+                    setIsOpen(false);
+                  } else if (!isPinned) {
+                    toggle();
+                  }
+                }}
+              >
+                <MenuIcon size={16} />
+              </Button>
 
-            <div className="flex-1">
-              {attachments.length > 0 && (
-                <div className="flex flex-row gap-2 mb-2">
-                  {attachments.map((attachment) => (
-                    <PreviewAttachment key={attachment.url} attachment={attachment} />
-                  ))}
+              <ModelSelector
+                currentModel={currentModel}
+                onModelChange={onModelChange}
+                className="w-[120px]"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                {attachments.length > 0 && (
+                  <div className="flex flex-row gap-2 mb-2">
+                    {attachments.map((attachment) => (
+                      <PreviewAttachment key={attachment.url} attachment={attachment} />
+                    ))}
+                  </div>
+                )}
+
+                <div className="relative">
+                  <input
+                    title="file-input"
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
+
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-2 top-2 z-10 hover:bg-background/50"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <AttachmentIcon />
+                  </Button>
+
+                  <Textarea
+                    ref={textareaRef}
+                    placeholder="Send a message..."
+                    value={input}
+                    onChange={handleInput}
+                    className={cn(
+                      "min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-xl !text-base bg-muted pr-12",
+                      className,
+                    )}
+                    rows={3}
+                    autoFocus
+                    onKeyDown={handleKeyDown}
+                  />
+                  <AnimatePresence>
+                    {showMentionMenu && (
+                      <RepositoryMentionMenu
+                        isOpen={showMentionMenu}
+                        searchTerm={mentionSearchTerm}
+                        onSelect={handleRepositorySelect}
+                        position={mentionPosition}
+                        selectedIndex={selectedMenuIndex}
+                      />
+                    )}
+                  </AnimatePresence>
                 </div>
-              )}
 
-              <div className="relative">
-                <input
-                  title="file-input"
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={handleFileChange}
-                />
-
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-2 z-10 hover:bg-background/50"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <AttachmentIcon />
-                </Button>
-
-                <Textarea
-                  ref={textareaRef}
-                  placeholder="Send a message..."
-                  value={input}
-                  onChange={handleInput}
-                  className={cn(
-                    "min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-xl !text-base bg-muted pr-12",
-                    className,
-                  )}
-                  rows={3}
-                  autoFocus
-                  onKeyDown={handleKeyDown}
-                />
-                <AnimatePresence>
-                  {showMentionMenu && (
-                    <RepositoryMentionMenu
-                      isOpen={showMentionMenu}
-                      searchTerm={mentionSearchTerm}
-                      onSelect={handleRepositorySelect}
-                      position={mentionPosition}
-                      selectedIndex={selectedMenuIndex}
-                    />
-                  )}
-                </AnimatePresence>
+                {isLoading ? (
+                  <Button
+                    variant="ghost"
+                    className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 hover:bg-accent/50 transition-colors"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      stop();
+                      setMessages((messages) => sanitizeUIMessages(messages));
+                    }}
+                  >
+                    <StopIcon size={14} />
+                  </Button>
+                ) : (
+                  <Button
+                    className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 hover:bg-accent/50 transition-colors"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      handleSubmitWithCommands();
+                    }}
+                    disabled={input.length === 0}
+                  >
+                    <ArrowUpIcon size={14} />
+                  </Button>
+                )}
               </div>
-
-              {isLoading ? (
-                <Button
-                  variant="ghost"
-                  className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 hover:bg-accent/50 transition-colors"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    stop();
-                    setMessages((messages) => sanitizeUIMessages(messages));
-                  }}
-                >
-                  <StopIcon size={14} />
-                </Button>
-              ) : (
-                <Button
-                  className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 hover:bg-accent/50 transition-colors"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    handleSubmitWithCommands();
-                  }}
-                  disabled={input.length === 0}
-                >
-                  <ArrowUpIcon size={14} />
-                </Button>
-              )}
             </div>
           </div>
         </div>
