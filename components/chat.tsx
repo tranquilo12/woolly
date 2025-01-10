@@ -226,48 +226,6 @@ export function Chat({ chatId }: ChatProps) {
     }
   }, [isThinking, isToolStreaming, scrollToBottom]);
 
-  const saveMessage = async (message: MessageWithModel) => {
-    if (!chatId) return;
-    try {
-      const messageToSave = {
-        role: message.role,
-        content: message.content,
-        model: message.model,
-        prompt_tokens: message.prompt_tokens,
-        completion_tokens: message.completion_tokens,
-        total_tokens: message.total_tokens,
-        toolInvocations: message.toolInvocations
-          ? message.toolInvocations.map(tool => ({
-            state: tool.state,
-            toolCallId: tool.toolCallId,
-            toolName: tool.toolName,
-            args: tool.args,
-            result: tool.state === 'result' ? tool.result : undefined
-          }))
-          : null
-      };
-
-      const response = await fetch(`/api/chat/${chatId}/messages/save`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(messageToSave),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Save message error:', errorText);
-        throw new Error('Failed to save message');
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Failed to save message:', error);
-      toast.error('Failed to save message');
-      throw error;
-    }
-  };
 
   useEffect(() => {
     const fetchMessages = async () => {
@@ -320,7 +278,6 @@ export function Chat({ chatId }: ChatProps) {
           messageWithModel.total_tokens = usage.usage.totalTokens;
         }
 
-        await saveMessage(messageWithModel);
         setIsRestreaming(false);
         setIsThinking(false);
       } catch (error) {
