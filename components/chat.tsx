@@ -18,6 +18,8 @@ import { useChatTitle } from "./chat-title-context";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
 import { TokenCount } from "./token-count";
 import { MessageGroup } from "./message-group";
+import { CodeContextContainer } from "./code-context-container";
+import { CollapsibleCodeBlock } from "./collapsible-code-block";
 
 interface ChatProps {
   chatId?: string;
@@ -65,6 +67,18 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, y: -10 }
   };
+
+  // Add code block extraction logic
+  const getCodeBlocks = (content: string) => {
+    const codeBlockRegex = /```[\s\S]*?```/g;
+    return content.match(codeBlockRegex) || [];
+  };
+
+  const codeBlocks = getCodeBlocks(message.content);
+  const hasCodeContext = codeBlocks.length > 0;
+
+  // Separate code blocks from main content
+  const contentWithoutCode = message.content.replace(/```[\s\S]*?```/g, '');
 
   const handleEdit = async (newContent: string) => {
     if (!chatId || !message.id) return;
@@ -141,8 +155,29 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, delay: 0.1 }}
         >
+          {hasCodeContext && (
+            <div className="mb-4">
+              <CodeContextContainer codeBlockCount={codeBlocks.length} initiallyExpanded={false}>
+                <div className="space-y-2">
+                  {codeBlocks.map((block, index) => {
+                    const language = block.split('\n')[0].replace('```', '').trim();
+                    const code = block.split('\n').slice(1, -1).join('\n');
+                    return (
+                      <CollapsibleCodeBlock
+                        key={index}
+                        language={language || 'text'}
+                        value={code}
+                        initiallyExpanded={false}
+                      />
+                    );
+                  })}
+                </div>
+              </CodeContextContainer>
+            </div>
+          )}
+
           <div className="prose dark:prose-invert">
-            <Markdown>{message.content}</Markdown>
+            <Markdown>{contentWithoutCode}</Markdown>
           </div>
 
           {message.toolInvocations?.map((tool, i) => (
@@ -548,7 +583,7 @@ export function Chat({ chatId }: ChatProps) {
         ref={containerRef}
         className="flex-1 overflow-y-auto message-container"
       >
-        <div className="flex flex-col w-full gap-4 px-4 py-4">
+        <div className="flex flex-col w-full gap-4 px-4 md:px-8 py-4">
           {groupedMessages.map((group, i) => (
             <MessageGroup
               key={group[0].id}
@@ -556,7 +591,13 @@ export function Chat({ chatId }: ChatProps) {
               renderMessage={renderMessage}
             />
           ))}
-          {isThinking && <ThinkingMessage isToolStreaming={isToolStreaming} />}
+          {isThinking && (
+            <div className="flex justify-center py-4 transform-gpu">
+              <span className="text-sm text-muted-foreground loading-pulse">
+                {isToolStreaming ? "Running tools..." : "Loading chat..."}
+              </span>
+            </div>
+          )}
           <div ref={endRef} className="h-px w-full" />
         </div>
       </div>

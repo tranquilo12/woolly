@@ -1,16 +1,23 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useState } from "react";
-import { CodeBlock } from "./code-block";
+import { useState, lazy, Suspense } from "react";
+
+const CodeBlock = lazy(() => import("./code-block").then(module => ({ default: module.CodeBlock })));
 
 interface CollapsibleCodeBlockProps {
 	language: string;
 	value: string;
 	filePath?: string;
+	initiallyExpanded?: boolean;
 }
 
-export function CollapsibleCodeBlock({ language, value, filePath }: CollapsibleCodeBlockProps) {
-	const [isExpanded, setIsExpanded] = useState(false);
+export function CollapsibleCodeBlock({
+	language,
+	value,
+	filePath,
+	initiallyExpanded = false
+}: CollapsibleCodeBlockProps) {
+	const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
 
 	return (
 		<div className="border-b border-zinc-800/50 last:border-b-0">
@@ -26,21 +33,15 @@ export function CollapsibleCodeBlock({ language, value, filePath }: CollapsibleC
 				<span className="font-mono">{filePath || `${language} snippet`}</span>
 			</button>
 
-			<AnimatePresence initial={false}>
-				{isExpanded && (
-					<motion.div
-						initial={{ height: 0, opacity: 0 }}
-						animate={{ height: "auto", opacity: 1 }}
-						exit={{ height: 0, opacity: 0 }}
-						transition={{ duration: 0.2 }}
-						className="overflow-hidden"
-					>
-						<div className="px-0.5">
+			<div className={`overflow-hidden transition-all duration-200 ease-out ${isExpanded ? 'opacity-100' : 'opacity-0 h-0'}`}>
+				<div className="px-0.5">
+					{isExpanded && (
+						<Suspense fallback={<div className="p-4 text-sm text-zinc-400">Loading code...</div>}>
 							<CodeBlock language={language} value={value} />
-						</div>
-					</motion.div>
-				)}
-			</AnimatePresence>
+						</Suspense>
+					)}
+				</div>
+			</div>
 		</div>
 	);
 }

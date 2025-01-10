@@ -438,11 +438,10 @@
 
 .code-context-content {
   overflow: hidden;
-  transition: height 0.2s ease-in-out;
+  transition: all 0.2s ease-out;
 }
 
 .code-context-expanded {
-  height: auto;
   opacity: 1;
   width: 100%;
 }
@@ -510,4 +509,28 @@
 .sidebar-toggle:hover,
 .sidebar-toggle:focus-visible {
   opacity: 1;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.loading-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  will-change: opacity;
+  contain: content;
+}
+
+.code-block-container {
+  contain: content;
+}
+
+.code-syntax {
+  contain: content;
 }

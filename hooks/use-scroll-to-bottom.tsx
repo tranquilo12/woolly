@@ -14,6 +14,7 @@ export function useScrollToBottom<T extends HTMLElement>(): [
   const endRef = useRef<T>(null);
   const isUserScrolling = useRef(false);
   const lastScrollTop = useRef(0);
+  const scrollFrameId = useRef<number>();
 
   const scrollToBottom = (options: ScrollOptions = {}) => {
     const container = containerRef.current;
@@ -21,9 +22,17 @@ export function useScrollToBottom<T extends HTMLElement>(): [
 
     const { behavior = 'smooth', force = false } = options;
 
-    if (force || !isUserScrolling.current) {
-      endRef.current?.scrollIntoView({ behavior });
+    // Cancel any pending scroll frame
+    if (scrollFrameId.current) {
+      cancelAnimationFrame(scrollFrameId.current);
     }
+
+    // Schedule scroll in next frame
+    scrollFrameId.current = requestAnimationFrame(() => {
+      if (force || !isUserScrolling.current) {
+        endRef.current?.scrollIntoView({ behavior });
+      }
+    });
   };
 
   useEffect(() => {
@@ -36,24 +45,30 @@ export function useScrollToBottom<T extends HTMLElement>(): [
       return position <= threshold;
     };
 
-    const observer = new MutationObserver(() => {
-      if (!isUserScrolling.current && isNearBottom()) {
-        scrollToBottom();
-      }
-    });
-
+    let scrollTimeout: number;
     const handleScroll = () => {
       const currentScrollTop = container.scrollTop;
       isUserScrolling.current = currentScrollTop < lastScrollTop.current;
       lastScrollTop.current = currentScrollTop;
 
-      container.classList.toggle('is-scrolling', true);
-      const timeoutId = setTimeout(() => {
-        container.classList.toggle('is-scrolling', false);
-      }, 1000);
+      // Batch UI updates
+      if (scrollTimeout) {
+        cancelAnimationFrame(scrollTimeout);
+      }
 
-      return () => clearTimeout(timeoutId);
+      scrollTimeout = requestAnimationFrame(() => {
+        container.classList.toggle('is-scrolling', true);
+        setTimeout(() => {
+          container.classList.toggle('is-scrolling', false);
+        }, 1000);
+      });
     };
+
+    const observer = new MutationObserver(() => {
+      if (!isUserScrolling.current && isNearBottom()) {
+        scrollToBottom();
+      }
+    });
 
     observer.observe(container, {
       childList: true,
@@ -66,6 +81,12 @@ export function useScrollToBottom<T extends HTMLElement>(): [
     return () => {
       observer.disconnect();
       container.removeEventListener('scroll', handleScroll);
+      if (scrollFrameId.current) {
+        cancelAnimationFrame(scrollFrameId.current);
+      }
+      if (scrollTimeout) {
+        cancelAnimationFrame(scrollTimeout);
+      }
     };
   }, []);
 

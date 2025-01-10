@@ -5,10 +5,15 @@ import { useState } from "react";
 interface CodeContextContainerProps {
 	children: React.ReactNode;
 	codeBlockCount: number;
+	initiallyExpanded?: boolean;
 }
 
-export function CodeContextContainer({ children, codeBlockCount }: CodeContextContainerProps) {
-	const [isExpanded, setIsExpanded] = useState(false);
+export function CodeContextContainer({
+	children,
+	codeBlockCount,
+	initiallyExpanded = true
+}: CodeContextContainerProps) {
+	const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
 
 	if (codeBlockCount === 0) return null;
 
