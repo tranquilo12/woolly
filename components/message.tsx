@@ -58,7 +58,7 @@ export const PreviewMessage = ({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 10 }}
-      className={cn("group relative flex items-start md:gap-6 gap-4 pb-4", {
+      className={cn("message-connection group relative flex items-start md:gap-6 gap-4 pb-4", {
         "opacity-50": isLoading,
       })}
     >

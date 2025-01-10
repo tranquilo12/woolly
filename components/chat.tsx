@@ -17,6 +17,7 @@ import { ModelSelector } from "./model-selector";
 import { useChatTitle } from "./chat-title-context";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
 import { TokenCount } from "./token-count";
+import { MessageGroup } from "./message-group";
 
 interface ChatProps {
   chatId?: string;
@@ -529,6 +530,17 @@ export function Chat({ chatId }: ChatProps) {
     });
   }, [isThinking, isToolStreaming, isChatLoading]);
 
+  const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
+    if (message.role === 'user') {
+      // Start a new group with user message
+      groups.push([message]);
+    } else if (groups.length && message.id !== 'edit-indicator') {
+      // Add assistant message to last group
+      groups[groups.length - 1].push(message);
+    }
+    return groups;
+  }, []);
+
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       {/* Message container */}
@@ -537,10 +549,14 @@ export function Chat({ chatId }: ChatProps) {
         className="flex-1 overflow-y-auto message-container"
       >
         <div className="flex flex-col w-full gap-4 px-4 py-4">
-          {messages.map(renderMessage)}
-          {(isLoading || (isThinking && isToolStreaming)) && (
-            <ThinkingMessage isToolStreaming={isToolStreaming} />
-          )}
+          {groupedMessages.map((group, i) => (
+            <MessageGroup
+              key={group[0].id}
+              messages={group}
+              renderMessage={renderMessage}
+            />
+          ))}
+          {isThinking && <ThinkingMessage isToolStreaming={isToolStreaming} />}
           <div ref={endRef} className="h-px w-full" />
         </div>
       </div>
