@@ -14,7 +14,7 @@ export const TokenCount = ({ prompt_tokens, completion_tokens, total_tokens, isL
 
 	return (
 		<motion.div
-			className="text-xs text-muted-foreground mt-2 flex gap-3"
+			className="text-xs text-muted-foreground mt-2 flex gap-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
 			initial={{ opacity: 0 }}
 			animate={{ opacity: 1 }}
 			transition={{ duration: 0.2 }}

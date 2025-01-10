@@ -19,7 +19,7 @@ export function ModelSelector({ onModelChange, currentModel = "gpt-4o", classNam
 			onValueChange={onModelChange}
 		>
 			<SelectTrigger className={cn(
-				"h-7 w-[120px] text-xs bg-transparent border hover:bg-accent/50 transition-colors px-1.5 py-0",
+				"h-7 w-[120px] text-xs bg-transparent border opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-accent/50",
 				className
 			)}>
 				<SelectValue placeholder="Select Model" />

@@ -499,3 +499,15 @@
 .message-group:last-child::before {
   display: none;
 }
+
+/* Update the sidebar toggle styles */
+.sidebar-toggle {
+  opacity: 0;
+  transition: opacity 200ms ease-in-out;
+}
+
+.sidebar-container:hover .sidebar-toggle,
+.sidebar-toggle:hover,
+.sidebar-toggle:focus-visible {
+  opacity: 1;
+}

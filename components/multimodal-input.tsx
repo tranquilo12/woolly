@@ -109,6 +109,8 @@ export function MultimodalInput({
   handleSubmit,
   className,
   searchRepository,
+  currentModel,
+  onModelChange
 }: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { toggle, setIsOpen, isPinned, isOpen } = useSidebar();
@@ -123,8 +125,6 @@ export function MultimodalInput({
   });
   const [mentionSearchTerm, setMentionSearchTerm] = useState("");
   const [selectedMenuIndex, setSelectedMenuIndex] = useState(0);
-  const [currentModel, setCurrentModel] = useState("gpt-4o");
-  const [onModelChange, setOnModelChange] = useState(() => () => { });
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -387,7 +387,7 @@ export function MultimodalInput({
               <Button
                 variant="outline"
                 size="icon"
-                className="w-[120px] shrink-0 bg-background hover:bg-accent/50 transition-colors h-7"
+                className="w-[120px] shrink-0 bg-background hover:bg-accent/50 transition-colors h-7 opacity-0 hover:opacity-100 transition-opacity duration-200"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -404,7 +404,7 @@ export function MultimodalInput({
               <ModelSelector
                 currentModel={currentModel}
                 onModelChange={onModelChange}
-                className="w-[120px]"
+                className="w-[120px] opacity-0 hover:opacity-100 transition-opacity duration-200"
               />
             </div>
 
