@@ -141,6 +141,7 @@
 
 .message-container {
   overflow-anchor: auto;
+  scroll-behavior: smooth;
 }
 
 .message-content {
@@ -173,6 +174,7 @@
 [data-sidebar] {
   scrollbar-width: none;
   -ms-overflow-style: none;
+  scroll-behavior: smooth;
 }
 
 [data-sidebar]::-webkit-scrollbar {
@@ -318,6 +320,12 @@
   --tw-prose-quotes: hsl(var(--foreground));
 }
 
+.prose hr {
+  border: none;
+  border-top: 2px solid hsl(var(--border));
+  margin: 2rem 0;
+}
+
 @layer utilities {
   .h-content {
     height: var(--content-height);
@@ -430,11 +438,99 @@
 
 .code-context-content {
   overflow: hidden;
-  transition: height 0.2s ease-in-out;
+  transition: all 0.2s ease-out;
 }
 
 .code-context-expanded {
-  height: auto;
   opacity: 1;
   width: 100%;
+}
+
+/* Add these styles for message connections */
+.message-connection {
+  position: relative;
+}
+
+.message-connection::before {
+  content: "";
+  position: absolute;
+  left: 1.5rem; /* Adjust based on your avatar/message spacing */
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: hsl(var(--border));
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+}
+
+/* Hide the line for the last message */
+.message-connection:last-child::before {
+  display: none;
+}
+
+/* Hover effect */
+.message-connection:hover::before {
+  opacity: 0.8;
+}
+
+/* Message connection styles */
+.message-group {
+  position: relative;
+}
+
+.message-group::before {
+  content: "";
+  position: absolute;
+  left: 2.5rem; /* Aligns with the "You"/"AI" label */
+  top: 2rem; /* Start below the first message */
+  bottom: 2rem; /* End above the next message */
+  width: 2px;
+  background: hsl(var(--border));
+  opacity: 0.3;
+  transition: opacity 0.2s ease;
+}
+
+.message-group:hover::before {
+  opacity: 0.8;
+}
+
+/* Hide connector for last message group */
+.message-group:last-child::before {
+  display: none;
+}
+
+/* Update the sidebar toggle styles */
+.sidebar-toggle {
+  opacity: 0;
+  transition: opacity 200ms ease-in-out;
+}
+
+.sidebar-container:hover .sidebar-toggle,
+.sidebar-toggle:hover,
+.sidebar-toggle:focus-visible {
+  opacity: 1;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.loading-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  will-change: opacity;
+  contain: content;
+}
+
+.code-block-container {
+  contain: content;
+}
+
+.code-syntax {
+  contain: content;
 }

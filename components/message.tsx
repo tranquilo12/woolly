@@ -58,14 +58,14 @@ export const PreviewMessage = ({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 10 }}
-      className={cn("group relative flex items-start md:gap-6 gap-4 pb-4", {
+      className={cn("message-connection group relative flex items-start md:gap-6 gap-4 pb-4", {
         "opacity-50": isLoading,
       })}
     >
       <div className="flex flex-col w-full">
         {hasCodeContext && (
           <div className="mb-4">
-            <CodeContextContainer codeBlockCount={codeBlocks.length}>
+            <CodeContextContainer codeBlockCount={codeBlocks.length} initiallyExpanded={false}>
               <div className="space-y-2">
                 {codeBlocks.map((block, index) => {
                   const language = block.split('\n')[0].replace('```', '').trim();
@@ -75,6 +75,7 @@ export const PreviewMessage = ({
                       key={index}
                       language={language || 'text'}
                       value={code}
+                      initiallyExpanded={false}
                     />
                   );
                 })}

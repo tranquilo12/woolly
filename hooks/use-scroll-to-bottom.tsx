@@ -12,9 +12,9 @@ export function useScrollToBottom<T extends HTMLElement>(): [
 ] {
   const containerRef = useRef<T>(null);
   const endRef = useRef<T>(null);
-  const scrollTimeout = useRef<number>();
   const isUserScrolling = useRef(false);
   const lastScrollTop = useRef(0);
+  const scrollFrameId = useRef<number>();
 
   const scrollToBottom = (options: ScrollOptions = {}) => {
     const container = containerRef.current;
@@ -22,20 +22,22 @@ export function useScrollToBottom<T extends HTMLElement>(): [
 
     const { behavior = 'smooth', force = false } = options;
 
-    if (force || !isUserScrolling.current) {
-      const buffer = 200;
-      container.scrollTo({
-        top: container.scrollHeight + buffer,
-        behavior
-      });
+    // Cancel any pending scroll frame
+    if (scrollFrameId.current) {
+      cancelAnimationFrame(scrollFrameId.current);
     }
+
+    // Schedule scroll in next frame
+    scrollFrameId.current = requestAnimationFrame(() => {
+      if (force || !isUserScrolling.current) {
+        endRef.current?.scrollIntoView({ behavior });
+      }
+    });
   };
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
-    let scrollDebounceTimeout: NodeJS.Timeout;
 
     const isNearBottom = () => {
       const threshold = 100;
@@ -43,31 +45,30 @@ export function useScrollToBottom<T extends HTMLElement>(): [
       return position <= threshold;
     };
 
-    const observer = new MutationObserver(() => {
-      if (scrollDebounceTimeout) {
-        clearTimeout(scrollDebounceTimeout);
-      }
-
-      scrollDebounceTimeout = setTimeout(() => {
-        if (!isUserScrolling.current && isNearBottom()) {
-          scrollToBottom({ behavior: 'smooth' });
-        }
-      }, 50);
-    });
-
+    let scrollTimeout: number;
     const handleScroll = () => {
       const currentScrollTop = container.scrollTop;
       isUserScrolling.current = currentScrollTop < lastScrollTop.current;
       lastScrollTop.current = currentScrollTop;
 
-      container.classList.add('is-scrolling');
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
+      // Batch UI updates
+      if (scrollTimeout) {
+        cancelAnimationFrame(scrollTimeout);
       }
-      scrollTimeout.current = window.setTimeout(() => {
-        container.classList.remove('is-scrolling');
-      }, 1000);
+
+      scrollTimeout = requestAnimationFrame(() => {
+        container.classList.toggle('is-scrolling', true);
+        setTimeout(() => {
+          container.classList.toggle('is-scrolling', false);
+        }, 1000);
+      });
     };
+
+    const observer = new MutationObserver(() => {
+      if (!isUserScrolling.current && isNearBottom()) {
+        scrollToBottom();
+      }
+    });
 
     observer.observe(container, {
       childList: true,
@@ -80,11 +81,11 @@ export function useScrollToBottom<T extends HTMLElement>(): [
     return () => {
       observer.disconnect();
       container.removeEventListener('scroll', handleScroll);
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
+      if (scrollFrameId.current) {
+        cancelAnimationFrame(scrollFrameId.current);
       }
-      if (scrollDebounceTimeout) {
-        clearTimeout(scrollDebounceTimeout);
+      if (scrollTimeout) {
+        cancelAnimationFrame(scrollTimeout);
       }
     };
   }, []);
