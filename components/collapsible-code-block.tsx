@@ -32,7 +32,7 @@ export function CollapsibleCodeBlock({
 			</button>
 			<div
 				className={cn(
-					"overflow-hidden",
+					"overflow-hidden px-3",
 					isExpanded ? "animate-in fade-in slide-in-from-top-1 duration-300 ease-out" : "animate-out fade-out slide-out-to-top-1 duration-200 ease-in"
 				)}
 				style={{
@@ -41,7 +41,7 @@ export function CollapsibleCodeBlock({
 				}}
 			>
 				<div className={cn(
-					"transition-opacity duration-300",
+					"py-3 transition-opacity duration-300",
 					isExpanded ? "opacity-100" : "opacity-0"
 				)}>
 					<CodeBlock
