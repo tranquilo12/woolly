@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Button } from "./ui/button";
 import { PlusIcon, TrashIcon, PenIcon, Pin, PinOff, MenuIcon } from "lucide-react";
 import Link from "next/link";
@@ -22,6 +22,7 @@ interface Chat {
 
 export function Sidebar() {
 	const router = useRouter();
+	const pathname = usePathname();
 	const [chats, setChats] = useState<Chat[]>([]);
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editingTitle, setEditingTitle] = useState("");
@@ -29,6 +30,8 @@ export function Sidebar() {
 	const sidebarRef = useRef<HTMLDivElement>(null);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const { refreshChats, refreshTrigger } = useChatList();
+	const [isNavigating, setIsNavigating] = useState(false);
+	const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
 
 	useEffect(() => {
 		fetchChats();
@@ -170,6 +173,27 @@ export function Sidebar() {
 		}
 	};
 
+	const handleChatClick = useCallback(async (e: React.MouseEvent, chatId: string) => {
+		e.preventDefault();
+		e.stopPropagation();
+
+		if (isNavigating || selectedChatId === chatId || pathname === `/chat/${chatId}`) return;
+
+		try {
+			setIsNavigating(true);
+			setSelectedChatId(chatId);
+
+			// Force a hard navigation
+			window.location.href = `/chat/${chatId}`;
+
+		} catch (error) {
+			console.error('Navigation error:', error);
+			toast.error('Failed to navigate to chat');
+			setIsNavigating(false);
+			setSelectedChatId(null);
+		}
+	}, [isNavigating, selectedChatId, pathname]);
+
 	return (
 		<div className="sidebar-container relative">
 			<button
@@ -240,8 +264,11 @@ export function Sidebar() {
 													<div className="relative rounded-md hover:bg-muted group/item">
 														<Link
 															href={`/chat/${chat.id}`}
-															className="flex items-center justify-center min-h-[44px] w-full px-3 py-2 text-sm"
-															onClick={() => setEditingTitle(chat.title)}
+															className={cn(
+																"flex items-center justify-center min-h-[44px] w-full px-3 py-2 text-sm",
+																selectedChatId === chat.id && "pointer-events-none opacity-50"
+															)}
+															onClick={(e) => handleChatClick(e, chat.id)}
 														>
 															<span className="text-center truncate px-8">{chat.title}</span>
 														</Link>
