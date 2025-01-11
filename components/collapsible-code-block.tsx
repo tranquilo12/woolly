@@ -32,14 +32,20 @@ export function CollapsibleCodeBlock({
 				<span className="font-mono">{filePath || `${language} snippet`}</span>
 			</button>
 
-			<div className={`overflow-hidden transition-all duration-200 ease-out ${isExpanded ? 'opacity-100' : 'opacity-0 h-0'}`}>
-				<div className="px-0.5">
-					{isExpanded && (
+			<div
+				className="code-block-content"
+				style={{
+					maxHeight: isExpanded ? '100vh' : '0',
+					visibility: isExpanded ? 'visible' : 'hidden'
+				}}
+			>
+				{isExpanded && (
+					<div className="px-0.5">
 						<Suspense fallback={<div className="p-4 text-sm text-zinc-400">Loading code...</div>}>
 							<CodeBlock language={language} value={value} />
 						</Suspense>
-					)}
-				</div>
+					</div>
+				)}
 			</div>
 		</div>
 	);

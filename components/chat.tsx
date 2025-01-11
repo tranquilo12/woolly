@@ -11,7 +11,6 @@ import { motion } from "framer-motion";
 import { ToolInvocationDisplay } from "./tool-invocation";
 import { Markdown } from "./markdown";
 import { EditMessageInput } from "./edit-message-input";
-import { ThinkingMessage } from "./thinking-message";
 import { EditIndicator } from "./edit-indicator";
 import { ModelSelector } from "./model-selector";
 import { useChatTitle } from "./chat-title-context";
