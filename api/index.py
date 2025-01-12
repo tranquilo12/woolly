@@ -130,6 +130,7 @@ def stream_text(
     stream = do_stream(messages, model=model)
     content_buffer = ""
     final_usage = None
+    current_tool_call = None
 
     for chunk in stream:
         for choice in chunk.choices:
@@ -138,12 +139,69 @@ def stream_text(
             elif choice.delta.content:
                 content_buffer += choice.delta.content
                 yield "0:{text}\n".format(text=json.dumps(choice.delta.content))
+            elif choice.delta.tool_calls:
+                for tool_call in choice.delta.tool_calls:
+                    if tool_call.index == 0:  # New tool call
+                        current_tool_call = {
+                            "id": tool_call.id,
+                            "name": tool_call.function.name,
+                            "arguments": tool_call.function.arguments or "",
+                        }
+                        # Emit tool call start
+                        yield "b:{}\n".format(
+                            json.dumps(
+                                {
+                                    "toolCallId": current_tool_call["id"],
+                                    "toolName": current_tool_call["name"],
+                                }
+                            )
+                        )
+                    else:  # Continuing tool call
+                        current_tool_call["arguments"] += (
+                            tool_call.function.arguments or ""
+                        )
+                        # Emit tool call delta
+                        yield "c:{}\n".format(
+                            json.dumps(
+                                {
+                                    "toolCallId": current_tool_call["id"],
+                                    "argsTextDelta": tool_call.function.arguments,
+                                }
+                            )
+                        )
 
-        # Store usage but don't yield it yet
+                    if tool_call.function.arguments:
+                        # Execute tool when arguments are complete
+                        try:
+                            result = execute_python_code(
+                                tool_call.function.arguments, output_format="json"
+                            )
+                            # Emit tool result
+                            yield "a:{}\n".format(
+                                json.dumps(
+                                    {
+                                        "toolCallId": current_tool_call["id"],
+                                        "toolName": current_tool_call["name"],
+                                        "result": result,
+                                    }
+                                )
+                            )
+                        except Exception as e:
+                            print(f"Tool execution error: {e}")
+                            yield "a:{}\n".format(
+                                json.dumps(
+                                    {
+                                        "toolCallId": current_tool_call["id"],
+                                        "toolName": current_tool_call["name"],
+                                        "error": str(e),
+                                    }
+                                )
+                            )
+
         if hasattr(chunk, "usage") and chunk.usage:
             final_usage = chunk.usage
 
-    # After the stream is complete, send the completion event with usage
+    # After the stream is complete
     if final_usage:
         if db and message_id:
             try:
@@ -159,11 +217,19 @@ def stream_text(
             except Exception as e:
                 print(f"Failed to update token counts: {e}")
 
-        # Send single completion event at the end with both content and usage
-        yield 'd:{{"finishReason":"stop","usage":{{"promptTokens":{prompt},"completionTokens":{completion},"totalTokens":{total}}}}}\n'.format(
-            prompt=final_usage.prompt_tokens,
-            completion=final_usage.completion_tokens,
-            total=final_usage.prompt_tokens + final_usage.completion_tokens,
+        # Send completion event
+        yield "d:{}\n".format(
+            json.dumps(
+                {
+                    "finishReason": "stop",
+                    "usage": {
+                        "promptTokens": final_usage.prompt_tokens,
+                        "completionTokens": final_usage.completion_tokens,
+                        "totalTokens": final_usage.prompt_tokens
+                        + final_usage.completion_tokens,
+                    },
+                }
+            )
         )
 
 

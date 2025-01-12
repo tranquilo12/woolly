@@ -243,73 +243,49 @@ export function Chat({ chatId }: ChatProps) {
   const [isToolStreaming, setIsToolStreaming] = useState(false);
   const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
+  const [currentModel, setCurrentModel] = useState("gpt-4o");
+
+  // Memoize repository status hooks
   const {
     searchRepository,
     getRepositoryStats,
     getRepositoryMap,
     getRepositorySummary
   } = useRepositoryStatus();
+
+  // Memoize code context state
   const [codeContextBlocks, setCodeContextBlocks] = useState<Array<{
     language: string;
     value: string;
     filePath?: string;
   }>>([]);
-  const [currentModel, setCurrentModel] = useState("gpt-4o");
 
-  // Add a debounced scroll handler
+  // Fetch messages only when chatId changes
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    let mounted = true;
 
-    let scrollTimeout: NodeJS.Timeout;
-
-    const handleScroll = () => {
-      container.classList.add('is-scrolling');
-
-      // Clear existing timeout
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
-
-      // Set new timeout to remove the class
-      scrollTimeout = setTimeout(() => {
-        container.classList.remove('is-scrolling');
-      }, 1000); // Hide scrollbar after 1 second of no scrolling
-    };
-
-    container.addEventListener('scroll', handleScroll, { passive: true });
-
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
-    };
-  }, [chatId, containerRef, endRef]);
-
-  // Optimize scroll during streaming
-  useEffect(() => {
-    if (isThinking || isToolStreaming) {
-      scrollToBottom({ behavior: 'smooth', force: true });
-    }
-  }, [isThinking, isToolStreaming, scrollToBottom]);
-
-  useEffect(() => {
     const fetchMessages = async () => {
       if (!chatId) return;
       try {
         const response = await fetch(`/api/chat/${chatId}/messages`);
         if (!response.ok) throw new Error('Failed to fetch messages');
         const messages = await response.json();
-        setInitialMessages(messages);
+        if (mounted) {
+          setInitialMessages(messages);
+        }
       } catch (error) {
         toast.error('Failed to load chat history');
       } finally {
-        setIsLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+        }
       }
     };
 
     fetchMessages();
+    return () => {
+      mounted = false;
+    };
   }, [chatId]);
 
   const {
@@ -501,6 +477,8 @@ export function Chat({ chatId }: ChatProps) {
 
 
   useEffect(() => {
+    let mounted = true;
+
     const fetchChatTitle = async () => {
       if (!chatId) return;
       try {
@@ -508,7 +486,7 @@ export function Chat({ chatId }: ChatProps) {
         if (!response.ok) throw new Error('Failed to fetch chats');
         const chats = await response.json();
         const currentChat = chats.find((chat: any) => chat.id === chatId);
-        if (currentChat?.title) {
+        if (currentChat?.title && mounted) {
           setTitle(currentChat.title);
         }
       } catch (error) {
@@ -517,7 +495,10 @@ export function Chat({ chatId }: ChatProps) {
     };
 
     fetchChatTitle();
-    return () => setTitle('');
+    return () => {
+      mounted = false;
+      setTitle('');
+    };
   }, [chatId, setTitle]);
 
   const updateCodeContext = useCallback((blocks: Array<{
@@ -529,6 +510,8 @@ export function Chat({ chatId }: ChatProps) {
   }, []);
 
   const handleCodeContextUpdate = useCallback((message: MessageWithModel) => {
+    if (!message?.content) return;
+
     // Extract code blocks from message content
     const codeBlocks = message.content.match(/```[\s\S]*?```/g) || [];
 
@@ -537,7 +520,6 @@ export function Chat({ chatId }: ChatProps) {
       const language = firstLine.replace('```', '').trim();
       const value = rest.slice(0, -1).join('\n');
 
-      // Extract file path if present (format: ```language:filepath)
       const [lang, filePath] = language.split(':');
 
       return {
@@ -547,8 +529,13 @@ export function Chat({ chatId }: ChatProps) {
       };
     });
 
-    updateCodeContext(parsedBlocks);
-  }, [updateCodeContext]);
+    // Only update if blocks have changed
+    setCodeContextBlocks(prev => {
+      const prevString = JSON.stringify(prev);
+      const newString = JSON.stringify(parsedBlocks);
+      return prevString === newString ? prev : parsedBlocks;
+    });
+  }, []);
 
   useEffect(() => {
     // Only process the last assistant message for code blocks

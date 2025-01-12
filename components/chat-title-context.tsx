@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useCallback } from 'react';
 
 interface ChatTitleContextType {
 	title: string;
@@ -11,7 +11,15 @@ const ChatTitleContext = createContext<ChatTitleContextType>({
 });
 
 export function ChatTitleProvider({ children }: { children: React.ReactNode }) {
-	const [title, setTitle] = useState('');
+	const [title, setTitleState] = useState('');
+
+	// Memoize setTitle to prevent unnecessary rerenders
+	const setTitle = useCallback((newTitle: string) => {
+		setTitleState(prev => {
+			if (prev === newTitle) return prev;
+			return newTitle;
+		});
+	}, []);
 
 	return (
 		<ChatTitleContext.Provider value={{ title, setTitle }}>

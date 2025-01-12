@@ -6,6 +6,7 @@ interface ChatPageProps {
 	};
 }
 
-export default function ChatPage({ params }: ChatPageProps) {
-	return <Chat chatId={params.id} />;
+export default async function ChatPage({ params }: ChatPageProps) {
+	const parameters = await params
+	return <Chat chatId={parameters.id} />;
 } 
