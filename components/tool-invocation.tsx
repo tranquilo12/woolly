@@ -29,7 +29,8 @@ export function ToolInvocationDisplay({ toolInvocation }: {
 	const args = toolInvocation.args;
 	const { state, result } = toolInvocation;
 
-	const isStreaming = state === 'partial-call';
+	const isPartialCall = state === 'partial-call';
+	const isFullCall = state === 'call';
 	const hasError = result?.success === false || result?.error;
 	const showResult = state === 'result' && !hasError;
 
@@ -51,10 +52,10 @@ export function ToolInvocationDisplay({ toolInvocation }: {
 								? "bg-green-500/10 text-green-700 dark:text-green-300"
 								: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-300"
 					)}
-					animate={isStreaming ? { opacity: [0.5, 1, 0.5] } : {}}
-					transition={{ duration: 1.5, repeat: isStreaming ? Infinity : 0 }}
+					animate={isPartialCall ? { opacity: [0.5, 1, 0.5] } : {}}
+					transition={{ duration: 1.5, repeat: isPartialCall ? Infinity : 0 }}
 				>
-					{hasError ? "error" : isStreaming ? "running" : state}
+					{hasError ? "error" : isPartialCall ? "streaming" : state}
 				</motion.div>
 			</div>
 
@@ -69,11 +70,11 @@ export function ToolInvocationDisplay({ toolInvocation }: {
 					className="mb-2"
 					initial={false}
 					animate={{ opacity: 1 }}
-					open={isStreaming}
+					open={isPartialCall || isFullCall}
 				>
 					<summary className="text-xs text-muted-foreground mb-1 cursor-pointer hover:text-foreground">
 						Arguments
-						{isStreaming && (
+						{isPartialCall && (
 							<motion.span
 								className="inline-block ml-1"
 								animate={{ opacity: [0.5, 1, 0.5] }}
