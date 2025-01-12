@@ -31,6 +31,7 @@ interface ChatMessageProps {
   chatId: string | undefined;
   onEditComplete: (message: MessageWithModel) => void;
   onModelChange: (model: string, messageId: string) => void;
+  isFirstUserMessage?: boolean;
 }
 
 export interface MessageWithModel extends Message {
@@ -64,7 +65,7 @@ export function toMessageWithModel(
 }
 
 // Memoized Message component to prevent unnecessary re-renders
-const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: ChatMessageProps) => {
+const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFirstUserMessage }: ChatMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
 
   const messageVariants = {
@@ -200,7 +201,7 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
           />
         </motion.div>
 
-        {message.role === "user" && (
+        {message.role === "user" && !isFirstUserMessage && (
           <div className="flex gap-2">
             <motion.div
               className="opacity-0 group-hover:opacity-100 transition-opacity"
@@ -572,6 +573,9 @@ export function Chat({ chatId }: ChatProps) {
       return <EditIndicator key="edit-indicator" />;
     }
 
+    // Check if this is the first user message
+    const isFirstUserMessage = messages.find(m => m.role === 'user')?.id === message.id;
+
     return (
       <ChatMessage
         key={message.id}
@@ -579,9 +583,10 @@ export function Chat({ chatId }: ChatProps) {
         chatId={chatId}
         onEditComplete={handleEditComplete}
         onModelChange={handleModelChange}
+        isFirstUserMessage={isFirstUserMessage}
       />
     );
-  }, [chatId, handleEditComplete, handleModelChange]);
+  }, [chatId, handleEditComplete, handleModelChange, messages]);
 
   // Debug streaming state
   useEffect(() => {
