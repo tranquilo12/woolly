@@ -34,6 +34,7 @@ client = OpenAI(
 
 class Request(BaseModel):
     messages: List[ClientMessage]
+    model: Optional[str] = "gpt-4o"
     agent_id: Optional[str] = None
 
 
@@ -339,36 +340,39 @@ async def chat(
     protocol: str = Query("data"),
 ):
     try:
-        if not request.messages:
+        messages = request.messages
+        if not messages:
             raise HTTPException(status_code=422, detail="No messages provided")
 
-        # Store the user's message with the selected model
-        user_message = Message(
-            chat_id=chat_id,
-            role="user",
-            content=request.messages[-1].content,
-            model=getattr(request.messages[-1], "model", "gpt-4o"),
-            created_at=datetime.now(timezone.utc),
+        model = request.model or messages[-1].model or "gpt-4o"
+
+        # Find existing empty assistant message
+        existing_assistant = (
+            db.query(Message)
+            .filter(
+                Message.chat_id == chat_id,
+                Message.role == "assistant",
+                Message.content == "",
+            )
+            .first()
         )
-        db.add(user_message)
+
+        if existing_assistant:
+            assistant_message = existing_assistant
+            assistant_message.model = model
+        else:
+            assistant_message = Message(
+                chat_id=chat_id,
+                role="assistant",
+                content="",
+                model=model,
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(assistant_message)
+
         db.commit()
 
-        # Create assistant message placeholder to track tokens
-        assistant_message = Message(
-            chat_id=chat_id,
-            role="assistant",
-            content="",
-            model=getattr(request.messages[-1], "model", "gpt-4o"),
-            created_at=datetime.now(timezone.utc),
-        )
-        db.add(assistant_message)
-        db.commit()
-
-        # Convert messages to OpenAI format
-        openai_messages = convert_to_openai_messages(request.messages)
-
-        # Get model from the last message
-        model = getattr(request.messages[-1], "model", "gpt-4o")
+        openai_messages = convert_to_openai_messages(messages)
 
         return StreamingResponse(
             stream_text(
@@ -380,7 +384,6 @@ async def chat(
             ),
             headers={"x-vercel-ai-data-stream": "v1"},
         )
-
     except Exception as e:
         print("Unexpected error:", str(e))
         raise HTTPException(status_code=500, detail=str(e))

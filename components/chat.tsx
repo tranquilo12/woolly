@@ -4,7 +4,7 @@ import { useChat } from "ai/react";
 import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message } from "ai";
 import { MultimodalInput } from "./multimodal-input";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
-import { useState, useEffect, memo, useCallback } from "react";
+import { useState, useEffect, memo, useCallback, SetStateAction, Dispatch } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
@@ -19,6 +19,8 @@ import { TokenCount } from "./token-count";
 import { MessageGroup } from "./message-group";
 import { CodeContextContainer } from "./code-context-container";
 import { CollapsibleCodeBlock } from "./collapsible-code-block";
+import { Button } from "@/components/ui/button";
+import { PencilIcon } from "lucide-react";
 
 interface ChatProps {
   chatId?: string;
@@ -36,6 +38,9 @@ export interface MessageWithModel extends Message {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  data?: {
+    dbId?: string;
+  }
 }
 
 export function toMessage(messageWithModel: MessageWithModel): Message {
@@ -54,6 +59,7 @@ export function toMessageWithModel(
     prompt_tokens: usage?.promptTokens,
     completion_tokens: usage?.completionTokens,
     total_tokens: usage?.totalTokens,
+    data: { dbId: message.id }
   };
 }
 
@@ -82,7 +88,10 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
   const handleEdit = async (newContent: string) => {
     if (!chatId || !message.id) return;
     try {
-      const response = await fetch(`/api/chat/${chatId}/messages/${message.id}`, {
+      // Use the database UUID from message.data if available
+      const dbId = message.data?.dbId || message.id;
+
+      const response = await fetch(`/api/chat/${chatId}/messages/${dbId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -192,17 +201,34 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
         </motion.div>
 
         {message.role === "user" && (
-          <motion.div
-            className="opacity-0 group-hover:opacity-100 transition-opacity"
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <ModelSelector
-              currentModel={message.model || "gpt-4o"}
-              onModelChange={(model) => onModelChange(model, message.id)}
-            />
-          </motion.div>
+          <div className="flex gap-2">
+            <motion.div
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 p-0 hover:bg-accent/50 transition-colors"
+                onClick={() => setIsEditing(true)}
+              >
+                <PencilIcon className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </motion.div>
+            <motion.div
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <ModelSelector
+                currentModel={message.model || "gpt-4o"}
+                onModelChange={(model) => onModelChange(model, message.id)}
+              />
+            </motion.div>
+          </div>
         )}
       </div>
     </motion.div>
@@ -378,17 +404,11 @@ export function Chat({ chatId }: ChatProps) {
     messages: MessageWithModel[] | ((prev: MessageWithModel[]) => MessageWithModel[])
   ) => {
     if (typeof messages === 'function') {
-      setVercelMessages((prev: MessageWithModel[]) =>
-        messages(prev.map(message => ({
-          ...message,
-          model: message.model || 'gpt-4o',
-          prompt_tokens: message.prompt_tokens,
-          completion_tokens: message.completion_tokens,
-          total_tokens: message.total_tokens
-        })))
+      setVercelMessages((prev) =>
+        messages(prev as MessageWithModel[]).map(m => toMessage(m))
       );
     } else {
-      setVercelMessages(messages);
+      setVercelMessages(messages.map(toMessage));
     }
   }, [setVercelMessages]);
 
@@ -419,42 +439,41 @@ export function Chat({ chatId }: ChatProps) {
 
     try {
       const messageIndex = messages.findIndex(m => m.id === editedMessage.id);
-      const previousMessages = messages.slice(0, messageIndex + 1);
+      const messagesToKeep = messages.slice(0, messageIndex + 1);
 
-      // Update the messages state to show only up to the edited message
-      setMessages([
-        ...previousMessages.map(m => m.id === editedMessage.id ? editedMessage : m),
-        { id: 'edit-indicator', role: 'system', content: '' }
-      ]);
+      // Update the edited message in place
+      messagesToKeep[messageIndex] = {
+        ...messagesToKeep[messageIndex],
+        content: editedMessage.content
+      };
 
-      // Get all messages up to the edited one for the API
-      const messagesToResend = previousMessages.map(m => ({
-        role: m.role,
-        content: m.id === editedMessage.id ? editedMessage.content : m.content,
-        id: m.id
-      }));
+      setMessages(messagesToKeep as MessageWithModel[]);
 
-      // Send selectedModel with the re-submission
-      await append(
-        {
-          role: 'user',
-          content: editedMessage.content,
+      const options = {
+        body: {
+          messages: messagesToKeep.map(m => ({
+            role: m.role,
+            content: m.content,
+            id: m.id
+          })),
+          model: editedMessage.model || "gpt-4o",
         },
+      }
+
+      await vercelAppend(
         {
-          body: {
-            messages: messagesToResend,
-            model: editedMessage.model || "gpt-4o",
-          },
-        }
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: ''
+        } as Message,
+        options
       );
       scrollToBottom({ force: true, behavior: 'auto' });
-
     } catch (error) {
       console.error('Failed to restream messages:', error);
-      toast.error('Failed to continue conversation after edit');
-      setIsRestreaming(false);
+      scrollToBottom({ force: true, behavior: 'auto' });
     }
-  }, [chatId, messages, setMessages, append, scrollToBottom]);
+  }, [chatId, messages, setMessages, scrollToBottom]);
 
   const handleModelChange = useCallback(async (model: string, messageId: string) => {
     // Update the message's model in the database
@@ -471,11 +490,15 @@ export function Chat({ chatId }: ChatProps) {
       return;
     }
 
-    // Update local state
-    setMessages(messages.map(msg =>
-      msg.id === messageId ? { ...msg, model } : msg
-    ));
-  }, [chatId, setMessages, messages]);
+    // Update local state with proper type casting
+    setMessages((prevMessages) =>
+      prevMessages.map(msg =>
+        msg.id === messageId
+          ? { ...msg, model } as MessageWithModel
+          : msg
+      )
+    );
+  }, [chatId, setMessages]);
 
 
   useEffect(() => {
@@ -535,7 +558,7 @@ export function Chat({ chatId }: ChatProps) {
       .find(msg => msg.role === 'assistant');
 
     if (lastAssistantMessage) {
-      handleCodeContextUpdate(lastAssistantMessage);
+      handleCodeContextUpdate(lastAssistantMessage as MessageWithModel);
     }
   }, [messages, handleCodeContextUpdate]);
 
@@ -567,10 +590,10 @@ export function Chat({ chatId }: ChatProps) {
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
     if (message.role === 'user') {
       // Start a new group with user message
-      groups.push([message]);
+      groups.push([message as MessageWithModel]);
     } else if (groups.length && message.id !== 'edit-indicator') {
       // Add assistant message to last group
-      groups[groups.length - 1].push(message);
+      groups[groups.length - 1].push(message as MessageWithModel);
     }
     return groups;
   }, []);
@@ -611,7 +634,7 @@ export function Chat({ chatId }: ChatProps) {
             isLoading={isChatLoading}
             stop={stop}
             messages={messages}
-            setMessages={setMessages}
+            setMessages={setMessages as Dispatch<SetStateAction<Message[]>>}
             append={append}
             handleSubmit={handleSubmit}
             searchRepository={searchRepository}
