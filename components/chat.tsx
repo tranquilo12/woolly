@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "ai/react";
-import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message } from "ai";
+import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message, tool } from "ai";
 import { MultimodalInput } from "./multimodal-input";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useState, useEffect, memo, useCallback, SetStateAction, Dispatch } from "react";
@@ -21,6 +21,7 @@ import { CodeContextContainer } from "./code-context-container";
 import { CollapsibleCodeBlock } from "./collapsible-code-block";
 import { Button } from "@/components/ui/button";
 import { PencilIcon } from "lucide-react";
+import { ExtendedToolCall } from "@/types/tool-calls";
 
 interface ChatProps {
   chatId?: string;
@@ -41,7 +42,8 @@ export interface MessageWithModel extends Message {
   total_tokens?: number;
   data?: {
     dbId?: string;
-  }
+  };
+  toolInvocations?: ExtendedToolCall[];
 }
 
 export function toMessage(messageWithModel: MessageWithModel): Message {
@@ -60,6 +62,7 @@ export function toMessageWithModel(
     prompt_tokens: usage?.promptTokens,
     completion_tokens: usage?.completionTokens,
     total_tokens: usage?.totalTokens,
+    toolInvocations: message.toolInvocations as ExtendedToolCall[],
     data: { dbId: message.id }
   };
 }
@@ -189,9 +192,24 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
             <Markdown>{contentWithoutCode}</Markdown>
           </div>
 
-          {message.toolInvocations?.map((tool, i) => (
-            <ToolInvocationDisplay key={i} toolInvocation={tool} />
-          ))}
+          {message.toolInvocations?.map((tool, index) => {
+            // Create a truly unique key by combining message id, tool id, and index
+            const uniqueKey = `${message.id}-${tool.toolCallId || 'tool'}-${index}`;
+
+            return (
+              <ToolInvocationDisplay
+                key={uniqueKey}
+                toolInvocation={{
+                  id: tool.toolCallId,
+                  toolCallId: tool.toolCallId,
+                  toolName: tool.toolName,
+                  args: tool.args,
+                  state: tool.state,
+                  result: 'result' in tool ? tool.result : undefined
+                }}
+              />
+            );
+          })}
 
           <TokenCount
             prompt_tokens={message.prompt_tokens}
@@ -291,6 +309,7 @@ export function Chat({ chatId }: ChatProps) {
   const {
     messages,
     input,
+    handleInputChange,
     handleSubmit,
     append: vercelAppend,
     stop,
@@ -304,41 +323,61 @@ export function Chat({ chatId }: ChatProps) {
     body: {
       id: chatId
     },
+    onToolCall: async (tool) => {
+      setIsToolStreaming(true);
+      // Update message with tool call state
+      setVercelMessages(prevMessages => {
+        const lastMessage = prevMessages[prevMessages.length - 1];
+        if (!lastMessage) return prevMessages;
+
+        const updatedToolInvocations = lastMessage.toolInvocations || [];
+        const existingToolIndex = updatedToolInvocations.findIndex(t => t.toolCallId === tool.toolCall.toolCallId);
+
+        if (existingToolIndex >= 0) {
+          updatedToolInvocations[existingToolIndex] = {
+            ...updatedToolInvocations[existingToolIndex],
+            toolCallId: tool.toolCall.toolCallId,
+            toolName: tool.toolCall.toolName,
+            args: tool.toolCall.args,
+          };
+        } else {
+          updatedToolInvocations.push({
+            toolCallId: tool.toolCall.toolCallId,
+            toolName: tool.toolCall.toolName,
+            args: tool.toolCall.args,
+            // @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
+            // That's because it DOES but it doesn't exist in the type definition
+            state: tool.toolCall.state || 'partial-call'
+          });
+        }
+
+        return prevMessages.map((msg, i) =>
+          i === prevMessages.length - 1
+            ? { ...msg, toolInvocations: updatedToolInvocations }
+            : msg
+        );
+      });
+    },
     onResponse: (response) => {
       if (!response.ok) {
         console.error('Stream response error:', response.status);
         toast.error('Error in chat response');
         return;
       }
-      // Add response debugging
-      console.debug('[Token Stats] Response received:', {
-        status: response.status,
-        headers: Object.fromEntries(response.headers.entries())
-      });
     },
     onFinish: async (message, options) => {
       try {
-        // Add detailed usage debugging
-        console.debug('[Token Stats] Message completed:', {
-          messageId: message.id,
-          usage: options.usage,
-          hasUsage: Boolean(options.usage)
-        });
-
         const messageWithModel = {
           ...message,
-          model: 'gpt-4o',
+          model: currentModel,
           prompt_tokens: options.usage?.promptTokens,
           completion_tokens: options.usage?.completionTokens,
-          total_tokens: options.usage?.totalTokens
-        };
-
-        // Log the final message state
-        console.debug('[Token Stats] Final message state:', {
-          prompt_tokens: messageWithModel.prompt_tokens,
-          completion_tokens: messageWithModel.completion_tokens,
-          total_tokens: messageWithModel.total_tokens
-        });
+          total_tokens: options.usage?.totalTokens,
+          toolInvocations: message.toolInvocations?.map(tool => ({
+            ...tool,
+            state: tool.state || 'result'
+          }))
+        } as MessageWithModel;
 
         setVercelMessages(prevMessages =>
           prevMessages.map(m =>
@@ -348,11 +387,17 @@ export function Chat({ chatId }: ChatProps) {
 
         setIsRestreaming(false);
         setIsThinking(false);
+        setIsToolStreaming(false);
       } catch (error) {
-        console.error('[Token Stats] Error in onFinish:', error);
-        toast.error('Failed to save message');
+        console.error('Failed to update message state:', error);
       }
     },
+    onError: (error) => {
+      console.error('Chat error:', error);
+      toast.error('An error occurred during the chat');
+      setIsToolStreaming(false);
+      setIsThinking(false);
+    }
   });
 
   // Scroll on new message
@@ -371,21 +416,27 @@ export function Chat({ chatId }: ChatProps) {
     message: MessageWithModel | CreateMessage,
     options?: ChatRequestOptions
   ) => {
-    return vercelAppend(toMessage(message as MessageWithModel), options);
-  }, [vercelAppend]);
-
-  // Create a wrapped setMessages function
-  const setMessages = useCallback((
-    messages: MessageWithModel[] | ((prev: MessageWithModel[]) => MessageWithModel[])
-  ) => {
-    if (typeof messages === 'function') {
-      setVercelMessages((prev) =>
-        messages(prev as MessageWithModel[]).map(m => toMessage(m))
-      );
-    } else {
-      setVercelMessages(messages.map(toMessage));
+    // Save user message first if it's a user message
+    if (chatId && message.role === 'user') {
+      try {
+        await fetch(`/api/chat/${chatId}/messages/save`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            role: message.role,
+            content: message.content,
+            model: currentModel
+          }),
+        });
+      } catch (error) {
+        console.error('Failed to save user message:', error);
+      }
     }
-  }, [setVercelMessages]);
+
+    return vercelAppend(message, options);
+  }, [vercelAppend, chatId, currentModel]);
 
   // Update thinking state when chat loading state changes
   useEffect(() => {
@@ -422,7 +473,7 @@ export function Chat({ chatId }: ChatProps) {
         content: editedMessage.content
       };
 
-      setMessages(messagesToKeep as MessageWithModel[]);
+      setVercelMessages(messagesToKeep as MessageWithModel[]);
 
       const options = {
         body: {
@@ -448,7 +499,7 @@ export function Chat({ chatId }: ChatProps) {
       console.error('Failed to restream messages:', error);
       scrollToBottom({ force: true, behavior: 'auto' });
     }
-  }, [chatId, messages, setMessages, scrollToBottom]);
+  }, [chatId, messages, setVercelMessages, scrollToBottom]);
 
   const handleModelChange = useCallback(async (model: string, messageId: string) => {
     // Update the message's model in the database
@@ -466,14 +517,14 @@ export function Chat({ chatId }: ChatProps) {
     }
 
     // Update local state with proper type casting
-    setMessages((prevMessages) =>
+    setVercelMessages((prevMessages) =>
       prevMessages.map(msg =>
         msg.id === messageId
           ? { ...msg, model } as MessageWithModel
           : msg
       )
     );
-  }, [chatId, setMessages]);
+  }, [chatId, setVercelMessages]);
 
 
   useEffect(() => {
@@ -501,13 +552,6 @@ export function Chat({ chatId }: ChatProps) {
     };
   }, [chatId, setTitle]);
 
-  const updateCodeContext = useCallback((blocks: Array<{
-    language: string;
-    value: string;
-    filePath?: string;
-  }>) => {
-    setCodeContextBlocks(blocks);
-  }, []);
 
   const handleCodeContextUpdate = useCallback((message: MessageWithModel) => {
     if (!message?.content) return;
@@ -549,8 +593,10 @@ export function Chat({ chatId }: ChatProps) {
   }, [messages, handleCodeContextUpdate]);
 
   const renderMessage = useCallback((message: MessageWithModel) => {
-    // Skip rendering empty assistant messages
-    if (message.role === 'assistant' && !message.content) {
+    // Skip rendering empty assistant messages ONLY if they have no tool invocations
+    if (message.role === 'assistant' &&
+      !message.content &&
+      (!message.toolInvocations || message.toolInvocations.length === 0)) {
       return null;
     }
 
@@ -629,7 +675,7 @@ export function Chat({ chatId }: ChatProps) {
             isLoading={isChatLoading}
             stop={stop}
             messages={messages}
-            setMessages={setMessages as Dispatch<SetStateAction<Message[]>>}
+            setMessages={setVercelMessages as Dispatch<SetStateAction<Message[]>>}
             append={append}
             handleSubmit={handleSubmit}
             searchRepository={searchRepository}

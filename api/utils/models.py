@@ -52,15 +52,14 @@ class ToolCallResult(BaseModel):
 def build_tool_call_partial(tool_call_id: str, tool_name: str, args: dict) -> str:
     """
     Return a serialized JSON string for partial tool calls in the '9:...' format.
-    Includes accumulated partial arguments.
     """
-    obj = ToolCallPartial(
-        toolCallId=tool_call_id,
-        toolName=tool_name,
-        args=args,
-        state="partial-call",
-    )
-    res = obj.model_dump_json()
+    obj = {
+        "toolCallId": tool_call_id,
+        "toolName": tool_name,
+        "args": args,
+        "state": "partial-call",
+    }
+    res = json.dumps(obj)
     return f"9:{res}\n\n"
 
 
@@ -70,14 +69,14 @@ def build_tool_call_result(
     """
     Return a serialized JSON string for tool call results in the 'a:...' format.
     """
-    obj = ToolCallResult(
-        toolCallId=tool_call_id,
-        toolName=tool_name,
-        state="result",
-        args=args,
-        result=result,
-    )
-    res = obj.model_dump_json()
+    obj = {
+        "toolCallId": tool_call_id,
+        "toolName": tool_name,
+        "args": args,
+        "state": "result",
+        "result": result,
+    }
+    res = json.dumps(obj)
     return f"a:{res}\n\n"
 
 

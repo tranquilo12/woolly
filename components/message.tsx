@@ -105,7 +105,13 @@ export const PreviewMessage = ({
             {message.toolInvocations.map((toolInvocation) => (
               <ToolInvocationDisplay
                 key={toolInvocation.toolCallId}
-                toolInvocation={toolInvocation}
+                toolInvocation={{
+                  id: toolInvocation.toolCallId,
+                  toolName: toolInvocation.toolName,
+                  args: toolInvocation.args,
+                  state: toolInvocation.state,
+                  result: 'result' in toolInvocation ? toolInvocation.result : undefined
+                }}
               />
             ))}
           </div>
