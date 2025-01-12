@@ -202,12 +202,11 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
         </motion.div>
 
         {message.role === "user" && !isFirstUserMessage && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
             <motion.div
-              className="opacity-0 group-hover:opacity-100 transition-opacity"
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.2 }}
+              className="transition-opacity"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
             >
               <Button
                 variant="ghost"
@@ -219,10 +218,9 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
               </Button>
             </motion.div>
             <motion.div
-              className="opacity-0 group-hover:opacity-100 transition-opacity"
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.2 }}
+              className="transition-opacity"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
             >
               <ModelSelector
                 currentModel={message.model || "gpt-4o"}
