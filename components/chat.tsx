@@ -563,6 +563,11 @@ export function Chat({ chatId }: ChatProps) {
   }, [messages, handleCodeContextUpdate]);
 
   const renderMessage = useCallback((message: MessageWithModel) => {
+    // Skip rendering empty assistant messages
+    if (message.role === 'assistant' && !message.content) {
+      return null;
+    }
+
     if (message.id === 'edit-indicator') {
       return <EditIndicator key="edit-indicator" />;
     }
