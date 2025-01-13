@@ -37,6 +37,8 @@ class Attachment(BaseModel):
 class ClientMessage(BaseModel):
     role: str
     content: str
+    id: str
+    model: Optional[str] = None
     data: Optional[MessageData] = None
     experimental_attachments: Optional[List[Attachment]] = None
     toolInvocations: Optional[List[ToolInvocation]] = None

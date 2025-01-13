@@ -1,7 +1,24 @@
-import { CoreToolCall } from "ai";
+import { CoreToolCall, Message } from "ai";
 
 export interface ExtendedToolCall extends CoreToolCall<string, unknown> {
-	state: "call" | "partial-call" | "result";
+	state: "call" | "partial-call";
+	toolCallId: string;
+	toolName: string;
+	args: any;
+	result?: {
+		success?: boolean;
+		error?: {
+			type?: string;
+			message?: string;
+		};
+		output?: string;
+		plots?: Record<string, string>;
+		metrics?: {
+			memory_usage?: number;
+			cpu_percent?: number;
+			execution_time?: number;
+		};
+	};
 }
 
 export interface StreamingToolCallEvent {
@@ -15,4 +32,8 @@ export interface StreamingToolCallEvent {
 		state: "call" | "partial-call" | "result";
 		result?: any;
 	};
+}
+
+export interface MessageWithToolInvocations extends Message {
+	toolInvocations?: ExtendedToolCall[];
 } 

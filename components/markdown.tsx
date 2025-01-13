@@ -29,7 +29,7 @@ const NonMemoizedMarkdown = ({ children, isToolCallLoading }: MarkdownProps) => 
           <CollapsibleCodeBlock
             language={language}
             value={value}
-            filePath={filePath}
+            initiallyExpanded={false}
           />
         );
       }

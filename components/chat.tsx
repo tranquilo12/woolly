@@ -1,17 +1,16 @@
 "use client";
 
 import { useChat } from "ai/react";
-import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message } from "ai";
+import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message, tool } from "ai";
 import { MultimodalInput } from "./multimodal-input";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
-import { useState, useEffect, memo, useCallback } from "react";
+import { useState, useEffect, memo, useCallback, SetStateAction, Dispatch } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { ToolInvocationDisplay } from "./tool-invocation";
 import { Markdown } from "./markdown";
 import { EditMessageInput } from "./edit-message-input";
-import { ThinkingMessage } from "./thinking-message";
 import { EditIndicator } from "./edit-indicator";
 import { ModelSelector } from "./model-selector";
 import { useChatTitle } from "./chat-title-context";
@@ -20,6 +19,9 @@ import { TokenCount } from "./token-count";
 import { MessageGroup } from "./message-group";
 import { CodeContextContainer } from "./code-context-container";
 import { CollapsibleCodeBlock } from "./collapsible-code-block";
+import { Button } from "@/components/ui/button";
+import { PencilIcon } from "lucide-react";
+import { ExtendedToolCall } from "@/types/tool-calls";
 
 interface ChatProps {
   chatId?: string;
@@ -30,6 +32,7 @@ interface ChatMessageProps {
   chatId: string | undefined;
   onEditComplete: (message: MessageWithModel) => void;
   onModelChange: (model: string, messageId: string) => void;
+  isFirstUserMessage?: boolean;
 }
 
 export interface MessageWithModel extends Message {
@@ -37,6 +40,10 @@ export interface MessageWithModel extends Message {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  data?: {
+    dbId?: string;
+  };
+  toolInvocations?: ExtendedToolCall[];
 }
 
 export function toMessage(messageWithModel: MessageWithModel): Message {
@@ -55,11 +62,13 @@ export function toMessageWithModel(
     prompt_tokens: usage?.promptTokens,
     completion_tokens: usage?.completionTokens,
     total_tokens: usage?.totalTokens,
+    toolInvocations: message.toolInvocations as ExtendedToolCall[],
+    data: { dbId: message.id }
   };
 }
 
 // Memoized Message component to prevent unnecessary re-renders
-const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: ChatMessageProps) => {
+const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFirstUserMessage }: ChatMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
 
   const messageVariants = {
@@ -83,7 +92,10 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
   const handleEdit = async (newContent: string) => {
     if (!chatId || !message.id) return;
     try {
-      const response = await fetch(`/api/chat/${chatId}/messages/${message.id}`, {
+      // Use the database UUID from message.data if available
+      const dbId = message.data?.dbId || message.id;
+
+      const response = await fetch(`/api/chat/${chatId}/messages/${dbId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -180,30 +192,59 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange }: Ch
             <Markdown>{contentWithoutCode}</Markdown>
           </div>
 
-          {message.toolInvocations?.map((tool, i) => (
-            <ToolInvocationDisplay key={i} toolInvocation={tool} />
-          ))}
+          {message.toolInvocations?.map((tool, index) => {
+            // Create a truly unique key by combining message id, tool id, and index
+            const uniqueKey = `${message.id}-${tool.toolCallId || 'tool'}-${index}`;
+
+            return (
+              <ToolInvocationDisplay
+                key={uniqueKey}
+                toolInvocation={{
+                  id: tool.toolCallId,
+                  toolCallId: tool.toolCallId,
+                  toolName: tool.toolName,
+                  args: tool.args,
+                  state: tool.state,
+                  result: 'result' in tool ? tool.result : undefined
+                }}
+              />
+            );
+          })}
 
           <TokenCount
             prompt_tokens={message.prompt_tokens}
             completion_tokens={message.completion_tokens}
             total_tokens={message.total_tokens}
-            isLoading={message.role === 'assistant' && !message.total_tokens}
           />
         </motion.div>
 
-        {message.role === "user" && (
-          <motion.div
-            className="opacity-0 group-hover:opacity-100 transition-opacity"
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <ModelSelector
-              currentModel={message.model || "gpt-4o"}
-              onModelChange={(model) => onModelChange(model, message.id)}
-            />
-          </motion.div>
+        {message.role === "user" && !isFirstUserMessage && (
+          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <motion.div
+              className="transition-opacity"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 p-0 hover:bg-accent/50 transition-colors"
+                onClick={() => setIsEditing(true)}
+              >
+                <PencilIcon className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </motion.div>
+            <motion.div
+              className="transition-opacity"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+            >
+              <ModelSelector
+                currentModel={message.model || "gpt-4o"}
+                onModelChange={(model) => onModelChange(model, message.id)}
+              />
+            </motion.div>
+          </div>
         )}
       </div>
     </motion.div>
@@ -216,81 +257,57 @@ export function Chat({ chatId }: ChatProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isRestreaming, setIsRestreaming] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
-  const [isToolStreaming, setIsToolStreaming] = useState(false);
   const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
+  const [currentModel, setCurrentModel] = useState("gpt-4o");
+
+  // Memoize repository status hooks
   const {
     searchRepository,
     getRepositoryStats,
     getRepositoryMap,
     getRepositorySummary
   } = useRepositoryStatus();
+
+  // Memoize code context state
   const [codeContextBlocks, setCodeContextBlocks] = useState<Array<{
     language: string;
     value: string;
     filePath?: string;
   }>>([]);
-  const [currentModel, setCurrentModel] = useState("gpt-4o");
 
-  // Add a debounced scroll handler
+  // Fetch messages only when chatId changes
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    let mounted = true;
 
-    let scrollTimeout: NodeJS.Timeout;
-
-    const handleScroll = () => {
-      container.classList.add('is-scrolling');
-
-      // Clear existing timeout
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
-
-      // Set new timeout to remove the class
-      scrollTimeout = setTimeout(() => {
-        container.classList.remove('is-scrolling');
-      }, 1000); // Hide scrollbar after 1 second of no scrolling
-    };
-
-    container.addEventListener('scroll', handleScroll, { passive: true });
-
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
-    };
-  }, [chatId, containerRef, endRef]);
-
-  // Optimize scroll during streaming
-  useEffect(() => {
-    if (isThinking || isToolStreaming) {
-      scrollToBottom({ behavior: 'smooth', force: true });
-    }
-  }, [isThinking, isToolStreaming, scrollToBottom]);
-
-  useEffect(() => {
     const fetchMessages = async () => {
       if (!chatId) return;
       try {
         const response = await fetch(`/api/chat/${chatId}/messages`);
         if (!response.ok) throw new Error('Failed to fetch messages');
         const messages = await response.json();
-        setInitialMessages(messages);
+        if (mounted) {
+          setInitialMessages(messages);
+        }
       } catch (error) {
         toast.error('Failed to load chat history');
       } finally {
-        setIsLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+        }
       }
     };
 
     fetchMessages();
+    return () => {
+      mounted = false;
+    };
   }, [chatId]);
 
   const {
     messages,
     input,
+    handleInputChange,
     handleSubmit,
     append: vercelAppend,
     stop,
@@ -304,41 +321,58 @@ export function Chat({ chatId }: ChatProps) {
     body: {
       id: chatId
     },
+    onToolCall: async (tool) => {
+      setVercelMessages(prevMessages => {
+        const lastMessage = prevMessages[prevMessages.length - 1];
+        if (!lastMessage) return prevMessages;
+
+        const updatedToolInvocations = lastMessage.toolInvocations || [];
+        const existingToolIndex = updatedToolInvocations.findIndex(t => t.toolCallId === tool.toolCall.toolCallId);
+
+        if (existingToolIndex >= 0) {
+          updatedToolInvocations[existingToolIndex] = {
+            ...updatedToolInvocations[existingToolIndex],
+            toolCallId: tool.toolCall.toolCallId,
+            toolName: tool.toolCall.toolName,
+            args: tool.toolCall.args,
+          };
+        } else {
+          updatedToolInvocations.push({
+            toolCallId: tool.toolCall.toolCallId,
+            toolName: tool.toolCall.toolName,
+            args: tool.toolCall.args,
+            // @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
+            state: tool.toolCall.state || 'partial-call'
+          });
+        }
+
+        return prevMessages.map((msg, i) =>
+          i === prevMessages.length - 1
+            ? { ...msg, toolInvocations: updatedToolInvocations }
+            : msg
+        );
+      });
+    },
     onResponse: (response) => {
       if (!response.ok) {
         console.error('Stream response error:', response.status);
         toast.error('Error in chat response');
         return;
       }
-      // Add response debugging
-      console.debug('[Token Stats] Response received:', {
-        status: response.status,
-        headers: Object.fromEntries(response.headers.entries())
-      });
     },
     onFinish: async (message, options) => {
       try {
-        // Add detailed usage debugging
-        console.debug('[Token Stats] Message completed:', {
-          messageId: message.id,
-          usage: options.usage,
-          hasUsage: Boolean(options.usage)
-        });
-
         const messageWithModel = {
           ...message,
-          model: 'gpt-4o',
+          model: currentModel,
           prompt_tokens: options.usage?.promptTokens,
           completion_tokens: options.usage?.completionTokens,
-          total_tokens: options.usage?.totalTokens
-        };
-
-        // Log the final message state
-        console.debug('[Token Stats] Final message state:', {
-          prompt_tokens: messageWithModel.prompt_tokens,
-          completion_tokens: messageWithModel.completion_tokens,
-          total_tokens: messageWithModel.total_tokens
-        });
+          total_tokens: options.usage?.totalTokens,
+          toolInvocations: message.toolInvocations?.map(tool => ({
+            ...tool,
+            state: tool.state || 'result'
+          }))
+        } as MessageWithModel;
 
         setVercelMessages(prevMessages =>
           prevMessages.map(m =>
@@ -349,10 +383,14 @@ export function Chat({ chatId }: ChatProps) {
         setIsRestreaming(false);
         setIsThinking(false);
       } catch (error) {
-        console.error('[Token Stats] Error in onFinish:', error);
-        toast.error('Failed to save message');
+        console.error('Failed to update message state:', error);
       }
     },
+    onError: (error) => {
+      console.error('Chat error:', error);
+      toast.error('An error occurred during the chat');
+      setIsThinking(false);
+    }
   });
 
   // Scroll on new message
@@ -371,27 +409,27 @@ export function Chat({ chatId }: ChatProps) {
     message: MessageWithModel | CreateMessage,
     options?: ChatRequestOptions
   ) => {
-    return vercelAppend(toMessage(message as MessageWithModel), options);
-  }, [vercelAppend]);
-
-  // Create a wrapped setMessages function
-  const setMessages = useCallback((
-    messages: MessageWithModel[] | ((prev: MessageWithModel[]) => MessageWithModel[])
-  ) => {
-    if (typeof messages === 'function') {
-      setVercelMessages((prev: MessageWithModel[]) =>
-        messages(prev.map(message => ({
-          ...message,
-          model: message.model || 'gpt-4o',
-          prompt_tokens: message.prompt_tokens,
-          completion_tokens: message.completion_tokens,
-          total_tokens: message.total_tokens
-        })))
-      );
-    } else {
-      setVercelMessages(messages);
+    // Save user message first if it's a user message
+    if (chatId && message.role === 'user') {
+      try {
+        await fetch(`/api/chat/${chatId}/messages/save`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            role: message.role,
+            content: message.content,
+            model: currentModel
+          }),
+        });
+      } catch (error) {
+        console.error('Failed to save user message:', error);
+      }
     }
-  }, [setVercelMessages]);
+
+    return vercelAppend(message, options);
+  }, [vercelAppend, chatId, currentModel]);
 
   // Update thinking state when chat loading state changes
   useEffect(() => {
@@ -407,12 +445,11 @@ export function Chat({ chatId }: ChatProps) {
       const isEmptyAssistantMessage = lastMessage.role === 'assistant' && !lastMessage.content;
       const isStreamStarting = lastMessage.role === 'assistant' && lastMessage.content === '';
 
-      setIsToolStreaming(hasActiveToolInvocations || isStreamStarting);
       return isEmptyAssistantMessage || isStreamStarting || hasActiveToolInvocations;
     };
 
-    setIsThinking(shouldShowThinking() || isToolStreaming);
-  }, [isChatLoading, messages, isToolStreaming]);
+    setIsThinking(shouldShowThinking() || isChatLoading);
+  }, [isChatLoading, messages]);
 
   const handleEditComplete = useCallback(async (editedMessage: MessageWithModel) => {
     if (!chatId) return;
@@ -420,42 +457,41 @@ export function Chat({ chatId }: ChatProps) {
 
     try {
       const messageIndex = messages.findIndex(m => m.id === editedMessage.id);
-      const previousMessages = messages.slice(0, messageIndex + 1);
+      const messagesToKeep = messages.slice(0, messageIndex + 1);
 
-      // Update the messages state to show only up to the edited message
-      setMessages([
-        ...previousMessages.map(m => m.id === editedMessage.id ? editedMessage : m),
-        { id: 'edit-indicator', role: 'system', content: '' }
-      ]);
+      // Update the edited message in place
+      messagesToKeep[messageIndex] = {
+        ...messagesToKeep[messageIndex],
+        content: editedMessage.content
+      };
 
-      // Get all messages up to the edited one for the API
-      const messagesToResend = previousMessages.map(m => ({
-        role: m.role,
-        content: m.id === editedMessage.id ? editedMessage.content : m.content,
-        id: m.id
-      }));
+      setVercelMessages(messagesToKeep as MessageWithModel[]);
 
-      // Send selectedModel with the re-submission
-      await append(
-        {
-          role: 'user',
-          content: editedMessage.content,
+      const options = {
+        body: {
+          messages: messagesToKeep.map(m => ({
+            role: m.role,
+            content: m.content,
+            id: m.id
+          })),
+          model: editedMessage.model || "gpt-4o",
         },
+      }
+
+      await vercelAppend(
         {
-          body: {
-            messages: messagesToResend,
-            model: editedMessage.model || "gpt-4o",
-          },
-        }
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: ''
+        } as Message,
+        options
       );
       scrollToBottom({ force: true, behavior: 'auto' });
-
     } catch (error) {
       console.error('Failed to restream messages:', error);
-      toast.error('Failed to continue conversation after edit');
-      setIsRestreaming(false);
+      scrollToBottom({ force: true, behavior: 'auto' });
     }
-  }, [chatId, messages, setMessages, append, scrollToBottom]);
+  }, [chatId, messages, setVercelMessages, scrollToBottom]);
 
   const handleModelChange = useCallback(async (model: string, messageId: string) => {
     // Update the message's model in the database
@@ -472,14 +508,20 @@ export function Chat({ chatId }: ChatProps) {
       return;
     }
 
-    // Update local state
-    setMessages(messages.map(msg =>
-      msg.id === messageId ? { ...msg, model } : msg
-    ));
-  }, [chatId, setMessages, messages]);
+    // Update local state with proper type casting
+    setVercelMessages((prevMessages) =>
+      prevMessages.map(msg =>
+        msg.id === messageId
+          ? { ...msg, model } as MessageWithModel
+          : msg
+      )
+    );
+  }, [chatId, setVercelMessages]);
 
 
   useEffect(() => {
+    let mounted = true;
+
     const fetchChatTitle = async () => {
       if (!chatId) return;
       try {
@@ -487,7 +529,7 @@ export function Chat({ chatId }: ChatProps) {
         if (!response.ok) throw new Error('Failed to fetch chats');
         const chats = await response.json();
         const currentChat = chats.find((chat: any) => chat.id === chatId);
-        if (currentChat?.title) {
+        if (currentChat?.title && mounted) {
           setTitle(currentChat.title);
         }
       } catch (error) {
@@ -496,18 +538,16 @@ export function Chat({ chatId }: ChatProps) {
     };
 
     fetchChatTitle();
-    return () => setTitle('');
+    return () => {
+      mounted = false;
+      setTitle('');
+    };
   }, [chatId, setTitle]);
 
-  const updateCodeContext = useCallback((blocks: Array<{
-    language: string;
-    value: string;
-    filePath?: string;
-  }>) => {
-    setCodeContextBlocks(blocks);
-  }, []);
 
   const handleCodeContextUpdate = useCallback((message: MessageWithModel) => {
+    if (!message?.content) return;
+
     // Extract code blocks from message content
     const codeBlocks = message.content.match(/```[\s\S]*?```/g) || [];
 
@@ -516,7 +556,6 @@ export function Chat({ chatId }: ChatProps) {
       const language = firstLine.replace('```', '').trim();
       const value = rest.slice(0, -1).join('\n');
 
-      // Extract file path if present (format: ```language:filepath)
       const [lang, filePath] = language.split(':');
 
       return {
@@ -526,8 +565,13 @@ export function Chat({ chatId }: ChatProps) {
       };
     });
 
-    updateCodeContext(parsedBlocks);
-  }, [updateCodeContext]);
+    // Only update if blocks have changed
+    setCodeContextBlocks(prev => {
+      const prevString = JSON.stringify(prev);
+      const newString = JSON.stringify(parsedBlocks);
+      return prevString === newString ? prev : parsedBlocks;
+    });
+  }, []);
 
   useEffect(() => {
     // Only process the last assistant message for code blocks
@@ -536,42 +580,69 @@ export function Chat({ chatId }: ChatProps) {
       .find(msg => msg.role === 'assistant');
 
     if (lastAssistantMessage) {
-      handleCodeContextUpdate(lastAssistantMessage);
+      handleCodeContextUpdate(lastAssistantMessage as MessageWithModel);
     }
   }, [messages, handleCodeContextUpdate]);
 
   const renderMessage = useCallback((message: MessageWithModel) => {
+    // Helper function to find the most complete tool invocation
+    const getMostCompleteToolInvocation = (toolInvocations: any[]) => {
+      // First, try to find a tool invocation with both args and result
+      const completeInvocation = toolInvocations.find(
+        tool => tool.args && tool.result && tool.state === "result"
+      );
+
+      // If no complete invocation found, return the first one
+      return completeInvocation || toolInvocations[0];
+    };
+
+    // Skip rendering empty assistant messages only if they have no tool invocations
+    if (
+      message.role === 'assistant' &&
+      !message.content &&
+      (!message.toolInvocations || message.toolInvocations.length === 0)
+    ) {
+      return null;
+    }
+
     if (message.id === 'edit-indicator') {
       return <EditIndicator key="edit-indicator" />;
     }
 
+    // Prepare tool invocations for rendering
+    let toolInvocationsToRender = message.toolInvocations;
+
+    // If we have no content but have tool invocations, select the most complete one
+    if (!message.content && message.toolInvocations && message.toolInvocations.length > 1) {
+      const mostComplete = getMostCompleteToolInvocation(message.toolInvocations);
+      toolInvocationsToRender = mostComplete ? [mostComplete] : undefined;
+    }
+
+    // Check if this is the first user message
+    const isFirstUserMessage = messages.find(m => m.role === 'user')?.id === message.id;
+
     return (
       <ChatMessage
         key={message.id}
-        message={message}
+        message={{
+          ...message,
+          toolInvocations: toolInvocationsToRender
+        }}
         chatId={chatId}
         onEditComplete={handleEditComplete}
         onModelChange={handleModelChange}
+        isFirstUserMessage={isFirstUserMessage}
       />
     );
-  }, [chatId, handleEditComplete, handleModelChange]);
-
-  // Debug streaming state
-  useEffect(() => {
-    console.log('Streaming state:', {
-      isThinking,
-      isToolStreaming,
-      isChatLoading
-    });
-  }, [isThinking, isToolStreaming, isChatLoading]);
+  }, [chatId, handleEditComplete, handleModelChange, messages]);
 
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
     if (message.role === 'user') {
       // Start a new group with user message
-      groups.push([message]);
+      groups.push([message as MessageWithModel]);
     } else if (groups.length && message.id !== 'edit-indicator') {
       // Add assistant message to last group
-      groups[groups.length - 1].push(message);
+      groups[groups.length - 1].push(message as MessageWithModel);
     }
     return groups;
   }, []);
@@ -594,7 +665,11 @@ export function Chat({ chatId }: ChatProps) {
           {isThinking && (
             <div className="flex justify-center py-4 transform-gpu">
               <span className="text-sm text-muted-foreground loading-pulse">
-                {isToolStreaming ? "Running tools..." : "Loading chat..."}
+                {messages[messages.length - 1]?.toolInvocations?.some(
+                  tool => tool.state === 'partial-call' || tool.state === 'call'
+                )
+                  ? "Running tools..."
+                  : "Loading chat..."}
               </span>
             </div>
           )}
@@ -612,7 +687,7 @@ export function Chat({ chatId }: ChatProps) {
             isLoading={isChatLoading}
             stop={stop}
             messages={messages}
-            setMessages={setMessages}
+            setMessages={setVercelMessages as Dispatch<SetStateAction<Message[]>>}
             append={append}
             handleSubmit={handleSubmit}
             searchRepository={searchRepository}

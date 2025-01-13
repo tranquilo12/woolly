@@ -8,6 +8,7 @@ from fastapi import FastAPI, Query, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from openai import OpenAI
 from .utils.prompt import (
+    Attachment,
     ClientMessage,
     convert_to_openai_messages,
 )
@@ -16,11 +17,14 @@ from .utils.models import (
     Chat,
     Message,
     Agent,
+    build_tool_call_partial,
+    build_tool_call_result,
+    is_complete_json,
 )
 import uuid
 from sqlalchemy.orm import Session
 from .utils.database import get_db
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 load_dotenv(".env.local")
@@ -32,8 +36,27 @@ client = OpenAI(
 )
 
 
-class Request(BaseModel):
-    messages: List[ClientMessage]
+class ToolInvocation(BaseModel):
+    id: str
+    function: Optional[dict] = None
+    toolName: Optional[str] = None
+    args: Optional[dict] = None
+    state: str
+    result: Optional[dict] = None
+
+
+class ClientMessageWithTools(BaseModel):
+    role: str
+    content: str
+    id: Optional[str] = None
+    toolInvocations: Optional[List[ToolInvocation]] = None
+    model: Optional[str] = None
+    experimental_attachments: Optional[List[Attachment]] = None
+
+
+class RequestFromFrontend(BaseModel):
+    messages: List[ClientMessageWithTools]
+    model: Optional[str] = "gpt-4o"
     agent_id: Optional[str] = None
 
 
@@ -129,41 +152,145 @@ def stream_text(
     stream = do_stream(messages, model=model)
     content_buffer = ""
     final_usage = None
+    draft_tool_calls = []
+    tool_invocations = []
+    draft_tool_calls_index = -1
 
     for chunk in stream:
         for choice in chunk.choices:
-            if choice.finish_reason == "stop":
-                continue
-            elif choice.delta.content:
-                content_buffer += choice.delta.content
-                yield "0:{text}\n".format(text=json.dumps(choice.delta.content))
-
-        # Store usage but don't yield it yet
-        if hasattr(chunk, "usage") and chunk.usage:
-            final_usage = chunk.usage
-
-    # After the stream is complete, send the completion event with usage
-    if final_usage:
-        if db and message_id:
-            try:
-                message = db.query(Message).filter(Message.id == message_id).first()
-                if message:
-                    message.content = content_buffer
-                    message.prompt_tokens = final_usage.prompt_tokens
-                    message.completion_tokens = final_usage.completion_tokens
-                    message.total_tokens = (
-                        final_usage.prompt_tokens + final_usage.completion_tokens
+            if choice.delta.tool_calls:
+                for tool_call in choice.delta.tool_calls:
+                    id = tool_call.id
+                    name = tool_call.function.name if tool_call.function else None
+                    arguments = (
+                        tool_call.function.arguments if tool_call.function else None
                     )
-                    db.commit()
-            except Exception as e:
-                print(f"Failed to update token counts: {e}")
 
-        # Send single completion event at the end with both content and usage
-        yield 'd:{{"finishReason":"stop","usage":{{"promptTokens":{prompt},"completionTokens":{completion},"totalTokens":{total}}}}}\n'.format(
-            prompt=final_usage.prompt_tokens,
-            completion=final_usage.completion_tokens,
-            total=final_usage.prompt_tokens + final_usage.completion_tokens,
-        )
+                    if id is not None:
+                        # New tool call
+                        draft_tool_calls_index += 1
+                        draft_tool_calls.append(
+                            {"id": id, "name": name, "arguments": "{}"}
+                        )
+                        # Stream partial tool call
+                        yield build_tool_call_partial(
+                            tool_call_id=id,
+                            tool_name=name,
+                            args={},  # Empty dict for initial call
+                        )
+                    elif arguments:
+                        try:
+                            # Accumulate arguments
+                            current_args = draft_tool_calls[draft_tool_calls_index][
+                                "arguments"
+                            ]
+                            # Concatenate argument strings
+                            draft_tool_calls[draft_tool_calls_index]["arguments"] = (
+                                current_args.rstrip("}") + arguments.lstrip("{")
+                            )
+
+                            # Only try to parse and stream if we have complete JSON
+                            if is_complete_json(
+                                draft_tool_calls[draft_tool_calls_index]["arguments"]
+                            ):
+                                parsed_args = json.loads(
+                                    draft_tool_calls[draft_tool_calls_index][
+                                        "arguments"
+                                    ]
+                                )
+                                yield build_tool_call_partial(
+                                    tool_call_id=draft_tool_calls[
+                                        draft_tool_calls_index
+                                    ]["id"],
+                                    tool_name=draft_tool_calls[draft_tool_calls_index][
+                                        "name"
+                                    ],
+                                    args=parsed_args,
+                                )
+                        except json.JSONDecodeError:
+                            # Skip streaming for incomplete JSON
+                            continue
+
+            elif choice.finish_reason == "tool_calls":
+                for tool_call in draft_tool_calls:
+                    try:
+                        parsed_args = json.loads(tool_call["arguments"])
+                        tool_result = available_tools[tool_call["name"]](**parsed_args)
+
+                        # First, append to tool_invocations for database
+                        tool_invocations.append(
+                            {
+                                "id": tool_call["id"],
+                                "toolName": tool_call["name"],
+                                "args": parsed_args,
+                                "result": tool_result,
+                                "state": "result",
+                            }
+                        )
+
+                        # Then yield the properly formatted result for streaming
+                        yield build_tool_call_result(
+                            tool_call_id=tool_call["id"],
+                            tool_name=tool_call["name"],
+                            args=parsed_args,
+                            result=tool_result,
+                        )
+                    except Exception as e:
+                        print(f"Tool execution error: {e}")
+                        error_result = {"error": str(e)}
+
+                        # Add error state to tool_invocations
+                        tool_invocations.append(
+                            {
+                                "id": tool_call["id"],
+                                "toolName": tool_call["name"],
+                                "args": {},
+                                "result": error_result,
+                                "state": "error",
+                            }
+                        )
+
+                        # Stream error result
+                        yield build_tool_call_result(
+                            tool_call_id=tool_call["id"],
+                            tool_name=tool_call["name"],
+                            args={},
+                            result=error_result,
+                        )
+
+            else:
+                content = choice.delta.content or ""
+                content_buffer += content
+                yield f"0:{json.dumps(content)}\n"
+
+        if chunk.choices == []:
+            usage = chunk.usage
+            prompt_tokens = usage.prompt_tokens
+            completion_tokens = usage.completion_tokens
+            final_usage = usage
+
+            yield 'e:{{"finishReason":"{reason}","usage":{{"promptTokens":{prompt},"completionTokens":{completion},"totalTokens":{total}}},"isContinued":false}}\n'.format(
+                reason="stop",
+                prompt=prompt_tokens,
+                completion=completion_tokens,
+                total=prompt_tokens + completion_tokens,
+            )
+
+    # After the stream is complete
+    if final_usage and db and message_id:
+        try:
+            message = db.query(Message).filter(Message.id == message_id).first()
+            if message:
+                message.content = content_buffer
+                message.prompt_tokens = final_usage.prompt_tokens
+                message.completion_tokens = final_usage.completion_tokens
+                message.total_tokens = (
+                    final_usage.prompt_tokens + final_usage.completion_tokens
+                )
+                message.tool_invocations = tool_invocations
+                db.commit()
+        except Exception as e:
+            print(f"Failed to update message: {e}")
 
 
 # Chat CRUD Operations
@@ -334,41 +461,73 @@ async def save_chat_message(
 @app.post("/api/chat/{chat_id}")
 async def chat(
     chat_id: uuid.UUID,
-    request: Request,
+    request: RequestFromFrontend,
     db: Session = Depends(get_db),
     protocol: str = Query("data"),
 ):
     try:
-        if not request.messages:
+        messages = request.messages
+        if not messages:
             raise HTTPException(status_code=422, detail="No messages provided")
 
-        # Store the user's message with the selected model
-        user_message = Message(
-            chat_id=chat_id,
-            role="user",
-            content=request.messages[-1].content,
-            model=getattr(request.messages[-1], "model", "gpt-4o"),
-            created_at=datetime.now(timezone.utc),
+        model = request.model or messages[-1].model or "gpt-4o"
+
+        # Check if the last message is from user and already exists
+        last_message = messages[-1]
+        if last_message.role == "user":
+            existing_message = (
+                db.query(Message)
+                .filter(
+                    Message.chat_id == chat_id,
+                    Message.role == "user",
+                    Message.content == last_message.content,
+                )
+                .first()
+            )
+
+            # Only create new user message if it doesn't exist
+            if not existing_message:
+                user_message = Message(
+                    chat_id=chat_id,
+                    role=last_message.role,
+                    content=last_message.content,
+                    model=model,
+                    created_at=datetime.now(timezone.utc),
+                )
+                db.add(user_message)
+                db.flush()
+
+        # Find existing empty assistant message
+        existing_assistant = (
+            db.query(Message)
+            .filter(
+                Message.chat_id == chat_id,
+                Message.role == "assistant",
+                Message.content == "",
+                Message.created_at >= datetime.now(timezone.utc) - timedelta(minutes=5),
+            )
+            .order_by(Message.created_at.desc())
+            .first()
         )
-        db.add(user_message)
+
+        if existing_assistant:
+            # Update existing message
+            assistant_message = existing_assistant
+            assistant_message.model = model
+        else:
+            # Create new assistant message only if none exists
+            assistant_message = Message(
+                chat_id=chat_id,
+                role="assistant",
+                content="",
+                model=model,
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(assistant_message)
+
         db.commit()
 
-        # Create assistant message placeholder to track tokens
-        assistant_message = Message(
-            chat_id=chat_id,
-            role="assistant",
-            content="",
-            model=getattr(request.messages[-1], "model", "gpt-4o"),
-            created_at=datetime.now(timezone.utc),
-        )
-        db.add(assistant_message)
-        db.commit()
-
-        # Convert messages to OpenAI format
-        openai_messages = convert_to_openai_messages(request.messages)
-
-        # Get model from the last message
-        model = getattr(request.messages[-1], "model", "gpt-4o")
+        openai_messages = convert_to_openai_messages(messages)
 
         return StreamingResponse(
             stream_text(
@@ -380,15 +539,17 @@ async def chat(
             ),
             headers={"x-vercel-ai-data-stream": "v1"},
         )
-
     except Exception as e:
         print("Unexpected error:", str(e))
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # Legacy Endpoint (Consider deprecating)
 @app.post("/api/chat")
-async def handle_chat_legacy(request: Request, protocol: str = Query("data")):
+async def handle_chat_legacy(
+    request: RequestFromFrontend, protocol: str = Query("data")
+):
     """Legacy endpoint maintained for backward compatibility"""
     messages = request.messages
     openai_messages = convert_to_openai_messages(messages)

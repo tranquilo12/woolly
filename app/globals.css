@@ -534,3 +534,8 @@
 .code-syntax {
   contain: content;
 }
+
+.code-block-content {
+  transition: max-height 0.2s ease-out;
+  overflow: hidden;
+}

@@ -10,26 +10,12 @@ export function cn(...inputs: ClassValue[]) {
 export function sanitizeUIMessages(messages: Array<Message>): Array<Message> {
   const messagesBySanitizedToolInvocations = messages.map((message) => {
     if (message.role !== "assistant") return message;
-
     if (!message.toolInvocations) return message;
 
-    const toolResultIds: Array<string> = [];
-
-    for (const toolInvocation of message.toolInvocations) {
-      if (toolInvocation.state === "result") {
-        toolResultIds.push(toolInvocation.toolCallId);
-      }
-    }
-
-    const sanitizedToolInvocations = message.toolInvocations.filter(
-      (toolInvocation) =>
-        toolInvocation.state === "result" ||
-        toolResultIds.includes(toolInvocation.toolCallId),
-    );
-
+    // Keep all tool invocations regardless of state
     return {
       ...message,
-      toolInvocations: sanitizedToolInvocations,
+      toolInvocations: message.toolInvocations
     };
   });
 
@@ -87,7 +73,7 @@ export function getCaretCoordinates(element: HTMLTextAreaElement, position: numb
   // Copy ALL styles that could affect text layout and positioning
   const styles = computed.cssText;
   div.style.cssText = styles;
-  
+
   // Critical positioning styles
   div.style.position = 'absolute';
   div.style.top = '0';
