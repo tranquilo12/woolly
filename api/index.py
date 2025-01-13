@@ -24,7 +24,7 @@ from .utils.models import (
 import uuid
 from sqlalchemy.orm import Session
 from .utils.database import get_db
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 load_dotenv(".env.local")
@@ -504,14 +504,18 @@ async def chat(
                 Message.chat_id == chat_id,
                 Message.role == "assistant",
                 Message.content == "",
+                Message.created_at >= datetime.now(timezone.utc) - timedelta(minutes=5),
             )
+            .order_by(Message.created_at.desc())
             .first()
         )
 
         if existing_assistant:
+            # Update existing message
             assistant_message = existing_assistant
             assistant_message.model = model
         else:
+            # Create new assistant message only if none exists
             assistant_message = Message(
                 chat_id=chat_id,
                 role="assistant",

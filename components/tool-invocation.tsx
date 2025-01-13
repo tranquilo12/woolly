@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { cn, formatMetric, parseToolResult } from "@/lib/utils";
 import Image from "next/image";
 
@@ -25,38 +24,35 @@ export function ToolInvocationDisplay({ toolInvocation }: {
 		};
 	}
 }) {
-	const toolName = toolInvocation.toolName;
-	const args = toolInvocation.args;
-	const { state, result } = toolInvocation;
-
-	const isStreaming = state === 'partial-call';
+	const { toolName, args, result } = toolInvocation;
 	const hasError = result?.success === false || result?.error;
-	const showResult = state === 'result' && !hasError;
 
 	return (
-		<motion.div
-			className="mt-2 text-sm rounded-lg border p-4 bg-muted/50"
-			initial={{ opacity: 0, y: 5 }}
-			animate={{ opacity: 1, y: 0 }}
-			transition={{ duration: 0.2 }}
-		>
+		<div className="mt-2 text-sm rounded-lg border p-4 bg-muted/50">
 			<div className="flex items-center gap-2 mb-2">
 				<div className="font-medium">{toolName}</div>
-				<motion.div
-					className={cn(
-						"text-xs px-2 py-0.5 rounded-full",
-						hasError
-							? "bg-red-500/10 text-red-700 dark:text-red-300"
-							: state === "result"
-								? "bg-green-500/10 text-green-700 dark:text-green-300"
-								: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-300"
-					)}
-					animate={isStreaming ? { opacity: [0.5, 1, 0.5] } : {}}
-					transition={{ duration: 1.5, repeat: isStreaming ? Infinity : 0 }}
-				>
-					{hasError ? "error" : isStreaming ? "running" : state}
-				</motion.div>
+				<div className={cn(
+					"text-xs px-2 py-0.5 rounded-full",
+					hasError
+						? "bg-red-500/10 text-red-700 dark:text-red-300"
+						: result
+							? "bg-green-500/10 text-green-700 dark:text-green-300"
+							: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-300"
+				)}>
+					{hasError ? "error" : result ? "completed" : "running"}
+				</div>
 			</div>
+
+			{args && (
+				<details>
+					<summary className="text-xs text-muted-foreground mb-1 cursor-pointer hover:text-foreground">
+						Arguments
+					</summary>
+					<pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
+						{JSON.stringify(typeof args === 'string' ? JSON.parse(args) : args, null, 2)}
+					</pre>
+				</details>
+			)}
 
 			{hasError && (
 				<div className="text-red-500 bg-red-100 dark:bg-red-900/30 dark:text-red-300 p-2 rounded text-xs">
@@ -64,38 +60,8 @@ export function ToolInvocationDisplay({ toolInvocation }: {
 				</div>
 			)}
 
-			{args && !hasError && (
-				<motion.details
-					className="mb-2"
-					initial={false}
-					animate={{ opacity: 1 }}
-					open={isStreaming}
-				>
-					<summary className="text-xs text-muted-foreground mb-1 cursor-pointer hover:text-foreground">
-						Arguments
-						{isStreaming && (
-							<motion.span
-								className="inline-block ml-1"
-								animate={{ opacity: [0.5, 1, 0.5] }}
-								transition={{ duration: 1.5, repeat: Infinity }}
-							>
-								...
-							</motion.span>
-						)}
-					</summary>
-					<pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
-						{JSON.stringify(typeof args === 'string' ? JSON.parse(args) : args, null, 2)}
-					</pre>
-				</motion.details>
-			)}
-
-			{showResult && result && (
-				<motion.div
-					className="space-y-2"
-					initial={{ opacity: 0 }}
-					animate={{ opacity: 1 }}
-					transition={{ duration: 0.3 }}
-				>
+			{result && !hasError && (
+				<div className="space-y-2">
 					{result.output && (
 						<details>
 							<summary className="text-xs text-muted-foreground mb-1 cursor-pointer hover:text-foreground">
@@ -137,8 +103,8 @@ export function ToolInvocationDisplay({ toolInvocation }: {
 							{result.metrics.execution_time && <div>Time: {formatMetric(result.metrics.execution_time, 'time')}</div>}
 						</div>
 					)}
-				</motion.div>
+				</div>
 			)}
-		</motion.div>
+		</div>
 	);
 } 

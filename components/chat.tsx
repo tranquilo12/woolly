@@ -215,7 +215,6 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
             prompt_tokens={message.prompt_tokens}
             completion_tokens={message.completion_tokens}
             total_tokens={message.total_tokens}
-            isLoading={message.role === 'assistant' && !message.total_tokens}
           />
         </motion.div>
 
