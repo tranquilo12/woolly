@@ -592,15 +592,37 @@ export function Chat({ chatId }: ChatProps) {
   }, [messages, handleCodeContextUpdate]);
 
   const renderMessage = useCallback((message: MessageWithModel) => {
-    // Skip rendering empty assistant messages ONLY if they have no tool invocations
-    if (message.role === 'assistant' &&
+    // Helper function to find the most complete tool invocation
+    const getMostCompleteToolInvocation = (toolInvocations: any[]) => {
+      // First, try to find a tool invocation with both args and result
+      const completeInvocation = toolInvocations.find(
+        tool => tool.args && tool.result && tool.state === "result"
+      );
+
+      // If no complete invocation found, return the first one
+      return completeInvocation || toolInvocations[0];
+    };
+
+    // Skip rendering empty assistant messages only if they have no tool invocations
+    if (
+      message.role === 'assistant' &&
       !message.content &&
-      (!message.toolInvocations || message.toolInvocations.length === 0)) {
+      (!message.toolInvocations || message.toolInvocations.length === 0)
+    ) {
       return null;
     }
 
     if (message.id === 'edit-indicator') {
       return <EditIndicator key="edit-indicator" />;
+    }
+
+    // Prepare tool invocations for rendering
+    let toolInvocationsToRender = message.toolInvocations;
+
+    // If we have no content but have tool invocations, select the most complete one
+    if (!message.content && message.toolInvocations && message.toolInvocations.length > 1) {
+      const mostComplete = getMostCompleteToolInvocation(message.toolInvocations);
+      toolInvocationsToRender = mostComplete ? [mostComplete] : undefined;
     }
 
     // Check if this is the first user message
@@ -609,7 +631,10 @@ export function Chat({ chatId }: ChatProps) {
     return (
       <ChatMessage
         key={message.id}
-        message={message}
+        message={{
+          ...message,
+          toolInvocations: toolInvocationsToRender
+        }}
         chatId={chatId}
         onEditComplete={handleEditComplete}
         onModelChange={handleModelChange}
