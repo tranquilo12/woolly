@@ -379,25 +379,6 @@ export function Chat({ chatId }: ChatProps) {
           }))
         } as MessageWithModel;
 
-        // Save the assistant message with tool invocations
-        if (chatId) {
-          await fetch(`/api/chat/${chatId}/messages/save`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              role: messageWithModel.role,
-              content: messageWithModel.content,
-              model: currentModel,
-              toolInvocations: messageWithModel.toolInvocations || [],
-              prompt_tokens: messageWithModel.prompt_tokens,
-              completion_tokens: messageWithModel.completion_tokens,
-              total_tokens: messageWithModel.total_tokens
-            }),
-          });
-        }
-
         setVercelMessages(prevMessages =>
           prevMessages.map(m =>
             m.id === messageWithModel.id ? messageWithModel : m
@@ -446,8 +427,7 @@ export function Chat({ chatId }: ChatProps) {
           body: JSON.stringify({
             role: message.role,
             content: message.content,
-            model: currentModel,
-            toolInvocations: message.toolInvocations || []
+            model: currentModel
           }),
         });
       } catch (error) {
