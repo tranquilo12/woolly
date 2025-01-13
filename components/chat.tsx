@@ -257,7 +257,6 @@ export function Chat({ chatId }: ChatProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isRestreaming, setIsRestreaming] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
-  const [isToolStreaming, setIsToolStreaming] = useState(false);
   const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
   const [currentModel, setCurrentModel] = useState("gpt-4o");
@@ -323,8 +322,6 @@ export function Chat({ chatId }: ChatProps) {
       id: chatId
     },
     onToolCall: async (tool) => {
-      setIsToolStreaming(true);
-      // Update message with tool call state
       setVercelMessages(prevMessages => {
         const lastMessage = prevMessages[prevMessages.length - 1];
         if (!lastMessage) return prevMessages;
@@ -345,7 +342,6 @@ export function Chat({ chatId }: ChatProps) {
             toolName: tool.toolCall.toolName,
             args: tool.toolCall.args,
             // @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
-            // That's because it DOES but it doesn't exist in the type definition
             state: tool.toolCall.state || 'partial-call'
           });
         }
@@ -386,7 +382,6 @@ export function Chat({ chatId }: ChatProps) {
 
         setIsRestreaming(false);
         setIsThinking(false);
-        setIsToolStreaming(false);
       } catch (error) {
         console.error('Failed to update message state:', error);
       }
@@ -394,7 +389,6 @@ export function Chat({ chatId }: ChatProps) {
     onError: (error) => {
       console.error('Chat error:', error);
       toast.error('An error occurred during the chat');
-      setIsToolStreaming(false);
       setIsThinking(false);
     }
   });
@@ -451,12 +445,11 @@ export function Chat({ chatId }: ChatProps) {
       const isEmptyAssistantMessage = lastMessage.role === 'assistant' && !lastMessage.content;
       const isStreamStarting = lastMessage.role === 'assistant' && lastMessage.content === '';
 
-      setIsToolStreaming(hasActiveToolInvocations || isStreamStarting);
       return isEmptyAssistantMessage || isStreamStarting || hasActiveToolInvocations;
     };
 
-    setIsThinking(shouldShowThinking() || isToolStreaming);
-  }, [isChatLoading, messages, isToolStreaming]);
+    setIsThinking(shouldShowThinking() || isChatLoading);
+  }, [isChatLoading, messages]);
 
   const handleEditComplete = useCallback(async (editedMessage: MessageWithModel) => {
     if (!chatId) return;
@@ -643,15 +636,6 @@ export function Chat({ chatId }: ChatProps) {
     );
   }, [chatId, handleEditComplete, handleModelChange, messages]);
 
-  // Debug streaming state
-  useEffect(() => {
-    console.log('Streaming state:', {
-      isThinking,
-      isToolStreaming,
-      isChatLoading
-    });
-  }, [isThinking, isToolStreaming, isChatLoading]);
-
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
     if (message.role === 'user') {
       // Start a new group with user message
@@ -681,7 +665,11 @@ export function Chat({ chatId }: ChatProps) {
           {isThinking && (
             <div className="flex justify-center py-4 transform-gpu">
               <span className="text-sm text-muted-foreground loading-pulse">
-                {isToolStreaming ? "Running tools..." : "Loading chat..."}
+                {messages[messages.length - 1]?.toolInvocations?.some(
+                  tool => tool.state === 'partial-call' || tool.state === 'call'
+                )
+                  ? "Running tools..."
+                  : "Loading chat..."}
               </span>
             </div>
           )}
