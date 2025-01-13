@@ -1,8 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, StreamingResponse
+from sqlalchemy import UUID
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from ..utils.database import get_db
-from ..utils.models import Agent, AgentCreate, AgentUpdate, AgentResponse
+from ..utils.models import (
+    Agent,
+    AgentCreate,
+    AgentUpdate,
+    AgentResponse,
+    DocumentationSystemMessage,
+    DocumentationUserMessage,
+    DocumentationChatHistory,
+)
+from pydantic_ai import ChatHistory, SystemMessage, UserMessage, AssistantMessage
 
 router = APIRouter()
 
@@ -63,3 +73,32 @@ async def delete_agent(agent_id: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_agent)
     return db_agent
+
+
+@router.post("/agents/{agent_id}/documentation")
+async def generate_documentation(
+    agent_id: UUID,
+    repo_name: str,
+    file_paths: Optional[List[str]] = None,
+    db: Session = Depends(get_db),
+):
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    system_msg = DocumentationSystemMessage(
+        content=agent.system_prompt, repo_name=repo_name, file_paths=file_paths
+    )
+
+    user_msg = DocumentationUserMessage(
+        content=f"Create a documentation plan for {repo_name}", repo_name=repo_name
+    )
+
+    chat_history = DocumentationChatHistory(
+        messages=[system_msg, user_msg], repo_name=repo_name
+    )
+
+    return StreamingResponse(
+        stream_text(chat_history.messages, "data", db=db),
+        headers={"x-vercel-ai-data-stream": "v1"},
+    )
