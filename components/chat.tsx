@@ -346,7 +346,7 @@ export function Chat({ chatId }: ChatProps) {
             args: tool.toolCall.args,
             // @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
             // That's because it DOES but it doesn't exist in the type definition
-            state: tool.toolCall.state || 'partial-call'
+            state: tool.toolCall.state || 'call'
           });
         }
 
@@ -591,25 +591,49 @@ export function Chat({ chatId }: ChatProps) {
     }
   }, [messages, handleCodeContextUpdate]);
 
+  const filterToolInvocations = (toolInvocations: ExtendedToolCall[] | undefined): ExtendedToolCall[] => {
+    if (!toolInvocations || toolInvocations.length === 0) return [];
+
+    // Group tool calls by their toolCallId
+    const groupedTools = toolInvocations.reduce((acc, tool) => {
+      const key = tool.toolCallId;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(tool);
+      return acc;
+    }, {} as Record<string, ExtendedToolCall[]>);
+
+    // For each group, prioritize the one with result, otherwise keep the original
+    return Object.values(groupedTools).map(group => {
+      const withResult = group.find(tool => 'result' in tool);
+      return withResult || group[0];
+    });
+  };
+
   const renderMessage = useCallback((message: MessageWithModel) => {
+    // Filter tool invocations if they exist
+    const filteredMessage = {
+      ...message,
+      toolInvocations: filterToolInvocations(message.toolInvocations)
+    };
+
     // Skip rendering empty assistant messages ONLY if they have no tool invocations
-    if (message.role === 'assistant' &&
-      !message.content &&
-      (!message.toolInvocations || message.toolInvocations.length === 0)) {
+    if (filteredMessage.role === 'assistant' &&
+      !filteredMessage.content &&
+      (!filteredMessage.toolInvocations || filteredMessage.toolInvocations.length === 0)) {
       return null;
     }
 
-    if (message.id === 'edit-indicator') {
+    if (filteredMessage.id === 'edit-indicator') {
       return <EditIndicator key="edit-indicator" />;
     }
 
     // Check if this is the first user message
-    const isFirstUserMessage = messages.find(m => m.role === 'user')?.id === message.id;
+    const isFirstUserMessage = messages.find(m => m.role === 'user')?.id === filteredMessage.id;
 
     return (
       <ChatMessage
-        key={message.id}
-        message={message}
+        key={filteredMessage.id}
+        message={filteredMessage}
         chatId={chatId}
         onEditComplete={handleEditComplete}
         onModelChange={handleModelChange}
@@ -617,15 +641,6 @@ export function Chat({ chatId }: ChatProps) {
       />
     );
   }, [chatId, handleEditComplete, handleModelChange, messages]);
-
-  // Debug streaming state
-  useEffect(() => {
-    console.log('Streaming state:', {
-      isThinking,
-      isToolStreaming,
-      isChatLoading
-    });
-  }, [isThinking, isToolStreaming, isChatLoading]);
 
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
     if (message.role === 'user') {
@@ -653,13 +668,6 @@ export function Chat({ chatId }: ChatProps) {
               renderMessage={renderMessage}
             />
           ))}
-          {isThinking && (
-            <div className="flex justify-center py-4 transform-gpu">
-              <span className="text-sm text-muted-foreground loading-pulse">
-                {isToolStreaming ? "Running tools..." : "Loading chat..."}
-              </span>
-            </div>
-          )}
           <div ref={endRef} className="h-px w-full" />
         </div>
       </div>
