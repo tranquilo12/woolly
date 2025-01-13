@@ -4,7 +4,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { Button } from "./ui/button";
 import { PlusIcon, TrashIcon, PenIcon, Pin, PinOff, MenuIcon } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, RefObject } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSidebar } from "./sidebar-provider";
@@ -87,7 +87,7 @@ export function Sidebar() {
 		}
 	};
 
-	useClickOutside(sidebarRef, () => {
+	useClickOutside(sidebarRef as RefObject<HTMLElement>, () => {
 		if (isOpen && !isPinned) {
 			setIsOpen(false);
 		}

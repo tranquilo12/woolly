@@ -14,7 +14,7 @@ export function useScrollToBottom<T extends HTMLElement>(): [
   const endRef = useRef<T>(null);
   const isUserScrolling = useRef(false);
   const lastScrollTop = useRef(0);
-  const scrollFrameId = useRef<number>();
+  const scrollFrameId = useRef<number | null>(null);
 
   const scrollToBottom = (options: ScrollOptions = {}) => {
     const container = containerRef.current;
@@ -88,7 +88,7 @@ export function useScrollToBottom<T extends HTMLElement>(): [
         cancelAnimationFrame(scrollTimeout);
       }
     };
-  }, []);
+  }, [scrollToBottom]);
 
-  return [containerRef, endRef, scrollToBottom];
+  return [containerRef as RefObject<T>, endRef as RefObject<T>, scrollToBottom];
 }
