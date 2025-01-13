@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { ToolInvocationDisplay } from "./tool-invocation";
 import { CodeContextContainer } from "./code-context-container";
 import { CollapsibleCodeBlock } from "./collapsible-code-block";
+import { TokenCount } from "./token-count";
 
 export const PreviewMessage = ({
   message,
@@ -116,6 +117,13 @@ export const PreviewMessage = ({
             ))}
           </div>
         )}
+
+
+        <TokenCount // @ts-ignore Property 'prompt_tokens' does not exist on type 'Message'
+          prompt_tokens={message.prompt_tokens} // @ts-ignore Property 'completion_tokens' does not exist on type 'Message'
+          completion_tokens={message.completion_tokens} // @ts-ignore Property 'total_tokens' does not exist on type 'Message' 
+          total_tokens={message.total_tokens}
+        />
       </div>
     </motion.div>
   );
