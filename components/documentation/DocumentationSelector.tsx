@@ -3,6 +3,7 @@ import { Button } from '../ui/button';
 import { BookOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRepositoryStatus } from '@/hooks/use-repository-status';
+import { useDocumentationPanel } from './documentation-panel-provider';
 
 interface DocumentationSelectorProps {
 	onSelect: (repo: string | null) => void;
@@ -17,6 +18,13 @@ export function DocumentationSelector({
 }: DocumentationSelectorProps) {
 	const { repositories } = useRepositoryStatus();
 	const [isOpen, setIsOpen] = useState(false);
+	const { setIsOpen: setDocPanelOpen } = useDocumentationPanel();
+
+	const handleRepoSelect = (repoName: string) => {
+		onSelect(repoName);
+		setIsOpen(false);
+		setDocPanelOpen(true);
+	};
 
 	return (
 		<div className={cn("relative", className)}>
@@ -50,10 +58,7 @@ export function DocumentationSelector({
 									"hover:bg-accent/50 transition-colors",
 									selectedRepo === repo.name && "bg-accent/50"
 								)}
-								onClick={() => {
-									onSelect(repo.name);
-									setIsOpen(false);
-								}}
+								onClick={() => handleRepoSelect(repo.name)}
 							>
 								{repo.name}
 							</button>

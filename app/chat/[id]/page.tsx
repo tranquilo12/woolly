@@ -1,4 +1,5 @@
 import { Chat } from "@/components/chat";
+import { ChatLayout } from "@/components/chat-layout";
 
 interface ChatPageProps {
 	params: {
@@ -6,7 +7,11 @@ interface ChatPageProps {
 	};
 }
 
-export default async function ChatPage({ params }: ChatPageProps) {
+export default async function ChatPage({ params }: { params: { id: string } }) {
 	const parameters = await params
-	return <Chat chatId={parameters.id} />;
-} 
+	return (
+		<ChatLayout chatId={parameters.id}>
+			<Chat chatId={parameters.id} />
+		</ChatLayout>
+	);
+}

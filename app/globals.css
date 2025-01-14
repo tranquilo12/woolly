@@ -451,3 +451,18 @@
     margin-left: 0 !important;
   }
 }
+
+.documentation-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.documentation-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+[data-documentation-panel].is-scrolling
+  .documentation-scroll::-webkit-scrollbar {
+  display: block;
+  width: 6px;
+}
