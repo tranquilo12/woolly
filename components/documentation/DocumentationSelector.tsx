@@ -9,12 +9,14 @@ interface DocumentationSelectorProps {
 	onSelect: (repo: string | null) => void;
 	selectedRepo: string | null;
 	className?: string;
+	disabled?: boolean;
 }
 
 export function DocumentationSelector({
 	onSelect,
 	selectedRepo,
-	className
+	className,
+	disabled
 }: DocumentationSelectorProps) {
 	const { repositories } = useRepositoryStatus();
 	const [isOpen, setIsOpen] = useState(false);
@@ -47,7 +49,7 @@ export function DocumentationSelector({
 				</span>
 			</Button>
 
-			{isOpen && (
+			{isOpen && !disabled && (
 				<div className="absolute bottom-full mb-1 w-[200px] z-50 bg-background border rounded-md shadow-lg">
 					<div className="py-1">
 						{repositories.map((repo) => (

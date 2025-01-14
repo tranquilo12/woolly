@@ -1,45 +1,80 @@
-import { useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { DocumentationState } from '@/types/documentation';
 import { Button } from '../ui/button';
-import { useChat } from 'ai/react';
 import { useDocumentationPanel } from './documentation-panel-provider';
 import { DocumentationSelector } from './DocumentationSelector';
+import { useDocumentationAgent } from '@/hooks/use-documentation-agent';
+import { toast } from 'sonner';
+import { ToolInvocationDisplay } from '../tool-invocation';
 
 export function DocumentationForm({ chatId }: { chatId: string }) {
-	const { setIsOpen } = useDocumentationPanel();
+	const { setIsOpen, setContent } = useDocumentationPanel();
 	const [state, setState] = useState<DocumentationState>({
 		isGenerating: false,
 		selectedRepo: null,
 		selectedFiles: [],
+		error: null,
+		toolInvocations: []
 	});
 
-	const handleRepoSelect = (repo: string | null) => {
+	const handleToolInvocation = useCallback((invocation: any) => {
+		setState(prev => ({
+			...prev,
+			toolInvocations: [...prev.toolInvocations, invocation]
+		}));
+	}, []);
+
+	const { initializeAgent, append, messages, isStreaming } = useDocumentationAgent({
+		chatId,
+		onToolInvocation: handleToolInvocation
+	});
+
+	useEffect(() => {
+		if (messages.length > 0) {
+			const lastMessage = messages[messages.length - 1];
+			if (lastMessage.role === 'assistant') {
+				setContent(lastMessage.content);
+				setState(prev => ({ ...prev, error: null }));
+			}
+		}
+	}, [messages, setContent]);
+
+	const handleRepoSelect = useCallback((repo: string | null) => {
 		setState(prev => ({ ...prev, selectedRepo: repo }));
 		if (repo) {
-			setIsOpen(true); // Open panel when repo is selected
+			setIsOpen(true);
 		}
-	};
+	}, [setIsOpen]);
 
-	// const { append } = useChat({
-	// 	api: `/api/agents/${chatId}/documentation`,
-	// 	body: {
-	// 		repo_name: state.selectedRepo,
-	// 		file_paths: state.selectedFiles,
-	// 	},
-	// });
-
-	const handleGenerate = async () => {
+	const handleGenerate = useCallback(async () => {
 		if (!state.selectedRepo) return;
 
-		setState(prev => ({ ...prev, isGenerating: true }));
+		setState(prev => ({
+			...prev,
+			isGenerating: true,
+			error: null,
+			toolInvocations: []
+		}));
+
 		try {
-			console.log('Generating documentation for', state.selectedRepo);
+			const agentId = await initializeAgent();
+			await append({
+				role: 'user',
+				content: `Generate documentation for ${state.selectedRepo}`,
+			}, {
+				body: {
+					repo_name: state.selectedRepo,
+					file_paths: state.selectedFiles,
+				}
+			});
 		} catch (error) {
-			console.error('Documentation generation failed:', error);
+			const errorMessage = error instanceof Error ? error.message : 'Documentation generation failed';
+			setState(prev => ({ ...prev, error: errorMessage }));
+			toast.error(errorMessage);
 		} finally {
 			setState(prev => ({ ...prev, isGenerating: false }));
 		}
-	};
+	}, [state.selectedRepo, state.selectedFiles, append, initializeAgent]);
 
 	return (
 		<div className="flex flex-col gap-4 p-4">
@@ -47,13 +82,25 @@ export function DocumentationForm({ chatId }: { chatId: string }) {
 				onSelect={handleRepoSelect}
 				selectedRepo={state.selectedRepo}
 				className="mb-2"
+				disabled={state.isGenerating}
 			/>
+			{state.toolInvocations.map((invocation, index) => (
+				<ToolInvocationDisplay key={index} toolInvocation={invocation} />
+			))}
 			<Button
 				onClick={handleGenerate}
 				disabled={!state.selectedRepo || state.isGenerating}
+				className="relative"
 			>
-				{state.isGenerating ? 'Generating...' : 'Generate Documentation'}
+				{state.isGenerating ? (
+					<span className="flex items-center gap-2">
+						<span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+						{isStreaming ? 'Generating...' : 'Initializing...'}
+					</span>
+				) : (
+					'Generate Documentation'
+				)}
 			</Button>
 		</div>
 	);
-} 
+}

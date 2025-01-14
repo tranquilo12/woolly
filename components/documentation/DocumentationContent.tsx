@@ -1,22 +1,31 @@
 import { memo } from 'react';
 import { Markdown } from '../markdown';
 import { cn } from '@/lib/utils';
+import { Loader2 } from 'lucide-react';
 
 interface DocumentationContentProps {
 	content: string;
-	isLoading?: boolean;
+	isLoading: boolean;
+	error?: string | null;
 }
 
 export const DocumentationContent = memo(function DocumentationContent({
 	content,
-	isLoading
+	isLoading,
+	error
 }: DocumentationContentProps) {
+	if (error) {
+		return (
+			<div className="flex items-center justify-center h-full p-8 text-center text-destructive">
+				<p className="text-sm">{error}</p>
+			</div>
+		);
+	}
+
 	if (isLoading) {
 		return (
 			<div className="flex items-center justify-center h-full p-8">
-				<span className="text-sm text-muted-foreground loading-pulse">
-					Generating documentation...
-				</span>
+				<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
 			</div>
 		);
 	}

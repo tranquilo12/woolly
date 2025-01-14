@@ -10,6 +10,8 @@ interface DocumentationPanelContextType {
 	setIsOpen: (value: boolean) => void;
 	isPinned: boolean;
 	setIsPinned: (value: boolean) => void;
+	content: string;
+	setContent: (value: string) => void;
 }
 
 const DocumentationPanelContext = createContext<DocumentationPanelContextType | undefined>(undefined);
@@ -18,6 +20,7 @@ export function DocumentationPanelProvider({ children }: { children: ReactNode }
 	const [isOpen, setIsOpen] = useState(false);
 	const [isPinned, setIsPinned] = useLocalStorage('documentation-panel-pinned', false);
 	const { width } = useWindowSize();
+	const [content, setContent] = useState('');
 
 	useEffect(() => {
 		if (!isPinned) {
@@ -38,7 +41,7 @@ export function DocumentationPanelProvider({ children }: { children: ReactNode }
 	}, [isPinned]);
 
 	return (
-		<DocumentationPanelContext.Provider value={{ isOpen, toggle, setIsOpen, isPinned, setIsPinned }}>
+		<DocumentationPanelContext.Provider value={{ isOpen, toggle, setIsOpen, isPinned, setIsPinned, content, setContent }}>
 			{children}
 		</DocumentationPanelContext.Provider>
 	);
