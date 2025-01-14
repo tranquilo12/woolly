@@ -1,23 +1,29 @@
-from datetime import datetime
 import json
-from typing import Literal, Dict, Any, List, Optional
+import uuid
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional
+
 from pydantic import BaseModel
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelResponse,
+    ModelRequest,
+)
 from sqlalchemy import (
-    Column,
-    String,
-    DateTime,
-    ForeignKey,
-    Text,
-    func,
     JSON,
     Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
     Integer,
+    String,
+    Text,
+    func,
 )
-from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
-import uuid
-from .database import Base
+from sqlalchemy.orm import relationship
 
+from .database import Base
 
 # region OpenAI Streaming Response Models
 

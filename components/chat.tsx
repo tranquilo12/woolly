@@ -260,6 +260,7 @@ export function Chat({ chatId }: ChatProps) {
   const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
   const [currentModel, setCurrentModel] = useState("gpt-4o");
+  const [documentationMode, setDocumentationMode] = useState<string | null>(null);
 
   // Memoize repository status hooks
   const {
@@ -693,6 +694,8 @@ export function Chat({ chatId }: ChatProps) {
             searchRepository={searchRepository}
             currentModel={currentModel}
             onModelChange={setCurrentModel}
+            documentationMode={documentationMode}
+            onDocumentationModeChange={setDocumentationMode}
           />
         </div>
       </div>

@@ -27,6 +27,9 @@ load_dotenv(".env.local")
 app = FastAPI()
 
 
+# region Pydantic Models
+
+
 class ToolInvocation(BaseModel):
     id: str
     function: Optional[dict] = None
@@ -73,7 +76,10 @@ available_tools = {
 }
 
 
-# Chat CRUD Operations
+# endregion
+
+
+# region Chat CRUD Operations
 @app.post("/api/chat/create")
 async def create_chat(agent_id: Optional[str] = None, db: Session = Depends(get_db)):
     """Create a new chat and return its ID"""
@@ -154,7 +160,10 @@ async def delete_chat(chat_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to delete chat: {str(e)}")
 
 
-# Chat Title Operations
+# endregion
+
+
+# region Chat Title Operations
 @app.patch("/api/chat/{chat_id}/title")
 async def update_chat_title(
     chat_id: uuid.UUID, title_update: ChatTitleUpdate, db: Session = Depends(get_db)
@@ -179,7 +188,10 @@ async def update_chat_title(
         )
 
 
-# Message Operations
+# endregion
+
+
+# region Message Operations
 @app.get("/api/chat/{chat_id}/messages")
 async def get_chat_messages(chat_id: uuid.UUID, db: Session = Depends(get_db)):
     """Fetch all messages for a specific chat"""
@@ -237,7 +249,10 @@ async def save_chat_message(
         raise HTTPException(status_code=500, detail=f"Failed to save message: {str(e)}")
 
 
-# Chat Interaction Endpoints
+# endregion
+
+
+# region Chat Interaction Endpoints
 @app.post("/api/chat/{chat_id}")
 async def chat(
     chat_id: uuid.UUID,
@@ -325,6 +340,12 @@ async def chat(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# endregion
+
+
+# region Legacy Endpoint
+
+
 # Legacy Endpoint (Consider deprecating)
 @app.post("/api/chat")
 async def handle_chat_legacy(
@@ -407,3 +428,6 @@ async def update_message_model(
         raise HTTPException(
             status_code=500, detail=f"Failed to update message model: {str(e)}"
         )
+
+
+# endregion

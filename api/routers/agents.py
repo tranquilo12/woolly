@@ -1,22 +1,28 @@
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, StreamingResponse
-from sqlalchemy import UUID
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, AsyncIterator, Union
+from dataclasses import dataclass
+from pydantic_ai import Agent, RunContext, ModelResponse, TextPart
+import json
+from uuid import UUID
+
 from ..utils.database import get_db
 from ..utils.models import (
     Agent,
+    Message,
     AgentCreate,
     AgentUpdate,
     AgentResponse,
-    DocumentationSystemMessage,
-    DocumentationUserMessage,
     DocumentationChatHistory,
+    build_tool_call_partial,
+    build_tool_call_result,
 )
-from pydantic_ai import ChatHistory, SystemMessage, UserMessage, AssistantMessage
 
 router = APIRouter()
 
 
+# region CRUD Operations for Agents
 @router.post("/agents", response_model=AgentResponse)
 async def create_agent(agent: AgentCreate, db: Session = Depends(get_db)):
     db_agent = Agent(
@@ -75,30 +81,120 @@ async def delete_agent(agent_id: str, db: Session = Depends(get_db)):
     return db_agent
 
 
+# endregion
+
+
+# region Agent Operations
+
+
+@dataclass
+class DocumentationDependencies:
+    repo_name: str
+    file_paths: Optional[List[str]]
+    db: Session
+
+
+documentation_agent = Agent(
+    "openai:gpt-4o",
+    deps_type=DocumentationDependencies,
+    result_type=DocumentationChatHistory,
+    system_prompt=(
+        "You are a documentation assistant. Generate comprehensive documentation "
+        "for the provided repository and files."
+    ),
+)
+
+
+@documentation_agent.system_prompt
+async def setup_documentation_context(
+    ctx: RunContext[DocumentationDependencies],
+) -> str:
+    return (
+        f"Analyzing repository: {ctx.deps.repo_name}\n"
+        f"Files to document: {', '.join(ctx.deps.file_paths) if ctx.deps.file_paths else 'all files'}"
+    )
+
+
+async def stream_pydantic_response(
+    stream: AsyncIterator[Union[str, ModelResponse]],
+    db: Session = None,
+    message_id: UUID = None,
+) -> AsyncIterator[str]:
+    """Handles Pydantic-AI streaming while maintaining Vercel protocol compatibility"""
+    content_buffer = ""
+    tool_invocations = []
+
+    async for chunk in stream:
+        if isinstance(chunk, ModelResponse):
+            for part in chunk.parts:
+                if isinstance(part, TextPart):
+                    content_buffer += part.content
+                    yield f"0:{json.dumps(part.content)}\n"
+                elif hasattr(part, "tool_calls"):
+                    for tool_call in part.tool_calls:
+                        yield build_tool_call_partial(
+                            tool_call_id=tool_call.id,
+                            tool_name=tool_call.name,
+                            args=tool_call.args,
+                        )
+                        if tool_call.result:
+                            tool_invocations.append(
+                                {
+                                    "id": tool_call.id,
+                                    "toolName": tool_call.name,
+                                    "args": tool_call.args,
+                                    "result": tool_call.result,
+                                    "state": "result",
+                                }
+                            )
+                            yield build_tool_call_result(
+                                tool_call_id=tool_call.id,
+                                tool_name=tool_call.name,
+                                args=tool_call.args,
+                                result=tool_call.result,
+                            )
+
+    # End of stream message in Vercel format
+    yield 'e:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0,"totalTokens":0},"isContinued":false}\n'
+
+    if db and message_id:
+        try:
+            message = db.query(Message).filter(Message.id == message_id).first()
+            if message:
+                message.content = content_buffer
+                message.tool_invocations = tool_invocations
+                db.commit()
+        except Exception as e:
+            print(f"Failed to update message: {e}")
+
+
 @router.post("/agents/{agent_id}/documentation")
 async def generate_documentation(
-    agent_id: UUID,
+    agent_id: str,
     repo_name: str,
     file_paths: Optional[List[str]] = None,
     db: Session = Depends(get_db),
 ):
-    agent = db.query(Agent).filter(Agent.id == agent_id).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    deps = DocumentationDependencies(repo_name=repo_name, file_paths=file_paths, db=db)
+    message_id = uuid.uuid4()
 
-    system_msg = DocumentationSystemMessage(
-        content=agent.system_prompt, repo_name=repo_name, file_paths=file_paths
-    )
+    # Run the Pydantic-AI agent with streaming
+    async with documentation_agent.run_stream(
+        f"Create documentation for repository {repo_name}", deps=deps
+    ) as stream:
+        return StreamingResponse(
+            stream_pydantic_response(
+                stream=stream,
+                db=db,
+                message_id=message_id,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "x-vercel-ai-data-stream": "v1",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
 
-    user_msg = DocumentationUserMessage(
-        content=f"Create a documentation plan for {repo_name}", repo_name=repo_name
-    )
 
-    chat_history = DocumentationChatHistory(
-        messages=[system_msg, user_msg], repo_name=repo_name
-    )
-
-    return StreamingResponse(
-        stream_text(chat_history.messages, "data", db=db),
-        headers={"x-vercel-ai-data-stream": "v1"},
-    )
+# endregion

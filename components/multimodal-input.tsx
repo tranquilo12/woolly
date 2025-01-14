@@ -26,6 +26,7 @@ import { parseRepositoryCommand } from "@/lib/commands";
 import { RepositorySearchResult, SearchRepositoryRequest } from "@/hooks/use-repository-status";
 import { RepositoryMentionMenu } from "./repository-mention-menu";
 import { ModelSelector } from "./model-selector";
+import { DocumentationSelector } from "./documentation/DocumentationSelector";
 
 interface MultimodalInputProps {
   chatId: string;
@@ -47,6 +48,8 @@ interface MultimodalInputProps {
   searchRepository: (repoName: AvailableRepository, query: SearchRepositoryRequest) => Promise<{ results: RepositorySearchResult[] }>;
   currentModel: string;
   onModelChange: (model: string) => void;
+  documentationMode?: string | null;
+  onDocumentationModeChange?: (repo: string | null) => void;
 }
 
 const isValidMentionContext = (text: string): boolean => {
@@ -110,7 +113,9 @@ export function MultimodalInput({
   className,
   searchRepository,
   currentModel,
-  onModelChange
+  onModelChange,
+  documentationMode,
+  onDocumentationModeChange
 }: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { toggle, setIsOpen, isPinned, isOpen } = useSidebar();
@@ -401,11 +406,21 @@ export function MultimodalInput({
                 <MenuIcon size={16} />
               </Button>
 
-              <ModelSelector
-                currentModel={currentModel}
-                onModelChange={onModelChange}
-                className="w-[120px] opacity-0 hover:opacity-100 transition-opacity duration-200"
-              />
+              <div className="flex items-center gap-2">
+                <DocumentationSelector
+                  selectedRepo={documentationMode || null}
+                  onSelect={onDocumentationModeChange || (() => { })}
+                  className={cn(
+                    "opacity-0 hover:opacity-100 transition-opacity duration-200",
+                    "relative z-50"
+                  )}
+                />
+                <ModelSelector
+                  currentModel={currentModel}
+                  onModelChange={onModelChange}
+                  className="w-[120px] opacity-0 hover:opacity-100 transition-opacity duration-200"
+                />
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
