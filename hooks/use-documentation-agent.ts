@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useChat } from 'ai/react';
+import { useParameterizedChat } from './use-parameterized-chat';
 
 interface UseDocumentationAgentProps {
 	chatId: string;
@@ -7,29 +7,30 @@ interface UseDocumentationAgentProps {
 
 export function useDocumentationAgent({ chatId }: UseDocumentationAgentProps) {
 	const [agentId, setAgentId] = useState<string | null>(null);
-	const [isStreaming, setIsStreaming] = useState(false);
-	const [streamedContent, setStreamedContent] = useState<string>('');
+	const [agentError, setAgentError] = useState<string | null>(null);
 
-	const { messages, append, setMessages } = useChat({
-		api: `/api/agents/${agentId}/documentation`,
-		id: chatId,
+	const {
+		messages,
+		append,
+		setMessages,
+		isThinking,
+		setIsThinking,
+		getMostCompleteToolInvocation,
+		handleSubmit,
+		stop,
+		isLoading
+	} = useParameterizedChat({
+		endpoint: `/api/agents/${agentId}/documentation`,
+		chatId,
 		body: {
 			agent_id: agentId,
-		},
-		onFinish: () => {
-			setIsStreaming(false);
-		},
-		onResponse: (response) => {
-			if (response.headers.get('x-vercel-ai-data-stream') === 'v1') {
-				setIsStreaming(true);
-			}
-		},
-
+		}
 	});
 
 	const initializeAgent = useCallback(async () => {
 		if (agentId) return agentId;
 
+		setAgentError(null);
 		try {
 			const response = await fetch('/api/agents', {
 				method: 'POST',
@@ -39,16 +40,21 @@ export function useDocumentationAgent({ chatId }: UseDocumentationAgentProps) {
 				body: JSON.stringify({
 					name: 'Documentation Generator',
 					description: 'Generates documentation for repositories',
-					system_prompt: 'You are a documentation assistant.',
+					system_prompt: 'You are a documentation assistant. Generate comprehensive documentation for the provided repository and files. Focus on code structure, architecture, and key functionalities.',
 				}),
 			});
 
-			if (!response.ok) throw new Error('Failed to create agent');
+			if (!response.ok) {
+				const error = await response.json();
+				throw new Error(error.detail || 'Failed to create agent');
+			}
+
 			const agent = await response.json();
 			setAgentId(agent.id);
 			return agent.id;
 		} catch (error) {
-			console.error('Failed to initialize agent:', error);
+			const message = error instanceof Error ? error.message : 'Failed to initialize agent';
+			setAgentError(message);
 			throw error;
 		}
 	}, [agentId]);
@@ -59,7 +65,12 @@ export function useDocumentationAgent({ chatId }: UseDocumentationAgentProps) {
 		append,
 		setMessages,
 		initializeAgent,
-		isStreaming,
-		streamedContent
+		isThinking,
+		setIsThinking,
+		getMostCompleteToolInvocation,
+		handleSubmit,
+		stop,
+		isLoading,
+		agentError
 	};
 } 

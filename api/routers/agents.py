@@ -180,7 +180,7 @@ async def generate_documentation(
 
     # Run the Pydantic-AI agent with streaming
     async with documentation_agent.run_stream(
-        f"Create documentation for repository {repo_name}", deps=deps
+        f"Create documentation for repository {repo_name}", deps=deps, max_steps=5
     ) as stream:
         return StreamingResponse(
             stream_pydantic_response(

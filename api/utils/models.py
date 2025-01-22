@@ -145,6 +145,9 @@ class Agent(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
 
+    chats = relationship("Chat", back_populates="agent")
+    messages = relationship("Message", back_populates="agent")
+
 
 class Chat(Base):
     __tablename__ = "chats"
@@ -157,7 +160,7 @@ class Chat(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     user = relationship("User", back_populates="chats")
-    agent = relationship("Agent")
+    agent = relationship("Agent", back_populates="chats")
     messages = relationship("Message", back_populates="chat")
 
 
@@ -174,8 +177,10 @@ class Message(Base):
     prompt_tokens = Column(Integer, nullable=True)
     completion_tokens = Column(Integer, nullable=True)
     total_tokens = Column(Integer, nullable=True)
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id"), nullable=True)
 
     chat = relationship("Chat", back_populates="messages")
+    agent = relationship("Agent", back_populates="messages")
 
     def update_tool_invocations(self, tool_invocation: Dict[str, Any]) -> None:
         """Update or append a tool invocation to the message."""

@@ -24,7 +24,7 @@ export function DocumentationForm({ chatId }: { chatId: string }) {
 		}));
 	}, []);
 
-	const { initializeAgent, append, messages, isStreaming } = useDocumentationAgent({
+	const { initializeAgent, append, messages, isThinking } = useDocumentationAgent({
 		chatId,
 	});
 
@@ -94,7 +94,7 @@ export function DocumentationForm({ chatId }: { chatId: string }) {
 				{state.isGenerating ? (
 					<span className="flex items-center gap-2">
 						<span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-						{isStreaming ? 'Generating...' : 'Initializing...'}
+						{isThinking ? 'Generating...' : 'Initializing...'}
 					</span>
 				) : (
 					'Generate Documentation'
