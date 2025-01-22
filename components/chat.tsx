@@ -383,7 +383,7 @@ export function Chat({ chatId }: ChatProps) {
     };
 
     setIsThinking(shouldShowThinking() || isChatLoading);
-  }, [isChatLoading, messages]);
+  }, [isChatLoading, messages, setIsThinking]);
 
   const handleEditComplete = useCallback(async (editedMessage: MessageWithModel) => {
     if (!chatId) return;
@@ -425,7 +425,7 @@ export function Chat({ chatId }: ChatProps) {
       console.error('Failed to restream messages:', error);
       scrollToBottom({ force: true, behavior: 'auto' });
     }
-  }, [chatId, messages, scrollToBottom]);
+  }, [appendMessage, chatId, messages, scrollToBottom, setMessages]);
 
   const handleModelChange = useCallback(async (model: string, messageId: string) => {
     // Update the message's model in the database
@@ -557,7 +557,7 @@ export function Chat({ chatId }: ChatProps) {
         isFirstUserMessage={isFirstUserMessage}
       />
     );
-  }, [chatId, handleEditComplete, handleModelChange, messages]);
+  }, [chatId, handleEditComplete, handleModelChange, messages, getMostCompleteToolInvocation]);
 
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
     if (message.role === 'user') {
