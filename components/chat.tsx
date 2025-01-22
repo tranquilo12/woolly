@@ -22,6 +22,7 @@ import { CollapsibleCodeBlock } from "./collapsible-code-block";
 import { Button } from "@/components/ui/button";
 import { PencilIcon } from "lucide-react";
 import { ExtendedToolCall } from "@/types/tool-calls";
+import { useParameterizedChat } from "@/hooks/use-parameterized-chat";
 
 interface ChatProps {
   chatId?: string;
@@ -256,7 +257,6 @@ export function Chat({ chatId }: ChatProps) {
   const [initialMessages, setInitialMessages] = useState<MessageWithModel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRestreaming, setIsRestreaming] = useState(false);
-  const [isThinking, setIsThinking] = useState(false);
   const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
   const [currentModel, setCurrentModel] = useState("gpt-4o");
@@ -307,91 +307,24 @@ export function Chat({ chatId }: ChatProps) {
 
   const {
     messages,
+    isThinking,
+    setIsThinking,
     input,
+    setInput,
+    setMessages,
+    getMostCompleteToolInvocation,
     handleInputChange,
     handleSubmit,
-    append: vercelAppend,
+    append,
     stop,
-    setMessages: setVercelMessages,
-    setInput,
     isLoading: isChatLoading,
-  } = useChat({
-    api: chatId ? `/api/chat/${chatId}` : "/api/chat",
-    id: chatId,
-    initialMessages: initialMessages.map(toMessage),
+  } = useParameterizedChat({
+    endpoint: chatId ? `/api/chat/${chatId}` : "/api/chat",
+    chatId,
+    initialMessages: initialMessages,
     body: {
       id: chatId
     },
-    onToolCall: async (tool) => {
-      setVercelMessages(prevMessages => {
-        const lastMessage = prevMessages[prevMessages.length - 1];
-        if (!lastMessage) return prevMessages;
-
-        const updatedToolInvocations = lastMessage.toolInvocations || [];
-        const existingToolIndex = updatedToolInvocations.findIndex(t => t.toolCallId === tool.toolCall.toolCallId);
-
-        if (existingToolIndex >= 0) {
-          updatedToolInvocations[existingToolIndex] = {
-            ...updatedToolInvocations[existingToolIndex],
-            toolCallId: tool.toolCall.toolCallId,
-            toolName: tool.toolCall.toolName,
-            args: tool.toolCall.args,
-          };
-        } else {
-          updatedToolInvocations.push({
-            toolCallId: tool.toolCall.toolCallId,
-            toolName: tool.toolCall.toolName,
-            args: tool.toolCall.args,
-            // @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
-            state: tool.toolCall.state || 'partial-call'
-          });
-        }
-
-        return prevMessages.map((msg, i) =>
-          i === prevMessages.length - 1
-            ? { ...msg, toolInvocations: updatedToolInvocations }
-            : msg
-        );
-      });
-    },
-    onResponse: (response) => {
-      if (!response.ok) {
-        console.error('Stream response error:', response.status);
-        toast.error('Error in chat response');
-        return;
-      }
-    },
-    onFinish: async (message, options) => {
-      try {
-        const messageWithModel = {
-          ...message,
-          model: currentModel,
-          prompt_tokens: options.usage?.promptTokens,
-          completion_tokens: options.usage?.completionTokens,
-          total_tokens: options.usage?.totalTokens,
-          toolInvocations: message.toolInvocations?.map(tool => ({
-            ...tool,
-            state: tool.state || 'result'
-          }))
-        } as MessageWithModel;
-
-        setVercelMessages(prevMessages =>
-          prevMessages.map(m =>
-            m.id === messageWithModel.id ? messageWithModel : m
-          )
-        );
-
-        setIsRestreaming(false);
-        setIsThinking(false);
-      } catch (error) {
-        console.error('Failed to update message state:', error);
-      }
-    },
-    onError: (error) => {
-      console.error('Chat error:', error);
-      toast.error('An error occurred during the chat');
-      setIsThinking(false);
-    }
   });
 
   // Scroll on new message
@@ -406,7 +339,7 @@ export function Chat({ chatId }: ChatProps) {
   }, [isLoading, messages, scrollToBottom]);
 
   // Create a wrapped append function that handles MessageWithModel
-  const append = useCallback(async (
+  const appendMessage = useCallback(async (
     message: MessageWithModel | CreateMessage,
     options?: ChatRequestOptions
   ) => {
@@ -429,8 +362,8 @@ export function Chat({ chatId }: ChatProps) {
       }
     }
 
-    return vercelAppend(message, options);
-  }, [vercelAppend, chatId, currentModel]);
+    return append(message, options);
+  }, [append, chatId, currentModel]);
 
   // Update thinking state when chat loading state changes
   useEffect(() => {
@@ -466,7 +399,7 @@ export function Chat({ chatId }: ChatProps) {
         content: editedMessage.content
       };
 
-      setVercelMessages(messagesToKeep as MessageWithModel[]);
+      setMessages(messagesToKeep as MessageWithModel[]);
 
       const options = {
         body: {
@@ -479,7 +412,7 @@ export function Chat({ chatId }: ChatProps) {
         },
       }
 
-      await vercelAppend(
+      await appendMessage(
         {
           id: crypto.randomUUID(),
           role: 'assistant',
@@ -492,7 +425,7 @@ export function Chat({ chatId }: ChatProps) {
       console.error('Failed to restream messages:', error);
       scrollToBottom({ force: true, behavior: 'auto' });
     }
-  }, [chatId, messages, setVercelMessages, scrollToBottom]);
+  }, [chatId, messages, scrollToBottom]);
 
   const handleModelChange = useCallback(async (model: string, messageId: string) => {
     // Update the message's model in the database
@@ -510,14 +443,14 @@ export function Chat({ chatId }: ChatProps) {
     }
 
     // Update local state with proper type casting
-    setVercelMessages((prevMessages) =>
+    setMessages((prevMessages) =>
       prevMessages.map(msg =>
         msg.id === messageId
           ? { ...msg, model } as MessageWithModel
           : msg
       )
     );
-  }, [chatId, setVercelMessages]);
+  }, [chatId, setMessages]);
 
 
   useEffect(() => {
@@ -586,17 +519,6 @@ export function Chat({ chatId }: ChatProps) {
   }, [messages, handleCodeContextUpdate]);
 
   const renderMessage = useCallback((message: MessageWithModel) => {
-    // Helper function to find the most complete tool invocation
-    const getMostCompleteToolInvocation = (toolInvocations: any[]) => {
-      // First, try to find a tool invocation with both args and result
-      const completeInvocation = toolInvocations.find(
-        tool => tool.args && tool.result && tool.state === "result"
-      );
-
-      // If no complete invocation found, return the first one
-      return completeInvocation || toolInvocations[0];
-    };
-
     // Skip rendering empty assistant messages only if they have no tool invocations
     if (
       message.role === 'assistant' &&
@@ -688,7 +610,7 @@ export function Chat({ chatId }: ChatProps) {
             isLoading={isChatLoading}
             stop={stop}
             messages={messages}
-            setMessages={setVercelMessages as Dispatch<SetStateAction<Message[]>>}
+            setMessages={setMessages}
             append={append}
             handleSubmit={handleSubmit}
             searchRepository={searchRepository}

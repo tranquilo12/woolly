@@ -26,7 +26,6 @@ export function DocumentationForm({ chatId }: { chatId: string }) {
 
 	const { initializeAgent, append, messages, isStreaming } = useDocumentationAgent({
 		chatId,
-		onToolInvocation: handleToolInvocation
 	});
 
 	useEffect(() => {

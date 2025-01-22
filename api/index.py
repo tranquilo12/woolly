@@ -1,4 +1,3 @@
-import os
 from typing import List, Optional
 from pydantic import BaseModel
 from dotenv import load_dotenv
