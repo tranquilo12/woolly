@@ -156,8 +156,7 @@ export function ToolInvocationDisplay({
 
 						{result.metrics && (
 							<div className="p-3 border-t border-muted">
-								<div className="text-xs text-muted-foreground mb-2">Metrics</div>
-								<div className="grid grid-cols-3 gap-2 text-xs">
+								<div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground/50">
 									{result.metrics.memory_usage !== undefined && (
 										<div>Memory: {result.metrics.memory_usage.toFixed(2)}MB</div>
 									)}
