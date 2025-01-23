@@ -1,5 +1,5 @@
 import { Message, useChat } from 'ai/react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { MessageWithModel } from '@/components/chat';
 import { toast } from 'sonner';
 import { ExtendedToolCall } from '@/types/tool-calls';
@@ -10,6 +10,7 @@ interface UseParameterizedChatProps {
 	initialMessages?: MessageWithModel[];
 	body?: Record<string, any>;
 	model?: string;
+	maxSteps?: number;
 }
 
 export function useParameterizedChat({
@@ -18,19 +19,30 @@ export function useParameterizedChat({
 	model,
 	initialMessages = [],
 	body = {},
+	maxSteps = 5,
 }: UseParameterizedChatProps) {
 	const [isThinking, setIsThinking] = useState(false);
+	const toolInvocationCache = useMemo(() => new Map<string, ExtendedToolCall>(), []);
 
 	const getMostCompleteToolInvocation = useCallback((toolInvocations: ExtendedToolCall[]) => {
+		// First check cache for any completed invocations
+		const cachedComplete = toolInvocations.find(tool =>
+			toolInvocationCache.has(tool.toolCallId) &&
+			toolInvocationCache.get(tool.toolCallId)?.result
+		);
+		if (cachedComplete) return cachedComplete;
+
+		// Fallback to finding first complete tool or first tool
 		return toolInvocations.find(
 			tool => tool.args && tool.result
 		) || toolInvocations[0];
-	}, []);
+	}, [toolInvocationCache]);
 
 	const chat = useChat({
 		api: endpoint,
 		id: chatId,
 		initialMessages,
+		maxSteps,
 		body: {
 			id: chatId,
 			model,
@@ -41,40 +53,51 @@ export function useParameterizedChat({
 				if (response.headers.get('x-vercel-ai-data-stream') === 'v1') {
 					setIsThinking(true);
 				}
+			} else {
+				toast.error('Failed to process tool invocation');
 			}
 		},
 		onToolCall: async (tool) => {
-			chat.setMessages((prevMessages: Message[]) => {
-				const lastMessage = prevMessages[prevMessages.length - 1];
-				if (!lastMessage) return prevMessages;
+			try {
+				chat.setMessages((prevMessages: Message[]) => {
+					const lastMessage = prevMessages[prevMessages.length - 1];
+					if (!lastMessage) return prevMessages;
 
-				const updatedToolInvocations = lastMessage.toolInvocations || [];
-				const existingToolIndex = updatedToolInvocations.findIndex(t => t.toolCallId === tool.toolCall.toolCallId);
+					const updatedToolInvocations = lastMessage.toolInvocations || [];
+					const existingToolIndex = updatedToolInvocations.findIndex(t =>
+						t.toolCallId === tool.toolCall.toolCallId
+					);
 
-
-				if (existingToolIndex >= 0) {
-					updatedToolInvocations[existingToolIndex] = {
-						...updatedToolInvocations[existingToolIndex],
-						toolCallId: tool.toolCall.toolCallId,
-						toolName: tool.toolCall.toolName,
-						args: tool.toolCall.args,
-					};
-				} else {
-					updatedToolInvocations.push({
+					const updatedTool = {
 						toolCallId: tool.toolCall.toolCallId,
 						toolName: tool.toolCall.toolName,
 						args: tool.toolCall.args,
 						// @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
 						state: tool.toolCall.state || 'partial-call'
-					});
-				}
+					};
 
-				return prevMessages.map((msg, i) =>
-					i === prevMessages.length - 1
-						? { ...msg, toolInvocations: updatedToolInvocations }
-						: msg
-				);
-			});
+					// Update cache
+					toolInvocationCache.set(updatedTool.toolCallId, updatedTool);
+
+					if (existingToolIndex >= 0) {
+						updatedToolInvocations[existingToolIndex] = {
+							...updatedToolInvocations[existingToolIndex],
+							...updatedTool
+						};
+					} else {
+						updatedToolInvocations.push(updatedTool);
+					}
+
+					return prevMessages.map((msg, i) =>
+						i === prevMessages.length - 1
+							? { ...msg, toolInvocations: updatedToolInvocations }
+							: msg
+					);
+				});
+			} catch (error) {
+				console.error('Tool invocation error:', error);
+				toast.error('Failed to process tool invocation');
+			}
 		},
 		onFinish: async (message, options) => {
 			try {
