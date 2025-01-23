@@ -68,23 +68,6 @@ export function toMessageWithModel(
   };
 }
 
-const CodeBlockSection = memo(({ blocks, messageId }: { blocks: string[], messageId: string }) => (
-  <div className="mb-4">
-    <CodeContextContainer codeBlockCount={blocks.length} initiallyExpanded={false}>
-      <div className="space-y-2">
-        {blocks.map((block, index) => (
-          <CollapsibleCodeBlock
-            key={`${messageId}-${index}`}
-            language={block.split('\n')[0].replace('```', '').trim() || 'text'}
-            value={block.split('\n').slice(1, -1).join('\n')}
-            initiallyExpanded={false}
-          />
-        ))}
-      </div>
-    </CodeContextContainer>
-  </div>
-));
-
 const ToolInvocations = memo(({
   toolInvocations,
   retryFailedTool
@@ -134,16 +117,14 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
     exit: { opacity: 0, y: -10 }
   }), []);
 
-  // Memoize code parsing to prevent re-renders
-  const { hasCodeContext, codeBlocks, contentWithoutCode } = useMemo(() => {
+  // Remove the code extraction logic from the useMemo hook
+  const { hasCodeContext, contentWithoutCode } = useMemo(() => {
     if (!message.content) {
-      return { hasCodeContext: false, codeBlocks: [], contentWithoutCode: '' };
+      return { hasCodeContext: false, contentWithoutCode: '' };
     }
-    const hasCode = message.content.includes('```');
     return {
-      hasCodeContext: hasCode,
-      codeBlocks: hasCode ? message.content.match(/```[\s\S]*?```/g) || [] : [],
-      contentWithoutCode: hasCode ? message.content.replace(/```[\s\S]*?```/g, '') : message.content
+      hasCodeContext: message.content.includes('```'),
+      contentWithoutCode: message.content
     };
   }, [message.content]);
 
@@ -225,10 +206,8 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, delay: 0.1 }}
         >
-          {hasCodeContext && <CodeBlockSection blocks={codeBlocks} messageId={message.id} />}
-
           <div className="prose dark:prose-invert">
-            <Markdown>{contentWithoutCode}</Markdown>
+            <Markdown>{message.content}</Markdown>
           </div>
 
           {message.toolInvocations && message.toolInvocations.length > 0 && (
@@ -278,7 +257,6 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
   );
 }, areMessagesEqual);
 ChatMessage.displayName = 'ChatMessage';
-CodeBlockSection.displayName = 'CodeBlockSection';
 ToolInvocations.displayName = 'ToolInvocations';
 
 
