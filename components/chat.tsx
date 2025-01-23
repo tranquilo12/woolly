@@ -1,10 +1,9 @@
 "use client";
 
-import { useChat } from "ai/react";
-import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message, tool } from "ai";
+import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message } from "ai";
 import { MultimodalInput } from "./multimodal-input";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
-import { useState, useEffect, memo, useCallback, SetStateAction, Dispatch } from "react";
+import { useState, useEffect, memo, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
@@ -68,27 +67,34 @@ export function toMessageWithModel(
   };
 }
 
+const areMessagesEqual = (prevProps: ChatMessageProps, nextProps: ChatMessageProps) => {
+  return (
+    prevProps.message.id === nextProps.message.id &&
+    prevProps.message.content === nextProps.message.content &&
+    prevProps.message.model === nextProps.message.model &&
+    JSON.stringify(prevProps.message.toolInvocations) === JSON.stringify(nextProps.message.toolInvocations) &&
+    prevProps.isFirstUserMessage === nextProps.isFirstUserMessage
+  );
+};
+
 // Memoized Message component to prevent unnecessary re-renders
 const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFirstUserMessage }: ChatMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
 
-  const messageVariants = {
+  const messageVariants = useMemo(() => ({
     initial: { opacity: 0, y: 10 },
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, y: -10 }
-  };
+  }), []);
 
-  // Add code block extraction logic
-  const getCodeBlocks = (content: string) => {
-    const codeBlockRegex = /```[\s\S]*?```/g;
-    return content.match(codeBlockRegex) || [];
-  };
-
-  const codeBlocks = getCodeBlocks(message.content);
-  const hasCodeContext = codeBlocks.length > 0;
-
-  // Separate code blocks from main content
-  const contentWithoutCode = message.content.replace(/```[\s\S]*?```/g, '');
+  const { codeBlocks, contentWithoutCode, hasCodeContext } = useMemo(() => {
+    const blocks = message.content.match(/```[\s\S]*?```/g) || [];
+    return {
+      codeBlocks: blocks,
+      contentWithoutCode: message.content.replace(/```[\s\S]*?```/g, ''),
+      hasCodeContext: blocks.length > 0
+    };
+  }, [message.content]);
 
   const handleEdit = async (newContent: string) => {
     if (!chatId || !message.id) return;
@@ -250,7 +256,7 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
       </div>
     </motion.div>
   );
-});
+}, areMessagesEqual);
 ChatMessage.displayName = 'ChatMessage';
 
 export function Chat({ chatId }: ChatProps) {
@@ -559,16 +565,21 @@ export function Chat({ chatId }: ChatProps) {
     );
   }, [chatId, handleEditComplete, handleModelChange, messages, getMostCompleteToolInvocation]);
 
-  const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
-    if (message.role === 'user') {
-      // Start a new group with user message
-      groups.push([message as MessageWithModel]);
-    } else if (groups.length && message.id !== 'edit-indicator') {
-      // Add assistant message to last group
-      groups[groups.length - 1].push(message as MessageWithModel);
-    }
-    return groups;
-  }, []);
+  const groupedMessages = useMemo(() =>
+    messages.reduce((groups: MessageWithModel[][], message) => {
+      // Skip edit indicators from grouping
+      if (message.id === 'edit-indicator') return groups;
+
+      if (message.role === 'user' || groups.length === 0) {
+        groups.push([message as MessageWithModel]);
+      } else {
+        // Add to the last group
+        groups[groups.length - 1].push(message as MessageWithModel);
+      }
+      return groups;
+    }, []),
+    [messages]
+  );
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">

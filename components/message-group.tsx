@@ -8,8 +8,15 @@ interface MessageGroupProps {
 
 export function MessageGroup({ messages, renderMessage }: MessageGroupProps) {
 	return (
-		<motion.div className="message-group">
-			{messages.map(message => renderMessage(message))}
+		<motion.div
+			className="message-group relative group"
+			initial={{ opacity: 0 }}
+			animate={{ opacity: 1 }}
+		>
+			<div className="absolute left-8 top-0 bottom-0 w-px bg-border opacity-30 transition-opacity duration-200 group-hover:opacity-100" />
+			<div className="relative z-10">
+				{messages.map(message => renderMessage(message))}
+			</div>
 		</motion.div>
 	);
 } 
