@@ -11,6 +11,7 @@ interface UseParameterizedChatProps {
 	body?: Record<string, any>;
 	model?: string;
 	maxSteps?: number;
+	maxRetries?: number;
 }
 
 export function useParameterizedChat({
@@ -20,9 +21,11 @@ export function useParameterizedChat({
 	initialMessages = [],
 	body = {},
 	maxSteps = 5,
+	maxRetries = 2
 }: UseParameterizedChatProps) {
 	const [isThinking, setIsThinking] = useState(false);
-	const [failedTools, setFailedTools] = useState<Set<string>>(new Set());
+	const [failedTools, setFailedTools] = useState<Map<string, { count: number; error: Error }>>(new Map());
+	const [processingTools, setProcessingTools] = useState<Set<string>>(new Set());
 
 	// Add cache size limit and cleanup
 	const MAX_CACHE_SIZE = 100;
@@ -70,6 +73,47 @@ export function useParameterizedChat({
 		) || validTools[0];
 	}, [toolInvocationCache, failedTools]);
 
+	const handleToolError = useCallback((toolId: string, error: Error) => {
+		setFailedTools(prev => {
+			const newMap = new Map(prev);
+			const current = newMap.get(toolId);
+			if (current && current.count >= maxRetries) {
+				toast.error(`Tool execution failed after ${maxRetries} attempts`);
+			} else {
+				newMap.set(toolId, {
+					count: (current?.count || 0) + 1,
+					error
+				});
+			}
+			return newMap;
+		});
+	}, [maxRetries]);
+
+	const retryFailedTool = useCallback(async (toolId: string) => {
+		const failedTool = failedTools.get(toolId);
+		if (!failedTool || failedTool.count >= maxRetries) return false;
+
+		setProcessingTools(prev => new Set(prev).add(toolId));
+		try {
+			// Existing tool retry logic here
+			setFailedTools(prev => {
+				const newMap = new Map(prev);
+				newMap.delete(toolId);
+				return newMap;
+			});
+			return true;
+		} catch (error) {
+			handleToolError(toolId, error as Error);
+			return false;
+		} finally {
+			setProcessingTools(prev => {
+				const newSet = new Set(prev);
+				newSet.delete(toolId);
+				return newSet;
+			});
+		}
+	}, [failedTools, maxRetries, handleToolError]);
+
 	const chat = useChat({
 		api: endpoint,
 		id: chatId,
@@ -90,6 +134,9 @@ export function useParameterizedChat({
 			}
 		},
 		onToolCall: async (tool) => {
+			const toolId = tool.toolCall.toolCallId;
+			setProcessingTools(prev => new Set(prev).add(toolId));
+
 			try {
 				chat.setMessages((prevMessages: Message[]) => {
 					const lastMessage = prevMessages[prevMessages.length - 1];
@@ -97,19 +144,18 @@ export function useParameterizedChat({
 
 					const updatedToolInvocations = lastMessage.toolInvocations || [];
 					const existingToolIndex = updatedToolInvocations.findIndex(t =>
-						t.toolCallId === tool.toolCall.toolCallId
+						t.toolCallId === toolId
 					);
 
 					const updatedTool = {
-						toolCallId: tool.toolCall.toolCallId,
+						toolCallId: toolId,
 						toolName: tool.toolCall.toolName,
 						args: tool.toolCall.args,
 						// @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
 						state: tool.toolCall.state || 'partial-call'
 					};
 
-					// Update cache
-					toolInvocationCache.set(updatedTool.toolCallId, updatedTool);
+					toolInvocationCache.set(toolId, updatedTool);
 
 					if (existingToolIndex >= 0) {
 						updatedToolInvocations[existingToolIndex] = {
@@ -127,8 +173,15 @@ export function useParameterizedChat({
 					);
 				});
 			} catch (error) {
+				handleToolError(toolId, error as Error);
 				console.error('Tool invocation error:', error);
 				toast.error('Failed to process tool invocation');
+			} finally {
+				setProcessingTools(prev => {
+					const newSet = new Set(prev);
+					newSet.delete(toolId);
+					return newSet;
+				});
 			}
 		},
 		onFinish: async (message, options) => {
@@ -168,6 +221,9 @@ export function useParameterizedChat({
 		...chat,
 		isThinking,
 		setIsThinking,
+		failedTools,
+		processingTools,
+		retryFailedTool,
 		input: chat.input,
 		setInput: chat.setInput,
 		setMessages: chat.setMessages,

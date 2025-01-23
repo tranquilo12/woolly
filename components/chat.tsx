@@ -33,6 +33,7 @@ interface ChatMessageProps {
   onEditComplete: (message: MessageWithModel) => void;
   onModelChange: (model: string, messageId: string) => void;
   isFirstUserMessage?: boolean;
+  retryFailedTool: (toolId: string) => void;
 }
 
 export interface MessageWithModel extends Message {
@@ -67,18 +68,64 @@ export function toMessageWithModel(
   };
 }
 
-const areMessagesEqual = (prevProps: ChatMessageProps, nextProps: ChatMessageProps) => {
-  return (
-    prevProps.message.id === nextProps.message.id &&
+const CodeBlockSection = memo(({ blocks, messageId }: { blocks: string[], messageId: string }) => (
+  <div className="mb-4">
+    <CodeContextContainer codeBlockCount={blocks.length} initiallyExpanded={false}>
+      <div className="space-y-2">
+        {blocks.map((block, index) => (
+          <CollapsibleCodeBlock
+            key={`${messageId}-${index}`}
+            language={block.split('\n')[0].replace('```', '').trim() || 'text'}
+            value={block.split('\n').slice(1, -1).join('\n')}
+            initiallyExpanded={false}
+          />
+        ))}
+      </div>
+    </CodeContextContainer>
+  </div>
+));
+
+const ToolInvocations = memo(({
+  toolInvocations,
+  retryFailedTool
+}: {
+  toolInvocations: ExtendedToolCall[],
+  retryFailedTool?: (toolId: string) => void
+}) => (
+  <>
+    {toolInvocations.map((tool, index) => (
+      <ToolInvocationDisplay
+        key={`${tool.toolCallId}-${index}`}
+        toolInvocation={{
+          ...tool,
+          id: tool.toolCallId
+        }}
+        onRetry={retryFailedTool}
+      />
+    ))}
+  </>
+));
+
+// Optimize memo comparison with shallow comparison of tool invocations
+const areMessagesEqual = (prevProps: ChatMessageProps, nextProps: ChatMessageProps): boolean => {
+  if (!prevProps.message.toolInvocations || !nextProps.message.toolInvocations) {
+    return prevProps.message.id === nextProps.message.id &&
+      prevProps.message.content === nextProps.message.content;
+  }
+
+  return prevProps.message.id === nextProps.message.id &&
     prevProps.message.content === nextProps.message.content &&
-    prevProps.message.model === nextProps.message.model &&
-    JSON.stringify(prevProps.message.toolInvocations) === JSON.stringify(nextProps.message.toolInvocations) &&
-    prevProps.isFirstUserMessage === nextProps.isFirstUserMessage
-  );
+    prevProps.message.toolInvocations.length === nextProps.message.toolInvocations.length &&
+    prevProps.message.toolInvocations.every((tool, index) => {
+      const nextTool = nextProps.message.toolInvocations?.[index];
+      return nextTool &&
+        tool.toolCallId === nextTool.toolCallId &&
+        tool.state === nextTool.state;
+    });
 };
 
 // Memoized Message component to prevent unnecessary re-renders
-const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFirstUserMessage }: ChatMessageProps) => {
+const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFirstUserMessage, retryFailedTool }: ChatMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
 
   const messageVariants = useMemo(() => ({
@@ -87,12 +134,16 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
     exit: { opacity: 0, y: -10 }
   }), []);
 
-  const { codeBlocks, contentWithoutCode, hasCodeContext } = useMemo(() => {
-    const blocks = message.content.match(/```[\s\S]*?```/g) || [];
+  // Memoize code parsing to prevent re-renders
+  const { hasCodeContext, codeBlocks, contentWithoutCode } = useMemo(() => {
+    if (!message.content) {
+      return { hasCodeContext: false, codeBlocks: [], contentWithoutCode: '' };
+    }
+    const hasCode = message.content.includes('```');
     return {
-      codeBlocks: blocks,
-      contentWithoutCode: message.content.replace(/```[\s\S]*?```/g, ''),
-      hasCodeContext: blocks.length > 0
+      hasCodeContext: hasCode,
+      codeBlocks: hasCode ? message.content.match(/```[\s\S]*?```/g) || [] : [],
+      contentWithoutCode: hasCode ? message.content.replace(/```[\s\S]*?```/g, '') : message.content
     };
   }, [message.content]);
 
@@ -174,49 +225,18 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, delay: 0.1 }}
         >
-          {hasCodeContext && (
-            <div className="mb-4">
-              <CodeContextContainer codeBlockCount={codeBlocks.length} initiallyExpanded={false}>
-                <div className="space-y-2">
-                  {codeBlocks.map((block, index) => {
-                    const language = block.split('\n')[0].replace('```', '').trim();
-                    const code = block.split('\n').slice(1, -1).join('\n');
-                    return (
-                      <CollapsibleCodeBlock
-                        key={index}
-                        language={language || 'text'}
-                        value={code}
-                        initiallyExpanded={false}
-                      />
-                    );
-                  })}
-                </div>
-              </CodeContextContainer>
-            </div>
-          )}
+          {hasCodeContext && <CodeBlockSection blocks={codeBlocks} messageId={message.id} />}
 
           <div className="prose dark:prose-invert">
             <Markdown>{contentWithoutCode}</Markdown>
           </div>
 
-          {message.toolInvocations?.map((tool, index) => {
-            // Create a truly unique key by combining message id, tool id, and index
-            const uniqueKey = `${message.id}-${tool.toolCallId || 'tool'}-${index}`;
-
-            return (
-              <ToolInvocationDisplay
-                key={uniqueKey}
-                toolInvocation={{
-                  id: tool.toolCallId,
-                  toolCallId: tool.toolCallId,
-                  toolName: tool.toolName,
-                  args: tool.args,
-                  state: tool.state,
-                  result: 'result' in tool ? tool.result : undefined
-                }}
-              />
-            );
-          })}
+          {message.toolInvocations && message.toolInvocations.length > 0 && (
+            <ToolInvocations
+              toolInvocations={message.toolInvocations}
+              retryFailedTool={retryFailedTool}
+            />
+          )}
 
           <TokenCount
             prompt_tokens={message.prompt_tokens}
@@ -258,6 +278,9 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
   );
 }, areMessagesEqual);
 ChatMessage.displayName = 'ChatMessage';
+CodeBlockSection.displayName = 'CodeBlockSection';
+ToolInvocations.displayName = 'ToolInvocations';
+
 
 export function Chat({ chatId }: ChatProps) {
   const [initialMessages, setInitialMessages] = useState<MessageWithModel[]>([]);
@@ -315,6 +338,9 @@ export function Chat({ chatId }: ChatProps) {
     messages,
     isThinking,
     setIsThinking,
+    failedTools,
+    processingTools,
+    retryFailedTool,
     input,
     setInput,
     setMessages,
@@ -547,23 +573,27 @@ export function Chat({ chatId }: ChatProps) {
       toolInvocationsToRender = mostComplete ? [mostComplete] : undefined;
     }
 
-    // Check if this is the first user message
-    const isFirstUserMessage = messages.find(m => m.role === 'user')?.id === message.id;
+    // Ensure each tool invocation has a unique ID
+    const processedToolInvocations = toolInvocationsToRender?.map(tool => ({
+      ...tool,
+      id: tool.toolCallId || crypto.randomUUID() // Ensure unique ID
+    }));
 
     return (
       <ChatMessage
         key={message.id}
         message={{
           ...message,
-          toolInvocations: toolInvocationsToRender
+          toolInvocations: processedToolInvocations
         }}
         chatId={chatId}
         onEditComplete={handleEditComplete}
         onModelChange={handleModelChange}
-        isFirstUserMessage={isFirstUserMessage}
+        isFirstUserMessage={messages.find(m => m.role === 'user')?.id === message.id}
+        retryFailedTool={retryFailedTool}
       />
     );
-  }, [chatId, handleEditComplete, handleModelChange, messages, getMostCompleteToolInvocation]);
+  }, [chatId, handleEditComplete, handleModelChange, messages, getMostCompleteToolInvocation, retryFailedTool]);
 
   const groupedMessages = useMemo(() =>
     messages.reduce((groups: MessageWithModel[][], message) => {
