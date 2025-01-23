@@ -1,5 +1,5 @@
 import { Message, useChat } from 'ai/react';
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { MessageWithModel } from '@/components/chat';
 import { toast } from 'sonner';
 import { ExtendedToolCall } from '@/types/tool-calls';
@@ -22,21 +22,53 @@ export function useParameterizedChat({
 	maxSteps = 5,
 }: UseParameterizedChatProps) {
 	const [isThinking, setIsThinking] = useState(false);
-	const toolInvocationCache = useMemo(() => new Map<string, ExtendedToolCall>(), []);
+	const [failedTools, setFailedTools] = useState<Set<string>>(new Set());
+
+	// Add cache size limit and cleanup
+	const MAX_CACHE_SIZE = 100;
+	const toolInvocationCache = useMemo(() => {
+		const cache = new Map<string, ExtendedToolCall>();
+		const cleanup = () => {
+			if (cache.size > MAX_CACHE_SIZE) {
+				const entriesToDelete = Array.from(cache.keys())
+					.slice(0, cache.size - MAX_CACHE_SIZE);
+				entriesToDelete.forEach(key => cache.delete(key));
+			}
+		};
+		return {
+			get: (key: string) => cache.get(key),
+			set: (key: string, value: ExtendedToolCall) => {
+				cache.set(key, value);
+				cleanup();
+			},
+			has: (key: string) => cache.has(key),
+			clear: () => cache.clear()
+		};
+	}, []);
+
+	// Cleanup cache on unmount
+	useEffect(() => {
+		return () => {
+			toolInvocationCache.clear();
+		};
+	}, [toolInvocationCache]);
 
 	const getMostCompleteToolInvocation = useCallback((toolInvocations: ExtendedToolCall[]) => {
+		// Skip failed tools
+		const validTools = toolInvocations.filter(tool => !failedTools.has(tool.toolCallId));
+
 		// First check cache for any completed invocations
-		const cachedComplete = toolInvocations.find(tool =>
+		const cachedComplete = validTools.find(tool =>
 			toolInvocationCache.has(tool.toolCallId) &&
 			toolInvocationCache.get(tool.toolCallId)?.result
 		);
 		if (cachedComplete) return cachedComplete;
 
 		// Fallback to finding first complete tool or first tool
-		return toolInvocations.find(
+		return validTools.find(
 			tool => tool.args && tool.result
-		) || toolInvocations[0];
-	}, [toolInvocationCache]);
+		) || validTools[0];
+	}, [toolInvocationCache, failedTools]);
 
 	const chat = useChat({
 		api: endpoint,
