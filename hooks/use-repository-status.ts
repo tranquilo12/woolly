@@ -241,6 +241,7 @@ export function useRepositoryStatus() {
 					method: 'POST',
 				});
 
+				
 				if (!response.ok) {
 					const errorData = await response.json();
 					throw new Error(errorData.detail || 'Failed to start indexing');

@@ -121,12 +121,7 @@ export function IndexingStatusPanel({
 				</TableRow>
 			</>
 		);
-	}, [
-		isLoading,
-		repository,
-		stats,
-		tableRowClass
-	]);
+	}, [isLoading, repository, stats]);
 
 	return (
 		<motion.div

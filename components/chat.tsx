@@ -16,8 +16,6 @@ import { useChatTitle } from "./chat-title-context";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
 import { TokenCount } from "./token-count";
 import { MessageGroup } from "./message-group";
-import { CodeContextContainer } from "./code-context-container";
-import { CollapsibleCodeBlock } from "./collapsible-code-block";
 import { Button } from "@/components/ui/button";
 import { PencilIcon } from "lucide-react";
 import { ExtendedToolCall } from "@/types/tool-calls";
@@ -116,17 +114,6 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, y: -10 }
   }), []);
-
-  // Remove the code extraction logic from the useMemo hook
-  const { hasCodeContext, contentWithoutCode } = useMemo(() => {
-    if (!message.content) {
-      return { hasCodeContext: false, contentWithoutCode: '' };
-    }
-    return {
-      hasCodeContext: message.content.includes('```'),
-      contentWithoutCode: message.content
-    };
-  }, [message.content]);
 
   const handleEdit = async (newContent: string) => {
     if (!chatId || !message.id) return;

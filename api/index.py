@@ -1,15 +1,19 @@
-from typing import List, Optional
-from pydantic import BaseModel
+import asyncio
+from typing import Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from api.services.stream_service import stream_text
 from .utils.prompt import (
-    Attachment,
     convert_to_openai_messages,
 )
-from .utils.tools import execute_python_code
+from .utils.models import (
+    ChatTitleUpdate,
+    MessageCreate,
+    RequestFromFrontend,
+    MessageEdit,
+)
 from .utils.models import (
     Chat,
     Message,
@@ -19,63 +23,15 @@ import uuid
 from sqlalchemy.orm import Session
 from .utils.database import get_db
 from datetime import datetime, timezone, timedelta
+from .routers import agents  # Add this import
 
 
 load_dotenv(".env.local")
 
 app = FastAPI()
 
-
-# region Pydantic Models
-
-
-class ToolInvocation(BaseModel):
-    id: str
-    function: Optional[dict] = None
-    toolName: Optional[str] = None
-    args: Optional[dict] = None
-    state: str
-    result: Optional[dict] = None
-
-
-class ClientMessageWithTools(BaseModel):
-    role: str
-    content: str
-    id: Optional[str] = None
-    toolInvocations: Optional[List[ToolInvocation]] = None
-    model: Optional[str] = None
-    experimental_attachments: Optional[List[Attachment]] = None
-
-
-class RequestFromFrontend(BaseModel):
-    messages: List[ClientMessageWithTools]
-    model: Optional[str] = "gpt-4o"
-    agent_id: Optional[str] = None
-
-
-class ChatTitleUpdate(BaseModel):
-    title: str
-
-
-class MessageCreate(BaseModel):
-    role: str
-    content: str
-    toolInvocations: Optional[List[dict]] = None
-    prompt_tokens: Optional[int] = None
-    completion_tokens: Optional[int] = None
-    total_tokens: Optional[int] = None
-
-
-class MessageEdit(BaseModel):
-    content: str
-
-
-available_tools = {
-    "execute_python_code": execute_python_code,
-}
-
-
-# endregion
+# Include the agents router
+app.include_router(agents.router, prefix="/api")  # Add this line
 
 
 # region Chat CRUD Operations

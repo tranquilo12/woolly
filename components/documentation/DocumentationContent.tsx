@@ -6,12 +6,14 @@ import { Loader2 } from 'lucide-react';
 interface DocumentationContentProps {
 	content: string;
 	isLoading: boolean;
+	isStreaming: boolean;
 	error?: string | null;
 }
 
 export const DocumentationContent = memo(function DocumentationContent({
 	content,
 	isLoading,
+	isStreaming,
 	error
 }: DocumentationContentProps) {
 	if (error) {
@@ -22,23 +24,16 @@ export const DocumentationContent = memo(function DocumentationContent({
 		);
 	}
 
-	if (isLoading) {
-		return (
-			<div className="flex items-center justify-center h-full p-8">
-				<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-			</div>
-		);
-	}
-
-	if (!content) {
-		return null;
-	}
-
 	return (
 		<div className={cn(
 			"prose prose-sm dark:prose-invert max-w-none w-full",
-			"px-4 py-2 documentation-content overflow-auto"
+			"px-4 py-2 documentation-content overflow-auto relative"
 		)}>
+			{(isLoading || isStreaming) && (
+				<div className="absolute top-2 right-2">
+					<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+				</div>
+			)}
 			<Markdown>{content}</Markdown>
 		</div>
 	);

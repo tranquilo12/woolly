@@ -11,39 +11,33 @@ export function DocumentationForm({ chatId }: { chatId: string }) {
 	const { setIsOpen, setContent } = useDocumentationPanel();
 	const [state, setState] = useState<DocumentationState>({
 		isGenerating: false,
+		isThinking: false,
 		selectedRepo: null,
 		selectedFiles: [],
 		error: null,
 		toolInvocations: []
 	});
 
-	const handleToolInvocation = useCallback((invocation: any) => {
-		setState(prev => ({
-			...prev,
-			toolInvocations: [...prev.toolInvocations, invocation]
-		}));
-	}, []);
-
-	const { initializeAgent, append, messages, isThinking } = useDocumentationAgent({
+	const { initializeAgent, append: appendAgent, messages, isThinking } = useDocumentationAgent({
 		chatId,
 	});
 
+
+	// Handle streaming updates
 	useEffect(() => {
 		if (messages.length > 0) {
 			const lastMessage = messages[messages.length - 1];
 			if (lastMessage.role === 'assistant') {
 				setContent(lastMessage.content);
-				setState(prev => ({ ...prev, error: null }));
+				setState(prev => ({
+					...prev,
+					error: null,
+					isStreaming: isThinking,
+					toolInvocations: lastMessage.toolInvocations || []
+				}));
 			}
 		}
-	}, [messages, setContent]);
-
-	const handleRepoSelect = useCallback((repo: string | null) => {
-		setState(prev => ({ ...prev, selectedRepo: repo }));
-		if (repo) {
-			setIsOpen(true);
-		}
-	}, [setIsOpen]);
+	}, [messages, setContent, isThinking]);
 
 	const handleGenerate = useCallback(async () => {
 		if (!state.selectedRepo) return;
@@ -56,24 +50,41 @@ export function DocumentationForm({ chatId }: { chatId: string }) {
 		}));
 
 		try {
+			console.log('Starting documentation generation...');
 			const agentId = await initializeAgent();
-			await append({
+			console.log('Agent initialized:', agentId);
+
+			await appendAgent({
 				role: 'user',
 				content: `Generate documentation for ${state.selectedRepo}`,
 			}, {
 				body: {
 					repo_name: state.selectedRepo,
 					file_paths: state.selectedFiles,
+					agent_id: agentId
 				}
 			});
 		} catch (error) {
+			console.error('Documentation generation failed:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Documentation generation failed';
 			setState(prev => ({ ...prev, error: errorMessage }));
 			toast.error(errorMessage);
 		} finally {
 			setState(prev => ({ ...prev, isGenerating: false }));
 		}
-	}, [state.selectedRepo, state.selectedFiles, append, initializeAgent]);
+	}, [state.selectedRepo, state.selectedFiles, appendAgent, initializeAgent]);
+
+	// Auto-generate documentation when repo is selected
+	useEffect(() => {
+		if (state.selectedRepo && !state.isGenerating && !state.error) {
+			handleGenerate();
+		}
+	}, [state.selectedRepo, state.isGenerating, state.error, handleGenerate]);
+
+	const handleRepoSelect = (repo: string | null) => {
+		setIsOpen(true);
+		setState(prev => ({ ...prev, selectedRepo: repo }));
+	};
 
 	return (
 		<div className="flex flex-col gap-4 p-4">

@@ -6,6 +6,7 @@ export interface DocumentationRequest {
 
 export interface DocumentationState {
 	isGenerating: boolean;
+	isThinking: boolean;
 	selectedRepo: string | null;
 	selectedFiles: string[];
 	error: string | null;

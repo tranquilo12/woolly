@@ -3,12 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelResponse,
-    ModelRequest,
-)
+from pydantic import BaseModel, UUID4
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -24,6 +19,8 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from .database import Base
+from .prompt import Attachment
+from .tools import execute_python_code
 
 # region OpenAI Streaming Response Models
 
@@ -219,7 +216,7 @@ class AgentUpdate(BaseModel):
 
 
 class AgentResponse(BaseModel):
-    id: UUID
+    id: UUID4
     name: str
     description: str
     system_prompt: str
@@ -230,5 +227,55 @@ class AgentResponse(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
+
+# endregion
+
+# region Chat types
+
+
+class ToolInvocation(BaseModel):
+    id: str
+    function: Optional[dict] = None
+    toolName: Optional[str] = None
+    args: Optional[dict] = None
+    state: str
+    result: Optional[dict] = None
+
+
+class ClientMessageWithTools(BaseModel):
+    role: str
+    content: str
+    id: Optional[str] = None
+    model: Optional[str] = None
+    toolInvocations: Optional[List[ToolInvocation]] = None
+    experimental_attachments: Optional[List[Attachment]] = None
+
+
+class RequestFromFrontend(BaseModel):
+    messages: List[ClientMessageWithTools]
+    model: Optional[str] = "gpt-4o"
+    agent_id: Optional[str] = None
+
+
+class ChatTitleUpdate(BaseModel):
+    title: str
+
+
+class MessageCreate(BaseModel):
+    role: str
+    content: str
+    toolInvocations: Optional[List[dict]] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+
+
+class MessageEdit(BaseModel):
+    content: str
+
+
+available_tools = {
+    "execute_python_code": execute_python_code,
+}
 
 # endregion
