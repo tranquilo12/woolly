@@ -52,14 +52,15 @@ class ToolCallResult(BaseModel):
     result: dict | None = None
 
 
-def build_tool_call_partial(tool_call_id: str, tool_name: str, args: dict) -> str:
+def build_tool_call_partial(tool_call_id: str, tool_name: str, args: dict | str) -> str:
     """
     Return a serialized JSON string for partial tool calls in the '9:...' format.
+    Args can be either a dict or a partial JSON string.
     """
     obj = {
         "toolCallId": tool_call_id,
         "toolName": tool_name,
-        "args": args,
+        "args": args if isinstance(args, dict) else {"partial_content": args},
         "state": "partial-call",
     }
     res = json.dumps(obj)

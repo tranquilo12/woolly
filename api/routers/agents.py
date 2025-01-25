@@ -12,11 +12,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from httpx import AsyncClient
 from openai import AsyncOpenAI
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import RunContext
 from pydantic_ai.agent import Agent as PydanticAgent
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.result import StreamedRunResult
+from pydantic_ai.messages import ModelResponse, ToolCallPart
 from sqlalchemy.orm import Session
 
 from ..utils.database import get_db
@@ -26,6 +27,9 @@ from ..utils.models import (
     AgentResponse,
     AgentUpdate,
     Message,
+    build_tool_call_partial,
+    build_tool_call_result,
+    build_end_of_stream_message,
 )
 
 router = APIRouter()
@@ -181,7 +185,74 @@ class RepoContentRequest(BaseModel):
 class RepoFormattedReturn(BaseModel):
     """The content sent BY THE AGENT as the result"""
 
-    content: str
+    content: str = Field(description="The formatted documentation content")
+    tool_name: Optional[str] = Field(
+        default=None, description="Name of the tool being called"
+    )
+    tool_call_id: Optional[str] = Field(default=None, description="ID of the tool call")
+    args_json: Optional[str] = Field(
+        default=None, description="JSON string containing the arguments"
+    )
+    part_kind: Optional[str] = Field(
+        default=None, description="Kind of part (e.g., 'tool-call')"
+    )
+    model_name: Optional[str] = Field(
+        default=None, description="Name of the model used"
+    )
+    timestamp: Optional[datetime.datetime] = Field(
+        default=None, description="Timestamp of the response"
+    )
+    kind: Optional[str] = Field(default=None, description="Kind of response")
+
+    @classmethod
+    def from_model_response(cls, response):
+        """Create RepoFormattedReturn from a ModelResponse"""
+        # First get the top-level metadata
+        base_data = {
+            "model_name": getattr(response, "model_name", None),
+            "timestamp": getattr(response, "timestamp", None),
+            "kind": getattr(response, "kind", None),
+        }
+
+        if hasattr(response, "parts") and response.parts:
+            for part in response.parts:
+                # Get tool call metadata from the part
+                tool_data = {
+                    "tool_name": getattr(part, "tool_name", None),
+                    "tool_call_id": getattr(part, "tool_call_id", None),
+                    "part_kind": getattr(part, "part_kind", None),
+                }
+
+                # Get content from args_json
+                if hasattr(part, "args") and hasattr(part.args, "args_json"):
+                    try:
+                        args_data = json.loads(part.args.args_json)
+                        content = args_data.get("content", "")
+
+                        # Combine all data
+                        return cls(
+                            content=content,
+                            args_json=part.args.args_json,
+                            **tool_data,
+                            **base_data,
+                        )
+                    except json.JSONDecodeError:
+                        continue
+        return None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "content": "# Project Documentation\n\n## Overview\n...",
+                "tool_name": "final_result",
+                "tool_call_id": "call_xyz",
+                "args_json": '{"content": "..."}',
+                "part_kind": "tool-call",
+                "model_name": "gpt-4o",
+                "timestamp": "2025-01-25T19:03:15+00:00",
+                "kind": "response",
+            }
+        }
 
 
 gpt_4o = OpenAIModel(
@@ -324,6 +395,7 @@ async def generate_documentation(
             )
 
             user_prompt = f"Here's the entire context for generating the documentation for my project: {request.repo_name}"
+
             try:
                 async with docs_agent.run_stream(
                     user_prompt=user_prompt, deps=deps, result_type=RepoFormattedReturn
@@ -332,65 +404,89 @@ async def generate_documentation(
                         debounce_by=0.01
                     ):
                         try:
-                            code_context = await result.validate_structured_result(
-                                message, allow_partial=not last
-                            )
+                            if isinstance(message, ModelResponse) and message.parts:
+                                for part in message.parts:
+                                    if isinstance(part, ToolCallPart):
+                                        # Try to parse JSON, but don't fail if it's partial
+                                        try:
+                                            args = json.loads(part.args.args_json)
+                                        except json.JSONDecodeError:
+                                            # If JSON is incomplete, send as partial content
+                                            yield build_tool_call_partial(
+                                                tool_call_id=part.tool_call_id,
+                                                tool_name=part.tool_name,
+                                                args=part.args.args_json,  # Send raw string
+                                            )
+                                            continue
 
-                            # Stream each chunk immediately
-                            if code_context:
-                                chunk_data = {
-                                    "type": "content",
-                                    "data": code_context.model_dump(),
-                                    "timestamp": datetime.datetime.now().isoformat(),
-                                    "is_final": last,
-                                }
-                                # Use data: prefix for SSE format
-                                yield f"data: {json.dumps(chunk_data)}\n\n"
+                                        # If JSON parsed successfully, send complete content
+                                        yield build_tool_call_partial(
+                                            tool_call_id=part.tool_call_id,
+                                            tool_name=part.tool_name,
+                                            args=args,
+                                        )
 
-                        except (ValidationError, AttributeError, TypeError) as exc:
-                            if isinstance(exc, ValidationError) and all(
-                                e["type"] == "missing" and e["loc"] == ("response",)
-                                for e in exc.errors()
-                            ):
-                                continue
+                                        # Only send result if we have complete JSON
+                                        if "content" in args:
+                                            result_data = {
+                                                "content": args.get("content", ""),
+                                                "success": True,
+                                                "metadata": {
+                                                    "model": message.model_name,
+                                                    "timestamp": message.timestamp.isoformat(),
+                                                    "kind": message.kind,
+                                                },
+                                            }
 
-                            error_data = {
-                                "type": "error",
-                                "data": {
-                                    "message": str(exc),
-                                    "type": exc.__class__.__name__,
-                                },
-                                "timestamp": datetime.datetime.now().isoformat(),
-                            }
-                            yield f"data: {json.dumps(error_data)}\n\n"
+                                            yield build_tool_call_result(
+                                                tool_call_id=part.tool_call_id,
+                                                tool_name=part.tool_name,
+                                                args=args,
+                                                result=result_data,
+                                            )
+
+                        except Exception as e:
+                            print(f"Error processing message: {e}")
+                            continue
+
+                    # Send finish message when complete
+                    if last:
+                        yield build_end_of_stream_message(
+                            finish_reason="stop",
+                            prompt_tokens=0,
+                            completion_tokens=0,
+                            is_continued=False,
+                        )
 
             except (httpx.ReadError, asyncio.CancelledError) as e:
-                disconnect_data = {
-                    "type": "disconnect",
-                    "data": {"message": f"Client disconnected: {str(e)}"},
-                    "timestamp": datetime.datetime.now().isoformat(),
-                }
-                yield f"data: {json.dumps(disconnect_data)}\n\n"
+                print(f"Stream interrupted: {e}")
+                yield build_end_of_stream_message(
+                    finish_reason="error",
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    is_continued=False,
+                )
 
             except Exception as e:
-                error_data = {
-                    "type": "error",
-                    "data": {"message": f"Error generating documentation: {str(e)}"},
-                    "timestamp": datetime.datetime.now().isoformat(),
-                }
-                yield f"data: {json.dumps(error_data)}\n\n"
+                print(f"Error in stream: {str(e)}")
+                yield build_end_of_stream_message(
+                    finish_reason="error",
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    is_continued=False,
+                )
                 raise HTTPException(status_code=500, detail=str(e))
 
     return StreamingResponse(
         stream_response(),
-        media_type="text/event-stream",  # Changed to SSE format
+        media_type="text/plain",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Content-Type-Options": "nosniff",
             "Transfer-Encoding": "chunked",
-            "Content-Type": "text/event-stream",
             "Access-Control-Allow-Origin": "*",
+            "x-vercel-ai-data-stream": "v1",
         },
     )
 
