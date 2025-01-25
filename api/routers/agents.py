@@ -483,7 +483,6 @@ async def generate_documentation(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Content-Type-Options": "nosniff",
             "Transfer-Encoding": "chunked",
             "Access-Control-Allow-Origin": "*",
             "x-vercel-ai-data-stream": "v1",
