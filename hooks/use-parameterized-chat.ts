@@ -118,22 +118,49 @@ export function useParameterizedChat({
 		api: endpoint,
 		id: chatId,
 		initialMessages,
-		maxSteps,
 		body: {
 			id: chatId,
 			model,
 			...body
 		},
-		onResponse: async (response) => {
+		onResponse: (response) => {
 			if (response.ok) {
 				if (response.headers.get('x-vercel-ai-data-stream') === 'v1') {
 					setIsThinking(true);
 				}
 			} else {
-				toast.error('Failed to process tool invocation');
+				toast.error('Failed to process request');
+			}
+		},
+		onFinish: async (message, options) => {
+			try {
+				const messageWithModel = {
+					...message,
+					model,
+					prompt_tokens: options.usage?.promptTokens,
+					completion_tokens: options.usage?.completionTokens,
+					total_tokens: options.usage?.totalTokens,
+					toolInvocations: message.toolInvocations?.map(tool => ({
+						...tool,
+						state: tool.state || 'result'
+					}))
+				} as MessageWithModel;
+
+				chat.setMessages((prevMessages: Message[]) =>
+					prevMessages.map((m: Message) =>
+						m.id === messageWithModel.id ? messageWithModel : m
+					)
+				);
+
+				setIsThinking(false);
+			} catch (error) {
+				console.error('Failed to update message state:', error);
+				toast.error('Failed to process message');
 			}
 		},
 		onToolCall: async (tool) => {
+			console.log('Tool call:', tool);
+
 			const toolId = tool.toolCall.toolCallId;
 			setProcessingTools(prev => new Set(prev).add(toolId));
 
@@ -182,32 +209,6 @@ export function useParameterizedChat({
 					newSet.delete(toolId);
 					return newSet;
 				});
-			}
-		},
-		onFinish: async (message, options) => {
-			try {
-				const messageWithModel = {
-					...message,
-					model,
-					prompt_tokens: options.usage?.promptTokens,
-					completion_tokens: options.usage?.completionTokens,
-					total_tokens: options.usage?.totalTokens,
-					toolInvocations: message.toolInvocations?.map(tool => ({
-						...tool,
-						state: tool.state || 'result'
-					}))
-				} as MessageWithModel;
-
-				chat.setMessages((prevMessages: Message[]) =>
-					prevMessages.map((m: Message) =>
-						m.id === messageWithModel.id ? messageWithModel : m
-					)
-				);
-
-				setIsThinking(false);
-			} catch (error) {
-				console.error('Failed to update message state:', error);
-				toast.error('Failed to process message');
 			}
 		},
 		onError: (error) => {

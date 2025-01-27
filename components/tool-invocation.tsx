@@ -5,7 +5,6 @@ import { Button } from "./ui/button";
 
 export function ToolInvocationDisplay({
 	toolInvocation,
-	onRetry
 }: {
 	toolInvocation: {
 		id: string;
@@ -28,7 +27,6 @@ export function ToolInvocationDisplay({
 			};
 		};
 	};
-	onRetry?: (toolId: string) => void;
 }) {
 	const hasError = toolInvocation.result?.error || toolInvocation.state === "error";
 	const isLoading = toolInvocation.state === "partial-call" || toolInvocation.state === "call";
@@ -84,16 +82,6 @@ export function ToolInvocationDisplay({
 						</motion.span>
 					)}
 				</div>
-				{hasError && onRetry && toolInvocation.toolCallId && (
-					<Button
-						variant="ghost"
-						size="sm"
-						onClick={() => onRetry(toolInvocation.toolCallId!)}
-						className="h-6 px-2 text-xs hover:bg-destructive/10 hover:text-destructive"
-					>
-						Retry
-					</Button>
-				)}
 			</div>
 
 			<div className="rounded-md bg-muted/30 border border-muted">

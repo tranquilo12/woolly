@@ -20,7 +20,7 @@ const contentVariants = {
 
 export function DocumentationPanel({ chatId }: DocumentationPanelProps) {
 	const { isOpen, setIsOpen, content } = useDocumentationPanel();
-	const { isThinking } = useDocumentationAgent({ chatId });
+	const { isThinking, isLoading } = useDocumentationAgent({ chatId });
 
 	if (!isOpen) return null;
 
@@ -54,15 +54,15 @@ export function DocumentationPanel({ chatId }: DocumentationPanelProps) {
 					</div>
 
 					<div className="w-full flex-1 overflow-auto documentation-scroll rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm">
-						{!content ? (
+						{!content && !isThinking ? (
 							<div className="flex flex-col items-center justify-center h-full p-8 text-center text-muted-foreground">
 								<FileText className="w-12 h-12 mb-4 opacity-50" />
 								<p className="text-sm">Select a repository and generate documentation to see it here.</p>
 							</div>
 						) : (
 							<DocumentationContent
-								content={content}
-								isLoading={false}
+								content={content || ''}
+								isLoading={isLoading}
 								isStreaming={isThinking}
 							/>
 						)}

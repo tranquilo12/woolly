@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from openai import OpenAI
 import os
+from fastapi.responses import StreamingResponse
 
 from ..utils.models import (
     Message,
@@ -77,6 +78,16 @@ def do_stream(messages: List[ChatCompletionMessageParam], model: str = "gpt-4o")
     )
 
     return stream
+
+
+def get_streaming_headers():
+    """Helper function to ensure consistent streaming headers"""
+    return {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "x-vercel-ai-data-stream": "v1",
+    }
 
 
 def stream_text(
@@ -168,11 +179,16 @@ def stream_text(
                         print(f"Tool execution error: {e}")
                         error_result = {"error": str(e)}
 
+                        # Ensure error state is properly saved
                         tool_invocations.append(
                             {
                                 "id": tool_call["id"],
                                 "toolName": tool_call["name"],
-                                "args": {},
+                                "args": (
+                                    json.loads(tool_call["arguments"])
+                                    if is_complete_json(tool_call["arguments"])
+                                    else {}
+                                ),
                                 "result": error_result,
                                 "state": "error",
                             }
@@ -181,7 +197,11 @@ def stream_text(
                         yield build_tool_call_result(
                             tool_call_id=tool_call["id"],
                             tool_name=tool_call["name"],
-                            args={},
+                            args=(
+                                json.loads(tool_call["arguments"])
+                                if is_complete_json(tool_call["arguments"])
+                                else {}
+                            ),
                             result=error_result,
                         )
 
@@ -217,3 +237,9 @@ def stream_text(
                 db.commit()
         except Exception as e:
             print(f"Failed to update message: {e}")
+
+    # Return with standardized headers
+    return StreamingResponse(
+        stream_text(messages, protocol, model, db, message_id),
+        headers=get_streaming_headers(),
+    )

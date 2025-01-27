@@ -4,8 +4,9 @@ import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator, List, Optional
+from typing import List, Optional
 from uuid import UUID
+import uuid
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,21 +16,18 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import RunContext
 from pydantic_ai.agent import Agent as PydanticAgent
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai.result import StreamedRunResult
-from pydantic_ai.messages import ModelResponse, ToolCallPart
 from sqlalchemy.orm import Session
 
+from ..services.stream_service import get_streaming_headers
 from ..utils.database import get_db
-from ..utils.models import (
-    Agent,
-    AgentCreate,
-    AgentResponse,
-    AgentUpdate,
-    Message,
-    build_tool_call_partial,
-    build_tool_call_result,
-    build_end_of_stream_message,
+from ..utils.models import Agent, AgentCreate, AgentResponse, AgentUpdate
+from ..utils.stream_utils import (
+    format_content,
+    format_tool_partial,
+    format_tool_result,
+    format_end_message,
 )
 
 router = APIRouter()
@@ -175,6 +173,7 @@ class RepoContentRequest(BaseModel):
     """The content sent from the user to the tool"""
 
     repo_name: str
+    file_paths: Optional[List[str]] = None
     db: Session
     client: AsyncClient
     limit: int = 10
@@ -255,16 +254,15 @@ class RepoFormattedReturn(BaseModel):
         }
 
 
-gpt_4o = OpenAIModel(
-    model_name="gpt-4o",
+gpt_4o_mini = OpenAIModel(
+    model_name="gpt-4o-mini",
     openai_client=AsyncOpenAI(
         api_key=os.getenv("OPENAI_API_KEY"),
-        # organization=os.getenv("OPENAI_ORG_ID"),
     ),
 )
 
 docs_agent = PydanticAgent(
-    model=gpt_4o,
+    model=gpt_4o_mini,
     deps_type=RepoContentRequest,
     result_type=RepoFormattedReturn,
     system_prompt=Path("api/docs_system_prompt.txt").read_text(),
@@ -309,92 +307,38 @@ async def fetch_repo_content(
         return f"Error processing repository content: {str(e)}"
 
 
-async def stream_pydantic_response(
-    stream: AsyncIterator[StreamedRunResult],
-    db: Session = None,
-    message_id: UUID = None,
-) -> AsyncIterator[str]:
-    """Handles Pydantic-AI streaming while maintaining Vercel protocol compatibility"""
-    content_buffer = ""
-    tool_invocations = []
-
-    try:
-        async for chunk in stream.stream():
-            yield chunk
-            # try:
-            #     for part in chunk.parts:
-            #         if isinstance(part, TextPart):
-            #             content_buffer += part.content
-            #             yield f"0:{json.dumps(part.content)}\n"
-            #         elif hasattr(part, "tool_calls"):
-            #             for tool_call in part.tool_calls:
-            #                 yield build_tool_call_partial(
-            #                     tool_call_id=tool_call.id,
-            #                     tool_name=tool_call.name,
-            #                     args=tool_call.args,
-            #                 )
-            #                 if tool_call.result:
-            #                     tool_invocations.append(
-            #                         {
-            #                             "id": tool_call.id,
-            #                             "toolName": tool_call.name,
-            #                             "args": tool_call.args,
-            #                             "result": tool_call.result,
-            #                             "state": "result",
-            #                         }
-            #                     )
-            #                     yield build_tool_call_result(
-            #                         tool_call_id=tool_call.id,
-            #                         tool_name=tool_call.name,
-            #                         args=tool_call.args,
-            #                         result=tool_call.result,
-            #                     )
-            # except (httpx.ReadError, asyncio.CancelledError) as e:
-            #     # Break the loop if client disconnects
-            #     print(f"There's a bunch of things wrong here: {e}")
-            #     break
-
-        # Only send end message if we haven't broken the loop
-        # yield 'e:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0,"totalTokens":0},"isContinued":false}\n'
-    except Exception as e:
-        print(f"Error in stream: {str(e)}")
-        yield f'e:{{"finishReason":"error","error":"{str(e)}","isContinued":false}}\n'
-    finally:
-        # Always try to save the message if we have content
-        if db and message_id and content_buffer:
-            try:
-                message = db.query(Message).filter(Message.id == message_id).first()
-                if message:
-                    message.content = content_buffer
-                    message.tool_invocations = tool_invocations
-                    db.commit()
-            except Exception as e:
-                print(f"Failed to update message: {e}")
-
-
+# Update the DocumentationRequest model
 class DocumentationRequest(BaseModel):
+    id: str
+    messages: List[dict]
+    model: str = "gpt-4o-mini"
+    agent_id: UUID
     repo_name: str
+    file_paths: Optional[List[str]] = []
 
 
 @router.post("/agents/{agent_id}/documentation")
 async def generate_documentation(
-    agent_id: str,
+    agent_id: UUID,
     request: DocumentationRequest,
     db: Session = Depends(get_db),
 ):
+    """Generate documentation for a repository"""
+
     async def stream_response():
         async with get_http_client() as client:
             client.timeout = httpx.Timeout(30.0, connect=60.0)
 
             deps = RepoContentRequest(
                 repo_name=request.repo_name,
+                file_paths=request.file_paths,
                 db=db,
                 client=client,
                 limit=10,
                 threshold=0.3,
             )
 
-            user_prompt = f"Here's the entire context for generating the documentation for my project: {request.repo_name}"
+            user_prompt = f"Generate documentation for {request.repo_name}"
 
             try:
                 async with docs_agent.run_stream(
@@ -406,88 +350,36 @@ async def generate_documentation(
                         try:
                             if isinstance(message, ModelResponse) and message.parts:
                                 for part in message.parts:
-                                    if isinstance(part, ToolCallPart):
-                                        # Try to parse JSON, but don't fail if it's partial
-                                        try:
-                                            args = json.loads(part.args.args_json)
-                                        except json.JSONDecodeError:
-                                            # If JSON is incomplete, send as partial content
-                                            yield build_tool_call_partial(
-                                                tool_call_id=part.tool_call_id,
-                                                tool_name=part.tool_name,
-                                                args=part.args.args_json,  # Send raw string
-                                            )
-                                            continue
-
-                                        # If JSON parsed successfully, send complete content
-                                        yield build_tool_call_partial(
-                                            tool_call_id=part.tool_call_id,
-                                            tool_name=part.tool_name,
-                                            args=args,
+                                    if isinstance(part, TextPart):
+                                        yield format_content(part.content)
+                                    elif isinstance(part, ToolCallPart):
+                                        # Extract tool call information
+                                        tool_args = json.loads(part.args_as_json_str())
+                                        yield format_tool_partial(
+                                            tool_call_id=part.tool_call_id
+                                            or str(uuid.uuid4()),
+                                            tool_name=part.tool_name or "unknown",
+                                            args=tool_args,
                                         )
-
-                                        # Only send result if we have complete JSON
-                                        if "content" in args:
-                                            result_data = {
-                                                "content": args.get("content", ""),
-                                                "success": True,
-                                                "metadata": {
-                                                    "model": message.model_name,
-                                                    "timestamp": message.timestamp.isoformat(),
-                                                    "kind": message.kind,
-                                                },
-                                            }
-
-                                            yield build_tool_call_result(
-                                                tool_call_id=part.tool_call_id,
-                                                tool_name=part.tool_name,
-                                                args=args,
-                                                result=result_data,
-                                            )
 
                         except Exception as e:
                             print(f"Error processing message: {e}")
                             continue
 
-                    # Send finish message when complete
-                    if last:
-                        yield build_end_of_stream_message(
-                            finish_reason="stop",
-                            prompt_tokens=0,
-                            completion_tokens=0,
-                            is_continued=False,
-                        )
-
-            except (httpx.ReadError, asyncio.CancelledError) as e:
-                print(f"Stream interrupted: {e}")
-                yield build_end_of_stream_message(
-                    finish_reason="error",
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    is_continued=False,
-                )
+                        if last:
+                            yield format_end_message(
+                                finish_reason="stop",
+                                prompt_tokens=0,
+                                completion_tokens=0,
+                            )
 
             except Exception as e:
-                print(f"Error in stream: {str(e)}")
-                yield build_end_of_stream_message(
-                    finish_reason="error",
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    is_continued=False,
+                print(f"Stream error: {e}")
+                yield format_end_message(
+                    finish_reason="error", prompt_tokens=0, completion_tokens=0
                 )
-                raise HTTPException(status_code=500, detail=str(e))
 
-    return StreamingResponse(
-        stream_response(),
-        media_type="text/plain",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Transfer-Encoding": "chunked",
-            "Access-Control-Allow-Origin": "*",
-            "x-vercel-ai-data-stream": "v1",
-        },
-    )
+        yield StreamingResponse(stream_response(), headers=get_streaming_headers())
 
 
 # endregion

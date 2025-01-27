@@ -22,13 +22,13 @@ export function DocumentationForm({ chatId }: { chatId: string }) {
 		chatId,
 	});
 
-
-	// Handle streaming updates
+	// Handle streaming updates - Modified to handle partial updates
 	useEffect(() => {
 		if (messages.length > 0) {
 			const lastMessage = messages[messages.length - 1];
 			if (lastMessage.role === 'assistant') {
-				setContent(lastMessage.content);
+				// Always update content, even if message is incomplete
+				setContent(lastMessage.content || '');
 				setState(prev => ({
 					...prev,
 					error: null,
@@ -67,7 +67,7 @@ export function DocumentationForm({ chatId }: { chatId: string }) {
 		} catch (error) {
 			console.error('Documentation generation failed:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Documentation generation failed';
-			setState(prev => ({ ...prev, error: errorMessage }));
+			setState(prev => ({ ...prev, error: errorMessage, isGenerating: false }));
 			toast.error(errorMessage);
 		} finally {
 			setState(prev => ({ ...prev, isGenerating: false }));

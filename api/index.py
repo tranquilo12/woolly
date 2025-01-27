@@ -3,6 +3,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from api.services.stream_service import stream_text
 from .utils.prompt import (
@@ -29,6 +30,15 @@ from .routers import agents  # Add this import
 load_dotenv(".env.local")
 
 app = FastAPI()
+
+# # Add CORS middleware configuration
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],  # In production, replace with your frontend URL
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
 # Include the agents router
 app.include_router(agents.router, prefix="/api")  # Add this line
@@ -310,9 +320,10 @@ async def handle_chat_legacy(
     messages = request.messages
     openai_messages = convert_to_openai_messages(messages)
 
-    response = StreamingResponse(stream_text(openai_messages, protocol))
-    response.headers["x-vercel-ai-data-stream"] = "v1"
-    return response
+    return StreamingResponse(
+        stream_text(openai_messages, protocol),
+        headers={"x-vercel-ai-data-stream": "v1"},
+    )
 
 
 @app.patch("/api/chat/{chat_id}/messages/{message_id}")

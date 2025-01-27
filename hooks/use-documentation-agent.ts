@@ -15,19 +15,10 @@ export function useDocumentationAgent({ chatId }: UseDocumentationAgentProps) {
 		[agentId]
 	);
 
-	const {
-		messages,
-		append,
-		setMessages,
-		isThinking,
-		setIsThinking,
-		getMostCompleteToolInvocation,
-		handleSubmit,
-		stop,
-		isLoading
-	} = useParameterizedChat({
-		endpoint: endpoint || '',  // Provide fallback for TypeScript
+	const chat = useParameterizedChat({
+		endpoint: endpoint || '',
 		chatId,
+		model: 'gpt-4o-mini',
 		body: {
 			agent_id: agentId,
 		},
@@ -73,16 +64,16 @@ export function useDocumentationAgent({ chatId }: UseDocumentationAgentProps) {
 
 	return {
 		agentId,
-		messages,
-		append,
-		setMessages,
+		messages: chat.messages,
+		append: chat.append,
+		setMessages: chat.setMessages,
 		initializeAgent,
-		isThinking,
-		setIsThinking,
-		getMostCompleteToolInvocation,
-		handleSubmit,
-		stop,
-		isLoading,
+		isThinking: chat.isThinking,
+		setIsThinking: chat.setIsThinking,
+		getMostCompleteToolInvocation: chat.getMostCompleteToolInvocation,
+		handleSubmit: chat.handleSubmit,
+		stop: chat.stop,
+		isLoading: chat.isLoading,
 		agentError
 	};
 } 
