@@ -1,4 +1,3 @@
-import asyncio
 import datetime
 import json
 import os
@@ -7,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 from uuid import UUID
 import uuid
+import logging
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,7 +26,6 @@ from ..utils.models import Agent, AgentCreate, AgentResponse, AgentUpdate
 from ..utils.stream_utils import (
     format_content,
     format_tool_partial,
-    format_tool_result,
     format_end_message,
 )
 
@@ -35,7 +34,11 @@ router = APIRouter()
 
 @asynccontextmanager
 async def get_http_client():
-    async with AsyncClient() as client:
+    # Specify headers that are required for the agent to work
+    headers = {
+        "Content-Type": "application/json",
+    }
+    async with AsyncClient(headers=headers) as client:
         yield client
 
 
@@ -317,69 +320,100 @@ class DocumentationRequest(BaseModel):
     file_paths: Optional[List[str]] = []
 
 
+def format_tool_call_for_vercel(part: ToolCallPart) -> dict:
+    """Convert ToolCallPart to Vercel AI SDK compatible format"""
+    return {
+        "id": part.tool_call_id or str(uuid.uuid4()),
+        "type": "function",
+        "function": {"name": part.tool_name, "arguments": part.args_as_json_str()},
+    }
+
+
+async def stream_response(request: DocumentationRequest, db: Session):
+    async with get_http_client() as client:
+        client.timeout = httpx.Timeout(120.0, connect=60.0)
+
+        deps = RepoContentRequest(
+            repo_name=request.repo_name,
+            file_paths=request.file_paths,
+            db=db,
+            client=client,
+            limit=10,
+            threshold=0.3,
+        )
+
+        user_prompt = f"Generate documentation for {request.repo_name}"
+
+        try:
+            async with docs_agent.run_stream(
+                user_prompt=user_prompt, deps=deps, result_type=RepoFormattedReturn
+            ) as result:
+                async for message, last in result.stream_structured(debounce_by=0.01):
+                    try:
+                        if isinstance(message, ModelResponse) and message.parts:
+                            for part in message.parts:
+                                if isinstance(part, TextPart):
+                                    yield format_content(part.content)
+
+                                elif isinstance(part, ToolCallPart):
+                                    try:
+                                        # Extract content from the tool call args
+                                        args_str = part.args_as_json_str()
+                                        args_str = args_str.replace('{"content": "', "")
+                                        args_str = args_str.replace('"}', "")
+                                        yield format_tool_partial(
+                                            tool_call_id=part.tool_call_id,
+                                            tool_name=part.tool_name,
+                                            args={
+                                                "content": args_str,
+                                                "source": "agent",
+                                            },
+                                        )
+                                    except json.JSONDecodeError as je:
+                                        logging.error(f"JSON decode error: {je}")
+                                        continue
+
+                    except Exception as e:
+                        logging.error(f"Error processing message: {e}")
+                        continue
+
+                    if last:
+                        yield format_end_message(
+                            finish_reason="stop",
+                            prompt_tokens=0,
+                            completion_tokens=0,
+                        )
+
+        except Exception as e:
+            logging.error(f"Stream error: {e}")
+            yield format_end_message(
+                finish_reason="error", prompt_tokens=0, completion_tokens=0
+            )
+
+
 @router.post("/agents/{agent_id}/documentation")
 async def generate_documentation(
     agent_id: UUID,
     request: DocumentationRequest,
     db: Session = Depends(get_db),
 ):
-    """Generate documentation for a repository"""
+    headers = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "x-vercel-ai-data-stream": "v1",
+        "Transfer-Encoding": "chunked",
+    }
 
-    async def stream_response():
-        async with get_http_client() as client:
-            client.timeout = httpx.Timeout(30.0, connect=60.0)
+    response = StreamingResponse(
+        stream_response(request, db), headers=headers, media_type="text/event-stream"
+    )
 
-            deps = RepoContentRequest(
-                repo_name=request.repo_name,
-                file_paths=request.file_paths,
-                db=db,
-                client=client,
-                limit=10,
-                threshold=0.3,
-            )
+    # Ensure headers are not overwritten
+    for key, value in headers.items():
+        response.headers[key] = value
 
-            user_prompt = f"Generate documentation for {request.repo_name}"
-
-            try:
-                async with docs_agent.run_stream(
-                    user_prompt=user_prompt, deps=deps, result_type=RepoFormattedReturn
-                ) as result:
-                    async for message, last in result.stream_structured(
-                        debounce_by=0.01
-                    ):
-                        try:
-                            if isinstance(message, ModelResponse) and message.parts:
-                                for part in message.parts:
-                                    if isinstance(part, TextPart):
-                                        yield format_content(part.content)
-                                    elif isinstance(part, ToolCallPart):
-                                        # Extract tool call information
-                                        tool_args = json.loads(part.args_as_json_str())
-                                        yield format_tool_partial(
-                                            tool_call_id=part.tool_call_id
-                                            or str(uuid.uuid4()),
-                                            tool_name=part.tool_name or "unknown",
-                                            args=tool_args,
-                                        )
-
-                        except Exception as e:
-                            print(f"Error processing message: {e}")
-                            continue
-
-                        if last:
-                            yield format_end_message(
-                                finish_reason="stop",
-                                prompt_tokens=0,
-                                completion_tokens=0,
-                            )
-
-            except Exception as e:
-                print(f"Stream error: {e}")
-                yield format_end_message(
-                    finish_reason="error", prompt_tokens=0, completion_tokens=0
-                )
-
-        yield StreamingResponse(stream_response(), headers=get_streaming_headers())
+    return response
 
 
 # endregion

@@ -5,7 +5,6 @@ import { useDocumentationPanel } from './documentation-panel-provider';
 import { DocumentationSelector } from './DocumentationSelector';
 import { useDocumentationAgent } from '@/hooks/use-documentation-agent';
 import { toast } from 'sonner';
-import { ToolInvocationDisplay } from '../tool-invocation';
 
 export function DocumentationForm({ chatId }: { chatId: string }) {
 	const { setIsOpen, setContent } = useDocumentationPanel();
@@ -22,18 +21,16 @@ export function DocumentationForm({ chatId }: { chatId: string }) {
 		chatId,
 	});
 
-	// Handle streaming updates - Modified to handle partial updates
+	// Modify the useEffect to only handle content updates
 	useEffect(() => {
 		if (messages.length > 0) {
 			const lastMessage = messages[messages.length - 1];
 			if (lastMessage.role === 'assistant') {
-				// Always update content, even if message is incomplete
 				setContent(lastMessage.content || '');
 				setState(prev => ({
 					...prev,
 					error: null,
-					isStreaming: isThinking,
-					toolInvocations: lastMessage.toolInvocations || []
+					isStreaming: isThinking
 				}));
 			}
 		}
@@ -45,8 +42,7 @@ export function DocumentationForm({ chatId }: { chatId: string }) {
 		setState(prev => ({
 			...prev,
 			isGenerating: true,
-			error: null,
-			toolInvocations: []
+			error: null
 		}));
 
 		try {
@@ -74,13 +70,6 @@ export function DocumentationForm({ chatId }: { chatId: string }) {
 		}
 	}, [state.selectedRepo, state.selectedFiles, appendAgent, initializeAgent]);
 
-	// Auto-generate documentation when repo is selected
-	useEffect(() => {
-		if (state.selectedRepo && !state.isGenerating && !state.error) {
-			handleGenerate();
-		}
-	}, [state.selectedRepo, state.isGenerating, state.error, handleGenerate]);
-
 	const handleRepoSelect = (repo: string | null) => {
 		setIsOpen(true);
 		setState(prev => ({ ...prev, selectedRepo: repo }));
@@ -94,9 +83,6 @@ export function DocumentationForm({ chatId }: { chatId: string }) {
 				className="mb-2"
 				disabled={state.isGenerating}
 			/>
-			{state.toolInvocations.map((invocation, index) => (
-				<ToolInvocationDisplay key={index} toolInvocation={invocation} />
-			))}
 			<Button
 				onClick={handleGenerate}
 				disabled={!state.selectedRepo || state.isGenerating}

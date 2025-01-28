@@ -31,14 +31,15 @@ load_dotenv(".env.local")
 
 app = FastAPI()
 
-# # Add CORS middleware configuration
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],  # In production, replace with your frontend URL
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
+# Add CORS middleware configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["x-vercel-ai-data-stream"],
+)
 
 # Include the agents router
 app.include_router(agents.router, prefix="/api")  # Add this line

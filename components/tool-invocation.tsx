@@ -1,7 +1,6 @@
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { CodeBlock } from "./code-block";
-import { Button } from "./ui/button";
 
 export function ToolInvocationDisplay({
 	toolInvocation,

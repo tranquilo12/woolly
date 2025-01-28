@@ -1,17 +1,19 @@
 import json
+import os
 from typing import List
+from uuid import UUID
+
+from fastapi.responses import StreamingResponse
+from openai import OpenAI
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from sqlalchemy.orm import Session
-from uuid import UUID
-from openai import OpenAI
-import os
-from fastapi.responses import StreamingResponse
 
-from ..utils.models import (
-    Message,
-    build_tool_call_partial,
-    build_tool_call_result,
-    is_complete_json,
+from ..utils.models import Message, is_complete_json
+from ..utils.stream_utils import (
+    format_content,
+    format_end_message,
+    format_tool_partial,
+    format_tool_result,
 )
 from ..utils.tools import execute_python_code
 
@@ -86,6 +88,8 @@ def get_streaming_headers():
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
+        "Server-Sent-Events": "true",
+        "Transfer-Encoding": "chunked",
         "x-vercel-ai-data-stream": "v1",
     }
 
@@ -119,10 +123,8 @@ def stream_text(
                         draft_tool_calls.append(
                             {"id": id, "name": name, "arguments": "{}"}
                         )
-                        yield build_tool_call_partial(
-                            tool_call_id=id,
-                            tool_name=name,
-                            args={},
+                        yield format_tool_partial(
+                            tool_call_id=id, tool_name=name, args={}
                         )
                     elif arguments:
                         try:
@@ -141,7 +143,7 @@ def stream_text(
                                         "arguments"
                                     ]
                                 )
-                                yield build_tool_call_partial(
+                                yield format_tool_partial(
                                     tool_call_id=draft_tool_calls[
                                         draft_tool_calls_index
                                     ]["id"],
@@ -169,7 +171,7 @@ def stream_text(
                             }
                         )
 
-                        yield build_tool_call_result(
+                        yield format_tool_result(
                             tool_call_id=tool_call["id"],
                             tool_name=tool_call["name"],
                             args=parsed_args,
@@ -178,8 +180,6 @@ def stream_text(
                     except Exception as e:
                         print(f"Tool execution error: {e}")
                         error_result = {"error": str(e)}
-
-                        # Ensure error state is properly saved
                         tool_invocations.append(
                             {
                                 "id": tool_call["id"],
@@ -193,8 +193,7 @@ def stream_text(
                                 "state": "error",
                             }
                         )
-
-                        yield build_tool_call_result(
+                        yield format_tool_result(
                             tool_call_id=tool_call["id"],
                             tool_name=tool_call["name"],
                             args=(
@@ -208,7 +207,7 @@ def stream_text(
             else:
                 content = choice.delta.content or ""
                 content_buffer += content
-                yield f"0:{json.dumps(content)}\n"
+                yield format_content(content)
 
         if chunk.choices == []:
             usage = chunk.usage
@@ -216,11 +215,10 @@ def stream_text(
             completion_tokens = usage.completion_tokens
             final_usage = usage
 
-            yield 'e:{{"finishReason":"{reason}","usage":{{"promptTokens":{prompt},"completionTokens":{completion},"totalTokens":{total}}},"isContinued":false}}\n'.format(
-                reason="stop",
-                prompt=prompt_tokens,
-                completion=completion_tokens,
-                total=prompt_tokens + completion_tokens,
+            yield format_end_message(
+                finish_reason="stop",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
             )
 
     if final_usage and db and message_id:
@@ -238,7 +236,6 @@ def stream_text(
         except Exception as e:
             print(f"Failed to update message: {e}")
 
-    # Return with standardized headers
     return StreamingResponse(
         stream_text(messages, protocol, model, db, message_id),
         headers=get_streaming_headers(),

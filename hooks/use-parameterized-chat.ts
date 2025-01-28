@@ -12,6 +12,7 @@ interface UseParameterizedChatProps {
 	model?: string;
 	maxSteps?: number;
 	maxRetries?: number;
+	headers?: Record<string, string>;
 }
 
 export function useParameterizedChat({
@@ -20,8 +21,8 @@ export function useParameterizedChat({
 	model,
 	initialMessages = [],
 	body = {},
-	maxSteps = 5,
-	maxRetries = 2
+	maxRetries = 2,
+	headers = {}
 }: UseParameterizedChatProps) {
 	const [isThinking, setIsThinking] = useState(false);
 	const [failedTools, setFailedTools] = useState<Map<string, { count: number; error: Error }>>(new Map());
@@ -114,6 +115,13 @@ export function useParameterizedChat({
 		}
 	}, [failedTools, maxRetries, handleToolError]);
 
+	// Add this before the chat initialization
+	const defaultHeaders = useMemo(() => ({
+		'Accept': 'text/event-stream',
+		'Cache-Control': 'no-cache',
+		'Connection': 'keep-alive'
+	}), []);
+
 	const chat = useChat({
 		api: endpoint,
 		id: chatId,
@@ -123,12 +131,16 @@ export function useParameterizedChat({
 			model,
 			...body
 		},
-		onResponse: (response) => {
+		onResponse: async (response) => {
 			if (response.ok) {
 				if (response.headers.get('x-vercel-ai-data-stream') === 'v1') {
 					setIsThinking(true);
 				}
+				else {
+					console.error('Unexpected response format:', response.headers.get('content-type'));
+				}
 			} else {
+				console.error('Response not OK:', response.status, response.statusText);
 				toast.error('Failed to process request');
 			}
 		},
@@ -216,6 +228,10 @@ export function useParameterizedChat({
 			toast.error('An error occurred during the chat');
 			setIsThinking(false);
 		},
+		headers: {
+			...defaultHeaders,
+			...headers
+		}
 	});
 
 	return {

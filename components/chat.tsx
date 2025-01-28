@@ -68,10 +68,8 @@ export function toMessageWithModel(
 
 const ToolInvocations = memo(({
   toolInvocations,
-  retryFailedTool
 }: {
   toolInvocations: ExtendedToolCall[],
-  retryFailedTool?: (toolId: string) => void
 }) => (
   <>
     {toolInvocations.map((tool, index) => (
@@ -81,7 +79,6 @@ const ToolInvocations = memo(({
           ...tool,
           id: tool.toolCallId
         }}
-        onRetry={retryFailedTool}
       />
     ))}
   </>
@@ -200,7 +197,6 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
           {message.toolInvocations && message.toolInvocations.length > 0 && (
             <ToolInvocations
               toolInvocations={message.toolInvocations}
-              retryFailedTool={retryFailedTool}
             />
           )}
 

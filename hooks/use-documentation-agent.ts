@@ -1,5 +1,8 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useParameterizedChat } from './use-parameterized-chat';
+import { ChatRequestOptions } from 'ai';
+import { CreateMessage } from 'ai';
+import { MessageWithModel } from '@/components/chat';
 
 interface UseDocumentationAgentProps {
 	chatId: string;
@@ -33,13 +36,18 @@ export function useDocumentationAgent({ chatId }: UseDocumentationAgentProps) {
 		console.log('Initializing new agent...');
 		setAgentError(null);
 		try {
+			// Create unique agent name with timestamp and random ID
+			const timestamp = new Date().toISOString().replace(/[^0-9]/g, '');
+			const randomId = Math.random().toString(36).substring(2, 8);
+			const agentName = `Documentation_Generator_${timestamp}_${randomId}`;
+
 			const response = await fetch('/api/agents', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
 				},
 				body: JSON.stringify({
-					name: 'Documentation Generator',
+					name: agentName,
 					description: 'Generates documentation for repositories',
 					system_prompt: 'You are a documentation assistant. Generate comprehensive documentation for the provided repository and files. Focus on code structure, architecture, and key functionalities.',
 				}),
@@ -62,10 +70,29 @@ export function useDocumentationAgent({ chatId }: UseDocumentationAgentProps) {
 		}
 	}, [agentId]);
 
+	const appendWithAgent = useCallback(async (
+		message: MessageWithModel | CreateMessage,
+		options?: ChatRequestOptions
+	) => {
+		if (!agentId) {
+			const newAgentId = await initializeAgent();
+			setAgentId(newAgentId);
+		}
+
+		return chat.append(message, {
+			...options,
+			body: {
+				...options?.body,
+				agent_id: agentId,
+			}
+		});
+	}, [agentId, chat, initializeAgent]);
+
 	return {
+		...chat,
+		append: appendWithAgent,
 		agentId,
 		messages: chat.messages,
-		append: chat.append,
 		setMessages: chat.setMessages,
 		initializeAgent,
 		isThinking: chat.isThinking,
