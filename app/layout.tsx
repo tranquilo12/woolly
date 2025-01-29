@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/navbar";
 import { Sidebar } from "@/components/sidebar";
 import { Providers } from "@/components/providers";
+import { AgentPanel } from "@/components/agent-panel/agent-panel";
 
 export const metadata = {
   title: "AI SDK Python Streaming Preview",
@@ -49,6 +50,7 @@ export default function RootLayout({
                 {children}
               </main>
               <Sidebar />
+              <AgentPanel />
             </div>
           </div>
         </Providers>

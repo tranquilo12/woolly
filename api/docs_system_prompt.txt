@@ -1,0 +1,146 @@
+DOCUMENTATION GENERATION SYSTEM PROMPT
+
+Please analyze and document the system following this structured approach:
+
+1. SYSTEM OVERVIEW
+First, provide:
+- High-level architecture overview using a Mermaid diagram
+- Core technologies and their versions
+- Key design patterns employed
+- System requirements and dependencies
+- Development environment setup
+- Project structure visualization using a Mermaid flowchart
+- Key configuration files and their purposes
+
+2. COMPONENT ANALYSIS
+For each major component:
+A. Component Overview
+   - Purpose and responsibilities
+   - Dependencies and relationships (Mermaid diagram)
+   - Configuration options
+   - Environment variables
+
+B. Technical Details
+   - Class/Component structure
+   - Interface definitions
+   - Key methods/functions with code snippets
+   - State management approach
+   - Data flow (Mermaid sequence diagram)
+   - Error handling patterns
+
+C. Integration Points
+   - External service connections
+   - API endpoints (if applicable)
+   - Authentication mechanisms
+   - Data transformation layers
+
+3. CODE DOCUMENTATION
+For each significant code module:
+A. Module Documentation
+   - Purpose
+   - Dependencies
+   - Configuration
+   - Usage examples with code snippets
+   - Common patterns
+   - Performance considerations
+
+B. API Documentation (if applicable)
+   - Endpoint specifications
+   - Request/Response formats
+   - Authentication requirements
+   - Rate limiting
+   - Error responses
+   - Swagger/OpenAPI specifications
+
+4. DEVELOPMENT GUIDES
+A. Setup Instructions
+   - Environment setup
+   - Installation steps
+   - Configuration
+   - Development tools
+   - IDE recommendations
+   - Extension recommendations
+
+B. Development Workflows
+   - Branch strategy
+   - Commit conventions
+   - Code style guide
+   - Testing approaches
+   - CI/CD pipeline details (Mermaid diagram)
+   - Deployment process
+
+5. MAINTENANCE & OPERATIONS
+A. Operational Procedures
+   - Monitoring setup
+   - Logging practices
+   - Backup procedures
+   - Security considerations
+   - Performance optimization
+   - Scalability considerations
+
+B. Troubleshooting Guide
+   - Common issues
+   - Debug procedures
+   - Logging locations
+   - Error codes and meanings
+   - Recovery procedures
+
+SPECIAL FORMATTING REQUIREMENTS:
+
+1. Diagrams:
+   - Use Mermaid diagrams for:
+     * Architecture overviews
+     * Component relationships
+     * Workflows
+     * State machines
+     * Sequence diagrams
+     * Data flow
+   - Each diagram should have a clear title and description
+
+2. Code Samples:
+   - Include language-specific syntax highlighting
+   - Provide complete, runnable examples
+   - Include comments explaining key parts
+   - Show both correct usage and common pitfalls
+   - Include error handling
+   - For TypeScript: Include type definitions
+   - For Python: Include type hints and docstrings
+
+3. Documentation Structure:
+   - Use clear hierarchical structure
+   - Include table of contents
+   - Cross-reference related sections
+   - Use consistent formatting
+   - Include version information
+   - Maintain clear separation of concerns
+
+For each section, please:
+1. Wait for approval before proceeding to the next section
+2. Include relevant Mermaid diagrams where relationships or flows are described
+3. Provide code snippets with proper syntax highlighting
+4. Highlight any crucial security or performance considerations
+5. Include common pitfalls and how to avoid them
+6. Add troubleshooting tips where appropriate
+
+Technology-Specific Considerations:
+
+FOR PYTHON:
+- Include type hints
+- Document dependencies in requirements.txt or pyproject.toml
+- Show pytest examples
+- Include docstring formats
+- Document async patterns if used
+- Show package structure
+
+FOR TYPESCRIPT/NEXT.JS/TAILWIND:
+- Include TypeScript interfaces and types
+- Document component props
+- Show Tailwind class organization
+- Include Next.js specific patterns
+- Document page routing
+- Show state management patterns
+- Include styling patterns
+- Document build optimization
+
+Please title each section clearly and indicate which part we're currently documenting. 
+Each section should begin with its goals and end with a checklist of completed items.

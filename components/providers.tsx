@@ -3,6 +3,7 @@
 import { ChatTitleProvider } from './chat-title-context';
 import { SidebarProvider } from './sidebar-provider';
 import { ChatListProvider } from './chat-list-context';
+import { AgentPanelProvider } from './agent-panel/agent-provider';
 import { useState, useCallback } from 'react';
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -14,11 +15,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
 	return (
 		<SidebarProvider>
-			<ChatListProvider refreshChats={refreshChats} refreshTrigger={refreshTrigger}>
-				<ChatTitleProvider>
-					{children}
-				</ChatTitleProvider>
-			</ChatListProvider>
+			<AgentPanelProvider>
+				<ChatListProvider refreshChats={refreshChats} refreshTrigger={refreshTrigger}>
+					<ChatTitleProvider>
+						{children}
+					</ChatTitleProvider>
+				</ChatListProvider>
+			</AgentPanelProvider>
 		</SidebarProvider>
 	);
 }

@@ -322,6 +322,8 @@ export function Chat({ chatId }: ChatProps) {
       id: chatId
     },
     onToolCall: async (tool) => {
+      console.log('onToolCall', tool);
+
       setVercelMessages(prevMessages => {
         const lastMessage = prevMessages[prevMessages.length - 1];
         if (!lastMessage) return prevMessages;
@@ -491,7 +493,7 @@ export function Chat({ chatId }: ChatProps) {
       console.error('Failed to restream messages:', error);
       scrollToBottom({ force: true, behavior: 'auto' });
     }
-  }, [chatId, messages, setVercelMessages, scrollToBottom]);
+  }, [chatId, messages, setVercelMessages, vercelAppend, scrollToBottom]);
 
   const handleModelChange = useCallback(async (model: string, messageId: string) => {
     // Update the message's model in the database

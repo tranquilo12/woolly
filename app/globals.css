@@ -539,3 +539,26 @@
   transition: max-height 0.2s ease-out;
   overflow: hidden;
 }
+
+.agent-panel-container {
+  position: relative;
+  z-index: 40;
+}
+
+.agent-panel-toggle {
+  transition: transform 0.2s ease;
+}
+
+.agent-panel-toggle:hover {
+  transform: scale(1.05);
+}
+
+/* Add these to your existing styles */
+.content-container {
+  transition: margin 0.3s ease-in-out;
+}
+
+.with-sidebars {
+  margin-left: var(--sidebar-width, 400px);
+  margin-right: var(--agent-panel-width, 400px);
+}
