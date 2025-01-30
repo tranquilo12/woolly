@@ -8,10 +8,15 @@ import { useRef, RefObject } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { cn } from "@/lib/utils";
 import { AgentContent } from "./agent-content";
+import { usePathname } from 'next/navigation';
 
 export function AgentPanel() {
 	const { isOpen, toggle, setIsOpen, isPinned, setIsPinned } = useAgentPanel();
 	const panelRef = useRef<HTMLDivElement>(null);
+	const pathname = usePathname();
+
+	// Extract chat ID from URL path
+	const chatId = pathname?.split('/').pop() || '';
 
 	useClickOutside(panelRef as RefObject<HTMLElement>, () => {
 		if (isOpen && !isPinned) {
@@ -76,7 +81,7 @@ export function AgentPanel() {
 							initial="hidden"
 							animate="visible"
 						>
-							<AgentContent className="p-4" />
+							<AgentContent className="p-4" currentChatId={chatId} />
 							<div className="absolute bottom-0 left-0 right-0 p-2 border-t border-border/50">
 								<Button
 									variant="ghost"

@@ -17,9 +17,10 @@ import { DocumentationView } from "./documentation-view";
 
 interface AgentContentProps {
 	className?: string;
+	currentChatId: string;
 }
 
-export function AgentContent({ className }: AgentContentProps) {
+export function AgentContent({ className, currentChatId }: AgentContentProps) {
 	const { repositories } = useRepositoryStatus();
 	const [selectedRepo, setSelectedRepo] = useState<AvailableRepository | null>(null);
 	const agentId = uuidv4();
@@ -57,7 +58,7 @@ export function AgentContent({ className }: AgentContentProps) {
 							repo_name={selectedRepo}
 							agent_id={agentId}
 							file_paths={[]}
-							id={`docs-${selectedRepo}`}
+							chat_id={currentChatId}
 						/>
 					) : (
 						<div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">

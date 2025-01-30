@@ -9,12 +9,13 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai import Agent as PydanticAgent, RunContext
 from fastapi import APIRouter, Depends, HTTPException
 from openai import AsyncOpenAI
-from pydantic_ai.models.openai import ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.models.openai import ModelResponse, TextPart
 from pydantic import ConfigDict, Field, BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from ..utils.database import get_db
-from ..utils.models import Agent, AgentCreate, AgentUpdate, AgentResponse
+from ..utils.models import Agent, AgentCreate, AgentUpdate, AgentResponse, Message
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -195,6 +196,7 @@ async def fetch_repo_content(ctx: RunContext[CodeSearch], repo_name: str) -> str
 
 # endregion
 
+
 # region Agent Streaming
 
 
@@ -206,9 +208,10 @@ class DocumentationRequest(BaseModel):
     agent_id: UUID
     repo_name: str
     file_paths: Optional[List[str]] = []
+    chat_id: UUID  # New field
 
 
-async def stream_response(request: DocumentationRequest):
+async def stream_response(request: DocumentationRequest, db: Session):
     base_prompt = f"Generate documentation for {request.repo_name}"
     if request.messages:
         user_messages = [
@@ -250,11 +253,53 @@ async def stream_response(request: DocumentationRequest):
                     continue
 
                 if last:
-                    yield f"e:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': 0, 'completionTokens': 0}})}\n"
+                    # Save the complete message
+                    complete_content = "\n".join(
+                        [part.content for part in message.parts]
+                    )
+                    await save_documentation_message(
+                        chat_id=request.chat_id,
+                        content=complete_content,
+                        role="assistant",
+                        model=request.model,
+                        db=db,
+                        agent_id=request.agent_id,
+                    )
+
+                    if result.usage:
+                        yield f"e:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': result.usage.prompt_tokens, 'completionTokens': result.usage.completion_tokens}})}\n"
+                    else:
+                        yield f"e:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': 0, 'completionTokens': 0}})}\n"
 
     except Exception as e:
         logging.error(f"Stream error: {e}")
         yield f"e:{json.dumps({'finishReason': 'error', 'usage': {'promptTokens': 0, 'completionTokens': 0}})}\n"
+
+
+async def save_documentation_message(
+    chat_id: UUID,
+    content: str,
+    role: str,
+    model: str,
+    db: Session,
+    agent_id: UUID,
+) -> Message:
+    """Save documentation message to database"""
+    message = Message(
+        chat_id=chat_id,
+        content=content,
+        role=role,
+        model=model,
+        created_at=datetime.now(timezone.utc),
+        tool_invocations=[],
+        agent_id=agent_id,
+    )
+
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+
+    return message
 
 
 # endregion
@@ -264,9 +309,21 @@ async def stream_response(request: DocumentationRequest):
 async def generate_documentation(
     agent_id: UUID,
     request: DocumentationRequest,
+    db: Session = Depends(get_db),
 ):
+    # Save initial user message if it exists
+    if request.messages and request.messages[-1]["role"] == "user":
+        await save_documentation_message(
+            chat_id=request.chat_id,
+            content=request.messages[-1]["content"],
+            role="user",
+            model=request.model,
+            db=db,
+            agent_id=agent_id,
+        )
+
     response = StreamingResponse(
-        stream_response(request),
+        stream_response(request, db),
         headers={"x-vercel-ai-data-stream": "v1"},
     )
 

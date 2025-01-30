@@ -10,19 +10,39 @@ import { Message } from "ai";
 import { motion, AnimatePresence } from "framer-motion";
 import { Markdown } from "../markdown";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
+import { useEffect, useState } from "react";
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
 	agent_id: string;
 	file_paths: string[];
-	id: string;
+	chat_id: string;
 }
 
-export function DocumentationView({ repo_name, agent_id, file_paths, id }: DocumentationViewProps) {
+export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
+	const [initialMessages, setInitialMessages] = useState<Message[]>([]);
+
+	// Fetch initial agent messages
+	useEffect(() => {
+		const fetchAgentMessages = async () => {
+			try {
+				const response = await fetch(`/api/chat/${chat_id}/agent/${agent_id}/messages`);
+				if (!response.ok) throw new Error('Failed to fetch agent messages');
+				const messages = await response.json();
+				setInitialMessages(messages);
+			} catch (error) {
+				console.error('Failed to load agent messages:', error);
+			}
+		};
+
+		if (chat_id && agent_id) {
+			fetchAgentMessages();
+		}
+	}, [chat_id, agent_id]);
 
 	const {
-		messages,
+		messages: streamingMessages,
 		append,
 		isLoading,
 		error,
@@ -30,13 +50,14 @@ export function DocumentationView({ repo_name, agent_id, file_paths, id }: Docum
 		stop
 	} = useChat({
 		api: `/api/agents/${agent_id}/documentation`,
-		id,
+		id: chat_id,
 		initialMessages: [],
 		body: {
-			repo_name,
 			model: "gpt-4o-mini",
-			agent_id,
-			file_paths,
+			agent_id: agent_id,
+			repo_name: repo_name,
+			file_paths: file_paths,
+			chat_id: chat_id,
 		},
 		onResponse: (response) => {
 			scrollToBottom({ force: true });
@@ -45,6 +66,21 @@ export function DocumentationView({ repo_name, agent_id, file_paths, id }: Docum
 			scrollToBottom({ force: true, behavior: 'smooth' });
 		}
 	});
+
+	// Debug logs
+	useEffect(() => {
+		console.log('Initial Messages:', initialMessages);
+		console.log('Streaming Messages:', streamingMessages);
+	}, [initialMessages, streamingMessages]);
+
+	// Ensure no duplicate messages by using message IDs
+	const allMessages = [...initialMessages, ...streamingMessages].reduce((acc, message) => {
+		const exists = acc.find(m => m.id === message.id);
+		if (!exists) {
+			acc.push(message);
+		}
+		return acc;
+	}, [] as Message[]);
 
 	const handleGenerateDoc = async () => {
 		try {
@@ -121,7 +157,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, id }: Docum
 			<ScrollArea className="flex-1">
 				<div ref={containerRef} className="p-4 space-y-4">
 					<AnimatePresence mode="popLayout">
-						{messages.map(renderMessage)}
+						{allMessages.map(renderMessage)}
 					</AnimatePresence>
 
 					{isLoading && (
