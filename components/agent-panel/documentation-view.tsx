@@ -7,6 +7,9 @@ import { Bot, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AvailableRepository } from "@/lib/constants";
 import { Message } from "ai";
+import { motion, AnimatePresence } from "framer-motion";
+import { Markdown } from "../markdown";
+import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -16,24 +19,81 @@ interface DocumentationViewProps {
 }
 
 export function DocumentationView({ repo_name, agent_id, file_paths, id }: DocumentationViewProps) {
-	const { messages, append, input, handleInputChange, handleSubmit, isLoading } = useChat({
+	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
+
+	const {
+		messages,
+		append,
+		isLoading,
+		error,
+		reload,
+		stop
+	} = useChat({
 		api: `/api/agents/${agent_id}/documentation`,
-		id: id,
+		id,
 		initialMessages: [],
 		body: {
-			repo_name: repo_name,
+			repo_name,
 			model: "gpt-4o-mini",
-			agent_id: agent_id,
-			file_paths: file_paths,
+			agent_id,
+			file_paths,
+		},
+		onResponse: (response) => {
+			scrollToBottom({ force: true });
+		},
+		onFinish: () => {
+			scrollToBottom({ force: true, behavior: 'smooth' });
 		}
 	});
+
+	const handleGenerateDoc = async () => {
+		try {
+			await append({
+				role: 'user',
+				content: "Additional context for this conversation"
+			});
+		} catch (error) {
+			console.error("Failed to generate documentation:", error);
+		}
+	};
+
+	const renderMessage = (message: Message) => {
+		return (
+			<motion.div
+				key={message.id}
+				initial={{ opacity: 0, y: 10 }}
+				animate={{ opacity: 1, y: 0 }}
+				exit={{ opacity: 0, y: -10 }}
+				className={cn(
+					"group relative w-full transition-all duration-300",
+					message.role === "user"
+						? "mb-8 hover:bg-muted/30 rounded-lg"
+						: "mb-8 hover:bg-primary/5 rounded-lg"
+				)}
+			>
+				<div className="flex items-start gap-4 px-4 py-4">
+					<div className={cn(
+						"min-w-[30px] text-sm font-medium",
+						message.role === "user"
+							? "text-muted-foreground"
+							: "text-primary"
+					)}>
+						{message.role === "user" ? "You" : "AI"}
+					</div>
+					<div className="prose prose-neutral dark:prose-invert flex-1">
+						<Markdown>{message.content}</Markdown>
+					</div>
+				</div>
+			</motion.div>
+		);
+	};
 
 	return (
 		<div className="flex flex-col gap-4 h-full">
 			<div className="flex items-center justify-between">
 				<Button
 					size="sm"
-					onClick={() => append({ role: 'user', content: "Additional context for this conversation" })}
+					onClick={handleGenerateDoc}
 					disabled={isLoading}
 				>
 					{isLoading ? (
@@ -45,36 +105,36 @@ export function DocumentationView({ repo_name, agent_id, file_paths, id }: Docum
 						'Generate Documentation'
 					)}
 				</Button>
+				{isLoading && (
+					<Button
+						size="sm"
+						variant="ghost"
+						onClick={() => stop()}
+						className="gap-2"
+					>
+						<Loader2 className="h-4 w-4 animate-spin" />
+						Stop
+					</Button>
+				)}
 			</div>
 
 			<ScrollArea className="flex-1">
-				<div className="p-4 space-y-4">
-					{messages.map((message: Message) => (
-						<div
-							key={message.id}
-							className={cn(
-								"mb-4 flex flex-col",
-								message.role === "assistant" && "items-start",
-								message.role === "user" && "items-end"
-							)}
-						>
-							<div
-								className={cn(
-									"rounded-lg px-3 py-2 max-w-[85%] text-sm",
-									message.role === "assistant" && "bg-muted",
-									message.role === "user" && "bg-primary text-primary-foreground"
-								)}
-							>
-								{message.content}
-							</div>
-						</div>
-					))}
+				<div ref={containerRef} className="p-4 space-y-4">
+					<AnimatePresence mode="popLayout">
+						{messages.map(renderMessage)}
+					</AnimatePresence>
+
 					{isLoading && (
-						<div className="flex items-center gap-2 text-muted-foreground">
+						<motion.div
+							initial={{ opacity: 0 }}
+							animate={{ opacity: 1 }}
+							className="flex items-center gap-2 text-muted-foreground"
+						>
 							<Bot className="h-4 w-4" />
 							<span className="text-sm">Generating documentation...</span>
-						</div>
+						</motion.div>
 					)}
+					<div ref={endRef} />
 				</div>
 			</ScrollArea>
 		</div>

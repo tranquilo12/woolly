@@ -209,11 +209,26 @@ class DocumentationRequest(BaseModel):
 
 
 async def stream_response(request: DocumentationRequest):
-    user_prompt = f"Generate documentation for {request.repo_name}\n\nHere are some additional context:\n\n{'\n\n'.join([message['content'] for message in request.messages if message['role'] == 'user'])}"
+    base_prompt = f"Generate documentation for {request.repo_name}"
+    if request.messages:
+        user_messages = [
+            message["content"]
+            for message in request.messages
+            if message["role"] == "user"
+        ]
+        if user_messages:
+            user_prompt = f"{base_prompt}\n\nHere is some additional context:\n\n{'\n\n'.join(user_messages)}"
+        else:
+            user_prompt = base_prompt
+    else:
+        user_prompt = base_prompt
+
     code_search_query = CodeSearch(
         query="*",
         repo_name=request.repo_name,
     )
+
+    last_content = ""  # Track the last content we've seen
     try:
         async with docs_agent.run_stream(
             user_prompt=user_prompt, result_type=str, deps=code_search_query
@@ -223,25 +238,12 @@ async def stream_response(request: DocumentationRequest):
                     if isinstance(message, ModelResponse) and message.parts:
                         for part in message.parts:
                             if isinstance(part, TextPart):
-                                yield f"0:{json.dumps(part.content)}\n"
-
-                            elif isinstance(part, ToolCallPart):
-                                try:
-                                    # Extract content from the tool call args
-                                    args_str = part.args_as_json_str()
-                                    obj = {
-                                        "toolCallId": part.tool_call_id,
-                                        "toolName": part.tool_name,
-                                        "state": "partial-call",
-                                        "args": {
-                                            "content": args_str,
-                                            "source": "agent",
-                                        },
-                                    }
-                                    yield f"9:{json.dumps(obj)}\n"
-                                except json.JSONDecodeError as je:
-                                    logging.error(f"JSON decode error: {je}")
-                                    continue
+                                # Calculate the delta from the last content
+                                current_content = part.content
+                                delta = current_content[len(last_content) :]
+                                if delta:  # Only yield if there's new content
+                                    yield f"0:{json.dumps(delta)}\n"
+                                    last_content = current_content
 
                 except Exception as e:
                     logging.error(f"Error processing message: {e}")
