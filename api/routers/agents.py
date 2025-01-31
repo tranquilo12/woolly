@@ -17,6 +17,7 @@ from ..utils.database import get_db
 from ..utils.models import Agent, AgentCreate, AgentUpdate, AgentResponse, Message
 from datetime import datetime, timezone
 import uuid
+from sqlalchemy.exc import IntegrityError
 
 router = APIRouter()
 
@@ -24,26 +25,34 @@ router = APIRouter()
 # region Agent CRUD
 @router.post("/agents", response_model=AgentResponse)
 async def create_agent(agent: AgentCreate, db: Session = Depends(get_db)):
-    db_agent = Agent(
-        name=agent.name,
-        description=agent.description,
-        system_prompt=agent.system_prompt,
-        tools=agent.tools,
-    )
-    db.add(db_agent)
-    db.commit()
-    db.refresh(db_agent)
+    try:
+        db_agent = Agent(
+            name=agent.name,
+            description=agent.description,
+            system_prompt=agent.system_prompt,
+            tools=agent.tools,
+        )
+        db.add(db_agent)
+        db.commit()
+        db.refresh(db_agent)
 
-    # Convert UUID to string in response
-    return AgentResponse(
-        id=str(db_agent.id),
-        name=db_agent.name,
-        description=db_agent.description,
-        system_prompt=db_agent.system_prompt,
-        tools=db_agent.tools,
-        created_at=db_agent.created_at,
-        is_active=db_agent.is_active,
-    )
+        return AgentResponse(
+            id=str(db_agent.id),
+            name=db_agent.name,
+            description=db_agent.description,
+            system_prompt=db_agent.system_prompt,
+            tools=db_agent.tools,
+            created_at=db_agent.created_at,
+            is_active=db_agent.is_active,
+        )
+    except IntegrityError as e:
+        db.rollback()
+        # Check if it's a unique constraint violation
+        if "agents_name_key" in str(e):
+            raise HTTPException(
+                status_code=409, detail="An agent with this name already exists"
+            )
+        raise
 
 
 @router.get("/agents", response_model=List[AgentResponse])

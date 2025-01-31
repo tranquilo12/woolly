@@ -10,7 +10,7 @@ import { Message } from "ai";
 import { motion, AnimatePresence } from "framer-motion";
 import { Markdown } from "../markdown";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
-import { useEffect, useState } from "react";
+import { useAgentMessages } from '@/hooks/use-agent-messages';
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -29,34 +29,9 @@ interface AgentMessage {
 
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
-	const [initialMessages, setInitialMessages] = useState<Message[]>([]);
 
-	// Fetch initial agent messages
-	useEffect(() => {
-		const fetchAgentMessages = async () => {
-			try {
-				const response = await fetch(`/api/chat/${chat_id}/agent/${agent_id}/messages`);
-				if (!response.ok) throw new Error('Failed to fetch agent messages');
-				const messages: AgentMessage[] = await response.json();
-
-				// Convert to AI Message format
-				const aiMessages: Message[] = messages.map(msg => ({
-					id: msg.id,
-					content: msg.content,
-					role: msg.role as "system" | "user" | "assistant" | "data",
-					createdAt: new Date(msg.created_at)
-				}));
-
-				setInitialMessages(aiMessages);
-			} catch (error) {
-				console.error('Failed to load agent messages:', error);
-			}
-		};
-
-		if (chat_id && agent_id) {
-			fetchAgentMessages();
-		}
-	}, [chat_id, agent_id]);
+	// Replace useState and useEffect with React Query
+	const { data: initialMessages = [], isError } = useAgentMessages(chat_id, agent_id);
 
 	const {
 		messages: streamingMessages,

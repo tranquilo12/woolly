@@ -13,6 +13,7 @@ import {
 import { useState, useEffect } from "react";
 import { AvailableRepository } from "@/lib/constants";
 import { DocumentationView } from "./documentation-view";
+import { useSystemPrompt } from "@/hooks/use-system-prompt";
 
 interface AgentResponse {
 	id: string;
@@ -31,6 +32,7 @@ interface AgentContentProps {
 
 export function AgentContent({ className, currentChatId }: AgentContentProps) {
 	const { repositories } = useRepositoryStatus();
+	const { data: systemPrompt } = useSystemPrompt();
 	const [selectedRepo, setSelectedRepo] = useState<AvailableRepository | null>(null);
 	const [agentId, setAgentId] = useState<string | null>(() => {
 		// Try to get from localStorage first
@@ -40,24 +42,42 @@ export function AgentContent({ className, currentChatId }: AgentContentProps) {
 
 	useEffect(() => {
 		const createDocumentationAgent = async () => {
-			// If we already have an agent ID for this chat, use it
-			if (agentId) return;
+			if (agentId || !systemPrompt) return;
 
 			try {
+				// Add timestamp to ensure uniqueness
+				const uniqueName = `Documentation Agent ${currentChatId}_${Date.now()}`;
+
 				const response = await fetch('/api/agents', {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json',
 					},
 					body: JSON.stringify({
-						name: `Documentation Agent ${currentChatId}`,
+						name: uniqueName,
 						description: 'Documentation generation agent',
-						system_prompt: await fetch('/api/docs_system_prompt.txt').then(r => r.text()),
+						system_prompt: systemPrompt,
 						tools: ['fetch_repo_content']
 					}),
 				});
 
-				if (!response.ok) throw new Error('Failed to create agent');
+				if (!response.ok) {
+					// If we get a duplicate error, try to fetch existing agent
+					if (response.status === 409) {
+						const agents = await fetch('/api/agents').then(r => r.json());
+						const existingAgent = agents.find((a: AgentResponse) =>
+							a.name.startsWith(`Documentation Agent ${currentChatId}`)
+						);
+
+						if (existingAgent) {
+							localStorage.setItem(`doc_agent_${currentChatId}`, existingAgent.id);
+							setAgentId(existingAgent.id);
+							return;
+						}
+					}
+					throw new Error('Failed to create/retrieve agent');
+				}
+
 				const data: AgentResponse = await response.json();
 
 				// Save to localStorage and state
@@ -69,7 +89,7 @@ export function AgentContent({ className, currentChatId }: AgentContentProps) {
 		};
 
 		createDocumentationAgent();
-	}, [currentChatId, agentId]);
+	}, [currentChatId, agentId, systemPrompt]);
 
 	return (
 		<div className={cn("flex flex-col w-full h-[calc(100vh-var(--navbar-height))]", className)}>

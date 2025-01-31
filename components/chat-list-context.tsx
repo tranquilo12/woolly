@@ -1,24 +1,31 @@
 'use client';
 
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useCallback } from 'react';
+import { useChats } from '@/hooks/use-chats';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface ChatListContextType {
+	chats: any[];
+	isLoading: boolean;
 	refreshChats: () => void;
-	refreshTrigger: number;
 }
 
 const ChatListContext = createContext<ChatListContextType>({
+	chats: [],
+	isLoading: false,
 	refreshChats: () => { },
-	refreshTrigger: 0,
 });
 
-export function ChatListProvider({ children, refreshChats, refreshTrigger }: {
-	children: React.ReactNode;
-	refreshChats: () => void;
-	refreshTrigger: number;
-}) {
+export function ChatListProvider({ children }: { children: React.ReactNode }) {
+	const queryClient = useQueryClient();
+	const { data: chats = [], isLoading } = useChats();
+
+	const refreshChats = useCallback(() => {
+		queryClient.invalidateQueries({ queryKey: ['chats'] });
+	}, [queryClient]);
+
 	return (
-		<ChatListContext.Provider value={{ refreshChats, refreshTrigger }}>
+		<ChatListContext.Provider value={{ chats, isLoading, refreshChats }}>
 			{children}
 		</ChatListContext.Provider>
 	);
