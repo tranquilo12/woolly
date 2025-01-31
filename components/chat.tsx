@@ -19,7 +19,7 @@ import { TokenCount } from "./token-count";
 import { MessageGroup } from "./message-group";
 import { CollapsibleCodeBlock } from "./collapsible-code-block";
 import { Button } from "@/components/ui/button";
-import { PencilIcon } from "lucide-react";
+import { PencilIcon, TrashIcon } from "lucide-react";
 import { ExtendedToolCall } from "@/types/tool-calls";
 
 interface ChatProps {
@@ -32,6 +32,8 @@ interface ChatMessageProps {
   onEditComplete: (message: MessageWithModel) => void;
   onModelChange: (model: string, messageId: string) => void;
   isFirstUserMessage?: boolean;
+  isOrphaned?: boolean;
+  onDelete?: () => void;
 }
 
 export interface MessageWithModel extends Message {
@@ -67,7 +69,7 @@ export function toMessageWithModel(
 }
 
 // Memoized Message component to prevent unnecessary re-renders
-const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFirstUserMessage }: ChatMessageProps) => {
+const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFirstUserMessage, isOrphaned, onDelete }: ChatMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
 
   const messageVariants = {
@@ -184,32 +186,40 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
           />
         </motion.div>
 
-        {message.role === "user" && !isFirstUserMessage && (
+        {message.role === "user" && (
           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            <motion.div
-              className="transition-opacity"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 p-0 hover:bg-accent/50 transition-colors"
-                onClick={() => setIsEditing(true)}
+            {!isFirstUserMessage && (
+              <motion.div
+                className="transition-opacity"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
               >
-                <PencilIcon className="h-4 w-4 text-muted-foreground" />
-              </Button>
-            </motion.div>
-            <motion.div
-              className="transition-opacity"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
-              <ModelSelector
-                currentModel={message.model || "gpt-4o"}
-                onModelChange={(model) => onModelChange(model, message.id)}
-              />
-            </motion.div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 p-0 hover:bg-accent/50 transition-colors"
+                  onClick={() => setIsEditing(true)}
+                >
+                  <PencilIcon className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </motion.div>
+            )}
+            {isOrphaned && onDelete && (
+              <motion.div
+                className="transition-opacity"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+              >
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 p-0 hover:bg-destructive/10 transition-colors"
+                  onClick={onDelete}
+                >
+                  <TrashIcon className="h-4 w-4 text-destructive" />
+                </Button>
+              </motion.div>
+            )}
           </div>
         )}
       </div>
@@ -505,7 +515,24 @@ export function Chat({ chatId }: ChatProps) {
     };
   }, [chatId, setTitle]);
 
-  const renderMessage = useCallback((message: MessageWithModel) => {
+  const onDelete = useCallback(async (messageId: string) => {
+    if (!chatId || !messageId) return;
+    try {
+      await fetch(`/api/chat/${chatId}/messages/${messageId}`, {
+        method: 'DELETE',
+      });
+      // Update local messages state after successful deletion
+      setVercelMessages(prevMessages =>
+        prevMessages.filter(m => m.id !== messageId)
+      );
+      toast.success('Message deleted');
+    } catch (error) {
+      console.error('Failed to delete message:', error);
+      toast.error('Failed to delete message');
+    }
+  }, [chatId, setVercelMessages]);
+
+  const renderMessage = useCallback((message: MessageWithModel, isOrphaned?: boolean) => {
     // Helper function to find the most complete tool invocation
     const getMostCompleteToolInvocation = (toolInvocations: any[]) => {
       // First, try to find a tool invocation with both args and result
@@ -553,11 +580,14 @@ export function Chat({ chatId }: ChatProps) {
         onEditComplete={handleEditComplete}
         onModelChange={handleModelChange}
         isFirstUserMessage={isFirstUserMessage}
+        isOrphaned={isOrphaned}
+        onDelete={() => onDelete(message.id)}
       />
     );
-  }, [chatId, handleEditComplete, handleModelChange, messages]);
+  }, [chatId, handleEditComplete, handleModelChange, messages, onDelete]);
 
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
+
     if (message.role === 'user') {
       // Start a new group with user message
       groups.push([message as MessageWithModel]);
@@ -567,6 +597,26 @@ export function Chat({ chatId }: ChatProps) {
     }
     return groups;
   }, []);
+
+  console.log('Final grouped messages:', groupedMessages.map(group => ({
+    length: group.length,
+    roles: group.map(m => m.role)
+  }))); // Debug log
+
+  const copyConversationToClipboard = useCallback(async () => {
+    try {
+      const conversationJson = messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+
+      await navigator.clipboard.writeText(JSON.stringify(conversationJson, null, 2));
+      toast.success('Conversation copied to clipboard');
+    } catch (error) {
+      console.error('Failed to copy conversation:', error);
+      toast.error('Failed to copy conversation');
+    }
+  }, [messages]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -614,6 +664,7 @@ export function Chat({ chatId }: ChatProps) {
             searchRepository={searchRepository}
             currentModel={currentModel}
             onModelChange={setCurrentModel}
+            onCopyConversation={copyConversationToClipboard}
           />
         </div>
       </div>

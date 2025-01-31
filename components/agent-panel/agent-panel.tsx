@@ -46,19 +46,6 @@ export function AgentPanel() {
 
 	return (
 		<div className="agent-panel-container relative">
-			<button
-				title="Toggle Agent Panel"
-				onClick={() => setIsOpen(!isOpen)}
-				className={cn(
-					"agent-panel-toggle fixed right-4 top-[calc(var(--navbar-height)+1rem)] z-50",
-					"h-8 w-8 flex items-center justify-center",
-					"rounded-md border bg-background shadow-sm",
-					"hover:bg-accent/50 transition-colors duration-200"
-				)}
-			>
-				<MenuIcon className="h-4 w-4" />
-			</button>
-
 			<AnimatePresence>
 				{isOpen && (
 					<motion.div
