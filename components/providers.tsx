@@ -28,7 +28,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 		<QueryClientProvider client={queryClient}>
 			<SidebarProvider>
 				<AgentPanelProvider>
-					<ChatListProvider refreshChats={refreshChats} refreshTrigger={refreshTrigger}>
+					<ChatListProvider>
 						<ChatTitleProvider>
 							{children}
 						</ChatTitleProvider>
