@@ -212,7 +212,7 @@ class AgentUpdate(BaseModel):
 
 
 class AgentResponse(BaseModel):
-    id: UUID
+    id: str
     name: str
     description: str
     system_prompt: str
@@ -221,7 +221,7 @@ class AgentResponse(BaseModel):
     is_active: bool
 
     class Config:
-        arbitrary_types_allowed = True
+        from_attributes = True
 
 
 # endregion

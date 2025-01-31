@@ -16,6 +16,7 @@ from typing import List, Optional
 from ..utils.database import get_db
 from ..utils.models import Agent, AgentCreate, AgentUpdate, AgentResponse, Message
 from datetime import datetime, timezone
+import uuid
 
 router = APIRouter()
 
@@ -32,7 +33,17 @@ async def create_agent(agent: AgentCreate, db: Session = Depends(get_db)):
     db.add(db_agent)
     db.commit()
     db.refresh(db_agent)
-    return db_agent
+
+    # Convert UUID to string in response
+    return AgentResponse(
+        id=str(db_agent.id),
+        name=db_agent.name,
+        description=db_agent.description,
+        system_prompt=db_agent.system_prompt,
+        tools=db_agent.tools,
+        created_at=db_agent.created_at,
+        is_active=db_agent.is_active,
+    )
 
 
 @router.get("/agents", response_model=List[AgentResponse])
@@ -285,21 +296,37 @@ async def save_documentation_message(
     agent_id: UUID,
 ) -> Message:
     """Save documentation message to database"""
-    message = Message(
-        chat_id=chat_id,
-        content=content,
-        role=role,
-        model=model,
-        created_at=datetime.now(timezone.utc),
-        tool_invocations=[],
-        agent_id=agent_id,
-    )
+    try:
+        message = Message(
+            id=uuid.uuid4(),
+            chat_id=chat_id,
+            content=content,
+            role=role,
+            model=model,
+            created_at=datetime.now(timezone.utc),
+            tool_invocations=[],
+            agent_id=agent_id,
+        )
 
-    db.add(message)
-    db.commit()
-    db.refresh(message)
+        db.add(message)
+        db.commit()
+        db.refresh(message)
 
-    return message
+        # Verify message was saved
+        saved_message = (
+            db.query(Message)
+            .filter(Message.id == message.id, Message.agent_id == agent_id)
+            .first()
+        )
+
+        if not saved_message:
+            raise Exception("Message not saved correctly")
+
+        return message
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error saving message: {str(e)}")
+        raise
 
 
 # endregion

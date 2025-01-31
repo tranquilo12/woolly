@@ -19,6 +19,14 @@ interface DocumentationViewProps {
 	chat_id: string;
 }
 
+interface AgentMessage {
+	id: string;
+	content: string;
+	role: string;
+	created_at: string;
+	agent_id: string;
+}
+
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
 	const [initialMessages, setInitialMessages] = useState<Message[]>([]);
@@ -29,8 +37,17 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			try {
 				const response = await fetch(`/api/chat/${chat_id}/agent/${agent_id}/messages`);
 				if (!response.ok) throw new Error('Failed to fetch agent messages');
-				const messages = await response.json();
-				setInitialMessages(messages);
+				const messages: AgentMessage[] = await response.json();
+
+				// Convert to AI Message format
+				const aiMessages: Message[] = messages.map(msg => ({
+					id: msg.id,
+					content: msg.content,
+					role: msg.role as "system" | "user" | "assistant" | "data",
+					createdAt: new Date(msg.created_at)
+				}));
+
+				setInitialMessages(aiMessages);
 			} catch (error) {
 				console.error('Failed to load agent messages:', error);
 			}
@@ -51,27 +68,16 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	} = useChat({
 		api: `/api/agents/${agent_id}/documentation`,
 		id: chat_id,
-		initialMessages: [],
+		initialMessages,
 		body: {
+			id: chat_id,
 			model: "gpt-4o-mini",
-			agent_id: agent_id,
-			repo_name: repo_name,
-			file_paths: file_paths,
-			chat_id: chat_id,
-		},
-		onResponse: (response) => {
-			scrollToBottom({ force: true });
-		},
-		onFinish: () => {
-			scrollToBottom({ force: true, behavior: 'smooth' });
+			agent_id,
+			repo_name,
+			file_paths,
+			chat_id,
 		}
 	});
-
-	// Debug logs
-	useEffect(() => {
-		console.log('Initial Messages:', initialMessages);
-		console.log('Streaming Messages:', streamingMessages);
-	}, [initialMessages, streamingMessages]);
 
 	// Ensure no duplicate messages by using message IDs
 	const allMessages = [...initialMessages, ...streamingMessages].reduce((acc, message) => {

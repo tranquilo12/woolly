@@ -633,3 +633,9 @@ async def get_agent_messages(
         .all()
     )
     return messages
+
+
+@app.get("/api/docs_system_prompt.txt")
+async def get_docs_system_prompt():
+    with open("./api/docs_system_prompt.txt", "r") as file:
+        return file.read()

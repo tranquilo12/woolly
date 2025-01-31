@@ -10,10 +10,19 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "../ui/select";
-import { useState } from "react";
-import { v4 as uuidv4 } from "uuid";
+import { useState, useEffect } from "react";
 import { AvailableRepository } from "@/lib/constants";
 import { DocumentationView } from "./documentation-view";
+
+interface AgentResponse {
+	id: string;
+	name: string;
+	description: string;
+	system_prompt: string;
+	tools: string[];
+	created_at: string;
+	is_active: boolean;
+}
 
 interface AgentContentProps {
 	className?: string;
@@ -23,7 +32,45 @@ interface AgentContentProps {
 export function AgentContent({ className, currentChatId }: AgentContentProps) {
 	const { repositories } = useRepositoryStatus();
 	const [selectedRepo, setSelectedRepo] = useState<AvailableRepository | null>(null);
-	const agentId = uuidv4();
+	const [agentId, setAgentId] = useState<string | null>(() => {
+		// Try to get from localStorage first
+		const savedId = localStorage.getItem(`doc_agent_${currentChatId}`);
+		return savedId;
+	});
+
+	useEffect(() => {
+		const createDocumentationAgent = async () => {
+			// If we already have an agent ID for this chat, use it
+			if (agentId) return;
+
+			try {
+				const response = await fetch('/api/agents', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+					},
+					body: JSON.stringify({
+						name: `Documentation Agent ${currentChatId}`,
+						description: 'Documentation generation agent',
+						system_prompt: await fetch('/api/docs_system_prompt.txt').then(r => r.text()),
+						tools: ['fetch_repo_content']
+					}),
+				});
+
+				if (!response.ok) throw new Error('Failed to create agent');
+				const data: AgentResponse = await response.json();
+
+				// Save to localStorage and state
+				localStorage.setItem(`doc_agent_${currentChatId}`, data.id);
+				setAgentId(data.id);
+			} catch (error) {
+				console.error('Failed to create documentation agent:', error);
+			}
+		};
+
+		createDocumentationAgent();
+	}, [currentChatId, agentId]);
+
 	return (
 		<div className={cn("flex flex-col w-full h-[calc(100vh-var(--navbar-height))]", className)}>
 			<div className="flex items-center justify-between px-4 py-2 border-b border-border/50">
@@ -53,7 +100,7 @@ export function AgentContent({ className, currentChatId }: AgentContentProps) {
 
 			<div className="flex-1 overflow-y-auto">
 				<div className="h-full px-4">
-					{selectedRepo ? (
+					{selectedRepo && agentId ? (
 						<DocumentationView
 							repo_name={selectedRepo}
 							agent_id={agentId}
