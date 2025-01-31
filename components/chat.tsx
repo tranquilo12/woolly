@@ -17,7 +17,6 @@ import { useChatTitle } from "./chat-title-context";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
 import { TokenCount } from "./token-count";
 import { MessageGroup } from "./message-group";
-import { CodeContextContainer } from "./code-context-container";
 import { CollapsibleCodeBlock } from "./collapsible-code-block";
 import { Button } from "@/components/ui/button";
 import { PencilIcon } from "lucide-react";
@@ -76,18 +75,6 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, y: -10 }
   };
-
-  // Add code block extraction logic
-  const getCodeBlocks = (content: string) => {
-    const codeBlockRegex = /```[\s\S]*?```/g;
-    return content.match(codeBlockRegex) || [];
-  };
-
-  const codeBlocks = getCodeBlocks(message.content);
-  const hasCodeContext = codeBlocks.length > 0;
-
-  // Separate code blocks from main content
-  const contentWithoutCode = message.content.replace(/```[\s\S]*?```/g, '');
 
   const handleEdit = async (newContent: string) => {
     if (!chatId || !message.id) return;
@@ -167,29 +154,8 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, delay: 0.1 }}
         >
-          {hasCodeContext && (
-            <div className="mb-4">
-              <CodeContextContainer codeBlockCount={codeBlocks.length} initiallyExpanded={false}>
-                <div className="space-y-2">
-                  {codeBlocks.map((block, index) => {
-                    const language = block.split('\n')[0].replace('```', '').trim();
-                    const code = block.split('\n').slice(1, -1).join('\n');
-                    return (
-                      <CollapsibleCodeBlock
-                        key={index}
-                        language={language || 'text'}
-                        value={code}
-                        initiallyExpanded={false}
-                      />
-                    );
-                  })}
-                </div>
-              </CodeContextContainer>
-            </div>
-          )}
-
           <div className="prose dark:prose-invert">
-            <Markdown>{contentWithoutCode}</Markdown>
+            <Markdown>{message.content}</Markdown>
           </div>
 
           {message.toolInvocations?.map((tool, index) => {
@@ -268,13 +234,6 @@ export function Chat({ chatId }: ChatProps) {
     getRepositoryMap,
     getRepositorySummary
   } = useRepositoryStatus();
-
-  // Memoize code context state
-  const [codeContextBlocks, setCodeContextBlocks] = useState<Array<{
-    language: string;
-    value: string;
-    filePath?: string;
-  }>>([]);
 
   // Fetch messages only when chatId changes
   useEffect(() => {
@@ -545,46 +504,6 @@ export function Chat({ chatId }: ChatProps) {
       setTitle('');
     };
   }, [chatId, setTitle]);
-
-
-  const handleCodeContextUpdate = useCallback((message: MessageWithModel) => {
-    if (!message?.content) return;
-
-    // Extract code blocks from message content
-    const codeBlocks = message.content.match(/```[\s\S]*?```/g) || [];
-
-    const parsedBlocks = codeBlocks.map(block => {
-      const [firstLine, ...rest] = block.split('\n');
-      const language = firstLine.replace('```', '').trim();
-      const value = rest.slice(0, -1).join('\n');
-
-      const [lang, filePath] = language.split(':');
-
-      return {
-        language: lang,
-        value,
-        filePath
-      };
-    });
-
-    // Only update if blocks have changed
-    setCodeContextBlocks(prev => {
-      const prevString = JSON.stringify(prev);
-      const newString = JSON.stringify(parsedBlocks);
-      return prevString === newString ? prev : parsedBlocks;
-    });
-  }, []);
-
-  useEffect(() => {
-    // Only process the last assistant message for code blocks
-    const lastAssistantMessage = [...messages]
-      .reverse()
-      .find(msg => msg.role === 'assistant');
-
-    if (lastAssistantMessage) {
-      handleCodeContextUpdate(lastAssistantMessage as MessageWithModel);
-    }
-  }, [messages, handleCodeContextUpdate]);
 
   const renderMessage = useCallback((message: MessageWithModel) => {
     // Helper function to find the most complete tool invocation

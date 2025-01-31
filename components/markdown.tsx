@@ -22,24 +22,22 @@ const NonMemoizedMarkdown = ({ children, isToolCallLoading }: MarkdownProps) => 
   const components: Partial<Components> = {
     code: ({ node, className, children, ...props }) => {
       const value = String(children).replace(/\n$/, "");
-      const [language, filePath] = (className?.replace('language-', '') || '').split('::');
+      const language = className?.replace('language-', '') || 'text';
 
-      if (filePath) {
+      if ('inline' in props) {
         return (
-          <CollapsibleCodeBlock
-            language={language}
-            value={value}
-            initiallyExpanded={false}
-          />
+          <code className="rounded-md bg-muted/50 px-1.5 py-0.5 text-sm font-medium" {...props}>
+            {children}
+          </code>
         );
       }
 
-      return language ? (
-        <CodeBlock language={language} value={value} />
-      ) : (
-        <code className="rounded-md bg-muted/50 px-1.5 py-0.5 text-sm font-medium" {...props}>
-          {children}
-        </code>
+      return (
+        <CollapsibleCodeBlock
+          language={language}
+          value={value}
+          initiallyExpanded={true}
+        />
       );
     },
     p: ({ children }) => (
