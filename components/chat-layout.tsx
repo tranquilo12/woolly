@@ -16,8 +16,14 @@ export function ChatLayout({ children }: ChatLayoutProps) {
 		<motion.div
 			className="relative flex-1 w-full transition-all duration-300 ease-in-out"
 			animate={{
-				marginLeft: isSidebarOpen && isSidebarPinned ? "400px" : "0",
-				marginRight: isAgentOpen && isAgentPinned ? "400px" : "0",
+				marginLeft: isSidebarOpen && isSidebarPinned ? "clamp(250px, 20%, 300px)" : "0",
+				marginRight: isAgentOpen && isAgentPinned ? "clamp(400px, 35%, 800px)" : "0",
+				transform: isAgentOpen && isAgentPinned
+					? "translateX(calc(-1 * clamp(100px, 10%, 200px)))"
+					: "translateX(0)",
+				width: isAgentOpen && isAgentPinned
+					? "calc(100% - clamp(400px, 35%, 800px))"
+					: "100%",
 			}}
 		>
 			{children}

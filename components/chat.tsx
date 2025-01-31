@@ -21,6 +21,7 @@ import { CollapsibleCodeBlock } from "./collapsible-code-block";
 import { Button } from "@/components/ui/button";
 import { PencilIcon, TrashIcon } from "lucide-react";
 import { ExtendedToolCall } from "@/types/tool-calls";
+import { useAgentPanel } from "./agent-panel/agent-provider";
 
 interface ChatProps {
   chatId?: string;
@@ -236,6 +237,7 @@ export function Chat({ chatId }: ChatProps) {
   const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
   const [currentModel, setCurrentModel] = useState("gpt-4o");
+  const { isOpen: isAgentOpen, isPinned: isAgentPinned } = useAgentPanel();
 
   // Memoize repository status hooks
   const {
@@ -619,7 +621,11 @@ export function Chat({ chatId }: ChatProps) {
   }, [messages]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
+    <div className={cn(
+      "flex flex-col h-[calc(100vh-4rem)]",
+      "transition-all duration-300 ease-in-out",
+      isAgentOpen && isAgentPinned && "transform -translate-x-[clamp(100px,10%,200px)]"
+    )}>
       {/* Message container */}
       <div
         ref={containerRef}

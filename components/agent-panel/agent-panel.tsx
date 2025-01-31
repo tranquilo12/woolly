@@ -57,7 +57,7 @@ export function AgentPanel() {
 						className={cn(
 							"fixed right-0 top-[var(--navbar-height)] z-40",
 							"h-[calc(100vh-var(--navbar-height))]",
-							"w-full sm:w-[400px]",
+							"w-full md:w-[clamp(400px,35%,800px)]",
 							"border-l border-border/50",
 							"bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
 						)}

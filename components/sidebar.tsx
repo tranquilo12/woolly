@@ -217,7 +217,7 @@ export function Sidebar() {
 						exit="exit"
 						variants={containerVariants}
 						className={cn(
-							"fixed left-0 top-[var(--navbar-height)] z-50 flex h-content w-full items-center justify-center sm:w-[400px]",
+							"fixed left-0 top-[var(--navbar-height)] z-50 flex h-content w-full items-center justify-center sm:w-[clamp(250px,20%,300px)]",
 							"bg-background"
 						)}
 						data-sidebar
