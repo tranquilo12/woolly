@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "ai/react";
-import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message, tool } from "ai";
+import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message } from "ai";
 import { MultimodalInput } from "./multimodal-input";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useState, useEffect, memo, useCallback, SetStateAction, Dispatch } from "react";
@@ -12,12 +12,10 @@ import { ToolInvocationDisplay } from "./tool-invocation";
 import { Markdown } from "./markdown";
 import { EditMessageInput } from "./edit-message-input";
 import { EditIndicator } from "./edit-indicator";
-import { ModelSelector } from "./model-selector";
 import { useChatTitle } from "./chat-title-context";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
 import { TokenCount } from "./token-count";
 import { MessageGroup } from "./message-group";
-import { CollapsibleCodeBlock } from "./collapsible-code-block";
 import { Button } from "@/components/ui/button";
 import { PencilIcon, TrashIcon } from "lucide-react";
 import { ExtendedToolCall } from "@/types/tool-calls";
@@ -538,17 +536,6 @@ export function Chat({ chatId }: ChatProps) {
   }, [chatId, setVercelMessages]);
 
   const renderMessage = useCallback((message: MessageWithModel, isOrphaned?: boolean) => {
-    // Helper function to find the most complete tool invocation
-    const getMostCompleteToolInvocation = (toolInvocations: any[]) => {
-      // First, try to find a tool invocation with both args and result
-      const completeInvocation = toolInvocations.find(
-        tool => tool.args && tool.result && tool.state === "result"
-      );
-
-      // If no complete invocation found, return the first one
-      return completeInvocation || toolInvocations[0];
-    };
-
     // Skip rendering empty assistant messages only if they have no tool invocations
     if (
       message.role === 'assistant' &&
@@ -563,13 +550,7 @@ export function Chat({ chatId }: ChatProps) {
     }
 
     // Prepare tool invocations for rendering
-    let toolInvocationsToRender = message.toolInvocations;
-
-    // If we have no content but have tool invocations, select the most complete one
-    if (!message.content && message.toolInvocations && message.toolInvocations.length > 1) {
-      const mostComplete = getMostCompleteToolInvocation(message.toolInvocations);
-      toolInvocationsToRender = mostComplete ? [mostComplete] : undefined;
-    }
+    const toolInvocationsToRender = message.toolInvocations;
 
     // Check if this is the first user message
     const isFirstUserMessage = messages.find(m => m.role === 'user')?.id === message.id;
