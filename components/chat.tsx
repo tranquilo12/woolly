@@ -45,12 +45,15 @@ export interface MessageWithModel extends Message {
   data?: {
     dbId?: string;
   };
-  toolInvocations?: ExtendedToolCall[];
+  tool_invocations?: ExtendedToolCall[];
 }
 
 export function toMessage(messageWithModel: MessageWithModel): Message {
-  const { model, ...messageProps } = messageWithModel;
-  return messageProps;
+  const { model, tool_invocations, toolInvocations, ...messageProps } = messageWithModel;
+  return {
+    ...messageProps,
+    toolInvocations: tool_invocations || toolInvocations
+  };
 }
 
 export function toMessageWithModel(
@@ -64,7 +67,7 @@ export function toMessageWithModel(
     prompt_tokens: usage?.promptTokens,
     completion_tokens: usage?.completionTokens,
     total_tokens: usage?.totalTokens,
-    toolInvocations: message.toolInvocations as ExtendedToolCall[],
+    toolInvocations: (message.toolInvocations) as ExtendedToolCall[],
     data: { dbId: message.id }
   };
 }
@@ -293,7 +296,7 @@ export function Chat({ chatId }: ChatProps) {
       id: chatId
     },
     onToolCall: async (tool) => {
-      console.log('onToolCall', tool);
+      // console.log('onToolCall', tool);
 
       setVercelMessages(prevMessages => {
         const lastMessage = prevMessages[prevMessages.length - 1];
@@ -599,11 +602,6 @@ export function Chat({ chatId }: ChatProps) {
     }
     return groups;
   }, []);
-
-  console.log('Final grouped messages:', groupedMessages.map(group => ({
-    length: group.length,
-    roles: group.map(m => m.role)
-  }))); // Debug log
 
   const copyConversationToClipboard = useCallback(async () => {
     try {

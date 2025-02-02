@@ -20,24 +20,27 @@ const NonMemoizedMarkdown = ({ children, isToolCallLoading }: MarkdownProps) => 
   }
 
   const components: Partial<Components> = {
-    code: ({ node, className, children, ...props }) => {
-      const value = String(children).replace(/\n$/, "");
-      const language = className?.replace('language-', '') || 'text';
+    pre: (props) => {
+      return <pre {...props} />;
+    },
+    code: ({ node, inline, className, children, ...props }: any) => {
+      const match = /language-(\w+)/.exec(className || '');
+      const language = match ? match[1] : '';
 
-      if ('inline' in props) {
+      if (!inline && language) {
         return (
-          <code className="rounded-md bg-muted/50 px-1.5 py-0.5 text-sm font-medium" {...props}>
-            {children}
-          </code>
+          <CollapsibleCodeBlock
+            language={language}
+            value={String(children).replace(/\n$/, '')}
+            initiallyExpanded={true}
+          />
         );
       }
 
       return (
-        <CollapsibleCodeBlock
-          language={language}
-          value={value}
-          initiallyExpanded={true}
-        />
+        <code className={className} {...props}>
+          {children}
+        </code>
       );
     },
     p: ({ children }) => (

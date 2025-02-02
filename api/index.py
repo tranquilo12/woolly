@@ -222,7 +222,7 @@ def stream_text(
                         # First, append to tool_invocations for database
                         tool_invocations.append(
                             {
-                                "id": tool_call["id"],
+                                "toolCallId": tool_call["id"],
                                 "toolName": tool_call["name"],
                                 "args": parsed_args,
                                 "result": tool_result,
@@ -639,3 +639,31 @@ async def get_agent_messages(
 async def get_docs_system_prompt():
     with open("./api/docs_system_prompt.txt", "r") as file:
         return file.read()
+
+
+@app.delete("/api/chat/{chat_id}/messages/{message_id}")
+async def delete_message(
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
+    """Delete a specific message from a chat"""
+    try:
+        # Find and delete the message
+        result = (
+            db.query(Message)
+            .filter(Message.chat_id == chat_id, Message.id == message_id)
+            .delete()
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Message not found")
+
+        db.commit()
+        return {"success": True}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete message: {str(e)}"
+        )
