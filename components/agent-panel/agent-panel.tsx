@@ -68,14 +68,17 @@ export function AgentPanel() {
 							initial="hidden"
 							animate="visible"
 						>
-							<AgentContent className="p-4" currentChatId={chatId} />
-							<div className="absolute bottom-0 left-0 right-0 p-2 border-t border-border/50">
+							<div className="absolute left-0 top-1/2 -translate-x-1/2 transform">
 								<Button
 									variant="ghost"
 									size="sm"
 									onClick={() => setIsPinned(!isPinned)}
 									className={cn(
-										"w-full flex items-center justify-start gap-2 px-2 hover:bg-muted/50",
+										"h-8 w-8 p-0 rounded-full",
+										"border border-border/50",
+										"bg-background/95 backdrop-blur",
+										"hover:bg-muted/50 transition-colors",
+										"shadow-sm hover:shadow-md",
 										isPinned && "text-primary bg-muted/50"
 									)}
 								>
@@ -86,6 +89,7 @@ export function AgentPanel() {
 									)}
 								</Button>
 							</div>
+							<AgentContent className="p-4" currentChatId={chatId} />
 						</motion.div>
 					</motion.div>
 				)}
