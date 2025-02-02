@@ -16,7 +16,7 @@ import { AnimatePresence } from "framer-motion";
 
 import { cn, getCaretCoordinates, sanitizeUIMessages } from "@/lib/utils";
 
-import { ArrowUpIcon, StopIcon, MenuIcon, AttachmentIcon } from "./icons";
+import { ArrowUpIcon, StopIcon, MenuIcon, AttachmentIcon, CopyIcon } from "./icons";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { useSidebar } from "./sidebar-provider";
@@ -26,6 +26,7 @@ import { parseRepositoryCommand } from "@/lib/commands";
 import { RepositorySearchResult, SearchRepositoryRequest } from "@/hooks/use-repository-status";
 import { RepositoryMentionMenu } from "./repository-mention-menu";
 import { ModelSelector } from "./model-selector";
+import { useAgentPanel } from "./agent-panel/agent-provider";
 
 interface MultimodalInputProps {
   chatId: string;
@@ -47,6 +48,7 @@ interface MultimodalInputProps {
   searchRepository: (repoName: AvailableRepository, query: SearchRepositoryRequest) => Promise<{ results: RepositorySearchResult[] }>;
   currentModel: string;
   onModelChange: (model: string) => void;
+  onCopyConversation: () => void;
 }
 
 const isValidMentionContext = (text: string): boolean => {
@@ -110,7 +112,8 @@ export function MultimodalInput({
   className,
   searchRepository,
   currentModel,
-  onModelChange
+  onModelChange,
+  onCopyConversation
 }: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { toggle, setIsOpen, isPinned, isOpen } = useSidebar();
@@ -125,6 +128,7 @@ export function MultimodalInput({
   });
   const [mentionSearchTerm, setMentionSearchTerm] = useState("");
   const [selectedMenuIndex, setSelectedMenuIndex] = useState(0);
+  const { toggle: toggleAgent, setIsOpen: setAgentOpen, isPinned: isAgentPinned, isOpen: isAgentOpen } = useAgentPanel();
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -387,7 +391,12 @@ export function MultimodalInput({
               <Button
                 variant="outline"
                 size="icon"
-                className="w-[120px] shrink-0 bg-background hover:bg-accent/50 transition-colors h-7 opacity-0 hover:opacity-100 transition-opacity duration-200"
+                className={cn(
+                  "h-7 w-[120px] shrink-0",
+                  "bg-background/50 hover:bg-accent/50",
+                  "border border-border/50 hover:border-border",
+                  "transition-all duration-200"
+                )}
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -404,8 +413,43 @@ export function MultimodalInput({
               <ModelSelector
                 currentModel={currentModel}
                 onModelChange={onModelChange}
-                className="w-[120px] opacity-0 hover:opacity-100 transition-opacity duration-200"
               />
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={cn(
+                    "h-7 w-[120px] shrink-0",
+                    "bg-background/50 hover:bg-accent/50",
+                    "border border-border/50 hover:border-border",
+                    "transition-all duration-200"
+                  )}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onCopyConversation();
+                  }}
+                  title="Copy conversation"
+                >
+                  <CopyIcon size={16} />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={cn(
+                    "h-7 w-[120px] shrink-0",
+                    "bg-background/50 hover:bg-accent/50",
+                    "border border-border/50 hover:border-border",
+                    "transition-all duration-200"
+                  )}
+                  onClick={() => {
+                    setAgentOpen(!isAgentOpen);
+                  }}
+                  title="Toggle Documentation"
+                >
+                  <MenuIcon size={16} />
+                </Button>
+              </div>
             </div>
 
             <div className="flex items-center gap-2">

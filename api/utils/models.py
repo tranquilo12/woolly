@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from typing import Literal, Dict, Any, List, Optional
 from pydantic import BaseModel
@@ -139,6 +139,9 @@ class Agent(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
 
+    # Add relationship to chats
+    chats = relationship("Chat", back_populates="agent")
+
 
 class Chat(Base):
     __tablename__ = "chats"
@@ -151,7 +154,7 @@ class Chat(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     user = relationship("User", back_populates="chats")
-    agent = relationship("Agent")
+    agent = relationship("Agent", back_populates="chats")
     messages = relationship("Message", back_populates="chat")
 
 
@@ -162,12 +165,13 @@ class Message(Base):
     chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id"))
     role = Column(String)
     content = Column(Text)
-    tool_invocations = Column(JSON, default=list)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    model = Column(String, nullable=True, default="gpt-4o")
+    model = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
     prompt_tokens = Column(Integer, nullable=True)
     completion_tokens = Column(Integer, nullable=True)
     total_tokens = Column(Integer, nullable=True)
+    tool_invocations = Column(JSON, nullable=True)
+    agent_id = Column(UUID(as_uuid=True), nullable=True)
 
     chat = relationship("Chat", back_populates="messages")
 
@@ -208,7 +212,7 @@ class AgentUpdate(BaseModel):
 
 
 class AgentResponse(BaseModel):
-    id: UUID
+    id: str
     name: str
     description: str
     system_prompt: str
@@ -217,7 +221,7 @@ class AgentResponse(BaseModel):
     is_active: bool
 
     class Config:
-        arbitrary_types_allowed = True
+        from_attributes = True
 
 
 # endregion

@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "ai/react";
-import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message, tool } from "ai";
+import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message } from "ai";
 import { MultimodalInput } from "./multimodal-input";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useState, useEffect, memo, useCallback, SetStateAction, Dispatch } from "react";
@@ -12,16 +12,14 @@ import { ToolInvocationDisplay } from "./tool-invocation";
 import { Markdown } from "./markdown";
 import { EditMessageInput } from "./edit-message-input";
 import { EditIndicator } from "./edit-indicator";
-import { ModelSelector } from "./model-selector";
 import { useChatTitle } from "./chat-title-context";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
 import { TokenCount } from "./token-count";
 import { MessageGroup } from "./message-group";
-import { CodeContextContainer } from "./code-context-container";
-import { CollapsibleCodeBlock } from "./collapsible-code-block";
 import { Button } from "@/components/ui/button";
-import { PencilIcon } from "lucide-react";
+import { PencilIcon, TrashIcon } from "lucide-react";
 import { ExtendedToolCall } from "@/types/tool-calls";
+import { useAgentPanel } from "./agent-panel/agent-provider";
 
 interface ChatProps {
   chatId?: string;
@@ -33,6 +31,8 @@ interface ChatMessageProps {
   onEditComplete: (message: MessageWithModel) => void;
   onModelChange: (model: string, messageId: string) => void;
   isFirstUserMessage?: boolean;
+  isOrphaned?: boolean;
+  onDelete?: () => void;
 }
 
 export interface MessageWithModel extends Message {
@@ -43,12 +43,15 @@ export interface MessageWithModel extends Message {
   data?: {
     dbId?: string;
   };
-  toolInvocations?: ExtendedToolCall[];
+  tool_invocations?: ExtendedToolCall[];
 }
 
 export function toMessage(messageWithModel: MessageWithModel): Message {
-  const { model, ...messageProps } = messageWithModel;
-  return messageProps;
+  const { model, tool_invocations, toolInvocations, ...messageProps } = messageWithModel;
+  return {
+    ...messageProps,
+    toolInvocations: tool_invocations || toolInvocations
+  };
 }
 
 export function toMessageWithModel(
@@ -62,13 +65,13 @@ export function toMessageWithModel(
     prompt_tokens: usage?.promptTokens,
     completion_tokens: usage?.completionTokens,
     total_tokens: usage?.totalTokens,
-    toolInvocations: message.toolInvocations as ExtendedToolCall[],
+    toolInvocations: (message.toolInvocations) as ExtendedToolCall[],
     data: { dbId: message.id }
   };
 }
 
 // Memoized Message component to prevent unnecessary re-renders
-const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFirstUserMessage }: ChatMessageProps) => {
+const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFirstUserMessage, isOrphaned, onDelete }: ChatMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
 
   const messageVariants = {
@@ -76,18 +79,6 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, y: -10 }
   };
-
-  // Add code block extraction logic
-  const getCodeBlocks = (content: string) => {
-    const codeBlockRegex = /```[\s\S]*?```/g;
-    return content.match(codeBlockRegex) || [];
-  };
-
-  const codeBlocks = getCodeBlocks(message.content);
-  const hasCodeContext = codeBlocks.length > 0;
-
-  // Separate code blocks from main content
-  const contentWithoutCode = message.content.replace(/```[\s\S]*?```/g, '');
 
   const handleEdit = async (newContent: string) => {
     if (!chatId || !message.id) return;
@@ -167,29 +158,8 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, delay: 0.1 }}
         >
-          {hasCodeContext && (
-            <div className="mb-4">
-              <CodeContextContainer codeBlockCount={codeBlocks.length} initiallyExpanded={false}>
-                <div className="space-y-2">
-                  {codeBlocks.map((block, index) => {
-                    const language = block.split('\n')[0].replace('```', '').trim();
-                    const code = block.split('\n').slice(1, -1).join('\n');
-                    return (
-                      <CollapsibleCodeBlock
-                        key={index}
-                        language={language || 'text'}
-                        value={code}
-                        initiallyExpanded={false}
-                      />
-                    );
-                  })}
-                </div>
-              </CodeContextContainer>
-            </div>
-          )}
-
           <div className="prose dark:prose-invert">
-            <Markdown>{contentWithoutCode}</Markdown>
+            <Markdown>{message.content}</Markdown>
           </div>
 
           {message.toolInvocations?.map((tool, index) => {
@@ -218,32 +188,40 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
           />
         </motion.div>
 
-        {message.role === "user" && !isFirstUserMessage && (
+        {message.role === "user" && (
           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            <motion.div
-              className="transition-opacity"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 p-0 hover:bg-accent/50 transition-colors"
-                onClick={() => setIsEditing(true)}
+            {!isFirstUserMessage && (
+              <motion.div
+                className="transition-opacity"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
               >
-                <PencilIcon className="h-4 w-4 text-muted-foreground" />
-              </Button>
-            </motion.div>
-            <motion.div
-              className="transition-opacity"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
-              <ModelSelector
-                currentModel={message.model || "gpt-4o"}
-                onModelChange={(model) => onModelChange(model, message.id)}
-              />
-            </motion.div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 p-0 hover:bg-accent/50 transition-colors"
+                  onClick={() => setIsEditing(true)}
+                >
+                  <PencilIcon className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </motion.div>
+            )}
+            {isOrphaned && onDelete && (
+              <motion.div
+                className="transition-opacity"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+              >
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 p-0 hover:bg-destructive/10 transition-colors"
+                  onClick={onDelete}
+                >
+                  <TrashIcon className="h-4 w-4 text-destructive" />
+                </Button>
+              </motion.div>
+            )}
           </div>
         )}
       </div>
@@ -260,6 +238,7 @@ export function Chat({ chatId }: ChatProps) {
   const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
   const [currentModel, setCurrentModel] = useState("gpt-4o");
+  const { isOpen: isAgentOpen, isPinned: isAgentPinned } = useAgentPanel();
 
   // Memoize repository status hooks
   const {
@@ -268,13 +247,6 @@ export function Chat({ chatId }: ChatProps) {
     getRepositoryMap,
     getRepositorySummary
   } = useRepositoryStatus();
-
-  // Memoize code context state
-  const [codeContextBlocks, setCodeContextBlocks] = useState<Array<{
-    language: string;
-    value: string;
-    filePath?: string;
-  }>>([]);
 
   // Fetch messages only when chatId changes
   useEffect(() => {
@@ -322,6 +294,8 @@ export function Chat({ chatId }: ChatProps) {
       id: chatId
     },
     onToolCall: async (tool) => {
+      // console.log('onToolCall', tool);
+
       setVercelMessages(prevMessages => {
         const lastMessage = prevMessages[prevMessages.length - 1];
         if (!lastMessage) return prevMessages;
@@ -491,7 +465,7 @@ export function Chat({ chatId }: ChatProps) {
       console.error('Failed to restream messages:', error);
       scrollToBottom({ force: true, behavior: 'auto' });
     }
-  }, [chatId, messages, setVercelMessages, scrollToBottom]);
+  }, [chatId, messages, setVercelMessages, vercelAppend, scrollToBottom]);
 
   const handleModelChange = useCallback(async (model: string, messageId: string) => {
     // Update the message's model in the database
@@ -544,58 +518,24 @@ export function Chat({ chatId }: ChatProps) {
     };
   }, [chatId, setTitle]);
 
-
-  const handleCodeContextUpdate = useCallback((message: MessageWithModel) => {
-    if (!message?.content) return;
-
-    // Extract code blocks from message content
-    const codeBlocks = message.content.match(/```[\s\S]*?```/g) || [];
-
-    const parsedBlocks = codeBlocks.map(block => {
-      const [firstLine, ...rest] = block.split('\n');
-      const language = firstLine.replace('```', '').trim();
-      const value = rest.slice(0, -1).join('\n');
-
-      const [lang, filePath] = language.split(':');
-
-      return {
-        language: lang,
-        value,
-        filePath
-      };
-    });
-
-    // Only update if blocks have changed
-    setCodeContextBlocks(prev => {
-      const prevString = JSON.stringify(prev);
-      const newString = JSON.stringify(parsedBlocks);
-      return prevString === newString ? prev : parsedBlocks;
-    });
-  }, []);
-
-  useEffect(() => {
-    // Only process the last assistant message for code blocks
-    const lastAssistantMessage = [...messages]
-      .reverse()
-      .find(msg => msg.role === 'assistant');
-
-    if (lastAssistantMessage) {
-      handleCodeContextUpdate(lastAssistantMessage as MessageWithModel);
-    }
-  }, [messages, handleCodeContextUpdate]);
-
-  const renderMessage = useCallback((message: MessageWithModel) => {
-    // Helper function to find the most complete tool invocation
-    const getMostCompleteToolInvocation = (toolInvocations: any[]) => {
-      // First, try to find a tool invocation with both args and result
-      const completeInvocation = toolInvocations.find(
-        tool => tool.args && tool.result && tool.state === "result"
+  const onDelete = useCallback(async (messageId: string) => {
+    if (!chatId || !messageId) return;
+    try {
+      await fetch(`/api/chat/${chatId}/messages/${messageId}`, {
+        method: 'DELETE',
+      });
+      // Update local messages state after successful deletion
+      setVercelMessages(prevMessages =>
+        prevMessages.filter(m => m.id !== messageId)
       );
+      toast.success('Message deleted');
+    } catch (error) {
+      console.error('Failed to delete message:', error);
+      toast.error('Failed to delete message');
+    }
+  }, [chatId, setVercelMessages]);
 
-      // If no complete invocation found, return the first one
-      return completeInvocation || toolInvocations[0];
-    };
-
+  const renderMessage = useCallback((message: MessageWithModel, isOrphaned?: boolean) => {
     // Skip rendering empty assistant messages only if they have no tool invocations
     if (
       message.role === 'assistant' &&
@@ -610,13 +550,7 @@ export function Chat({ chatId }: ChatProps) {
     }
 
     // Prepare tool invocations for rendering
-    let toolInvocationsToRender = message.toolInvocations;
-
-    // If we have no content but have tool invocations, select the most complete one
-    if (!message.content && message.toolInvocations && message.toolInvocations.length > 1) {
-      const mostComplete = getMostCompleteToolInvocation(message.toolInvocations);
-      toolInvocationsToRender = mostComplete ? [mostComplete] : undefined;
-    }
+    const toolInvocationsToRender = message.toolInvocations;
 
     // Check if this is the first user message
     const isFirstUserMessage = messages.find(m => m.role === 'user')?.id === message.id;
@@ -632,11 +566,14 @@ export function Chat({ chatId }: ChatProps) {
         onEditComplete={handleEditComplete}
         onModelChange={handleModelChange}
         isFirstUserMessage={isFirstUserMessage}
+        isOrphaned={isOrphaned}
+        onDelete={() => onDelete(message.id)}
       />
     );
-  }, [chatId, handleEditComplete, handleModelChange, messages]);
+  }, [chatId, handleEditComplete, handleModelChange, messages, onDelete]);
 
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
+
     if (message.role === 'user') {
       // Start a new group with user message
       groups.push([message as MessageWithModel]);
@@ -647,8 +584,27 @@ export function Chat({ chatId }: ChatProps) {
     return groups;
   }, []);
 
+  const copyConversationToClipboard = useCallback(async () => {
+    try {
+      const conversationJson = messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+
+      await navigator.clipboard.writeText(JSON.stringify(conversationJson, null, 2));
+      toast.success('Conversation copied to clipboard');
+    } catch (error) {
+      console.error('Failed to copy conversation:', error);
+      toast.error('Failed to copy conversation');
+    }
+  }, [messages]);
+
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
+    <div className={cn(
+      "flex flex-col h-[calc(100vh-4rem)]",
+      "transition-all duration-300 ease-in-out",
+      isAgentOpen && isAgentPinned && "transform -translate-x-[clamp(100px,10%,200px)]"
+    )}>
       {/* Message container */}
       <div
         ref={containerRef}
@@ -693,6 +649,7 @@ export function Chat({ chatId }: ChatProps) {
             searchRepository={searchRepository}
             currentModel={currentModel}
             onModelChange={setCurrentModel}
+            onCopyConversation={copyConversationToClipboard}
           />
         </div>
       </div>

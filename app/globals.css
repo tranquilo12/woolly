@@ -539,3 +539,52 @@
   transition: max-height 0.2s ease-out;
   overflow: hidden;
 }
+
+.agent-panel-container {
+  position: relative;
+  z-index: 40;
+}
+
+.agent-panel-toggle {
+  transition: transform 0.2s ease;
+}
+
+.agent-panel-toggle:hover {
+  transform: scale(1.05);
+}
+
+/* Update the content container styles */
+.content-container {
+  transition: all 0.3s ease-in-out;
+  width: 100%;
+  margin: 0 auto;
+  max-width: 100%;
+}
+
+/* Add styles for when panels are open */
+.content-container.with-agent {
+  width: calc(100% - clamp(400px, 35%, 800px));
+  margin-right: clamp(400px, 35%, 800px);
+}
+
+.content-container.with-sidebar {
+  width: calc(100% - clamp(250px, 20%, 300px));
+  margin-left: clamp(250px, 20%, 300px);
+}
+
+/* Adjust sidebar width */
+.sidebar {
+  width: clamp(250px, 20%, 300px);
+}
+
+/* Adjust agent panel width */
+.agent-panel {
+  width: clamp(400px, 35%, 800px);
+}
+
+/* Add smooth transitions */
+.sidebar,
+.agent-panel,
+.content-container {
+  transition: all 0.3s ease-in-out;
+}

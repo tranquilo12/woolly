@@ -1,4 +1,4 @@
-import { CoreToolCall, Message } from "ai";
+import { CoreToolCall } from "ai";
 
 export interface ExtendedToolCall extends CoreToolCall<string, unknown> {
 	state: "call" | "partial-call";
@@ -33,7 +33,3 @@ export interface StreamingToolCallEvent {
 		result?: any;
 	};
 }
-
-export interface MessageWithToolInvocations extends Message {
-	toolInvocations?: ExtendedToolCall[];
-} 

@@ -25,11 +25,13 @@ import uuid
 from sqlalchemy.orm import Session
 from .utils.database import get_db
 from datetime import datetime, timezone, timedelta
+from .routers import agents
 
 
 load_dotenv(".env.local")
 
 app = FastAPI()
+app.include_router(agents.router, prefix="/api")
 
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
@@ -220,7 +222,7 @@ def stream_text(
                         # First, append to tool_invocations for database
                         tool_invocations.append(
                             {
-                                "id": tool_call["id"],
+                                "toolCallId": tool_call["id"],
                                 "toolName": tool_call["name"],
                                 "args": parsed_args,
                                 "result": tool_result,
@@ -402,27 +404,17 @@ async def update_chat_title(
 # Message Operations
 @app.get("/api/chat/{chat_id}/messages")
 async def get_chat_messages(chat_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Fetch all messages for a specific chat"""
+    """Get all messages for a chat, excluding agent messages"""
     messages = (
         db.query(Message)
-        .filter(Message.chat_id == chat_id)
-        .order_by(Message.created_at.asc())
+        .filter(
+            Message.chat_id == chat_id,
+            Message.agent_id.is_(None),  # Only get non-agent messages
+        )
+        .order_by(Message.created_at)
         .all()
     )
-
-    return [
-        {
-            "id": str(message.id),
-            "role": message.role,
-            "content": message.content,
-            "created_at": message.created_at.isoformat(),
-            "toolInvocations": message.tool_invocations or [],
-            "prompt_tokens": message.prompt_tokens,
-            "completion_tokens": message.completion_tokens,
-            "total_tokens": message.total_tokens,
-        }
-        for message in messages
-    ]
+    return messages
 
 
 @app.post("/api/chat/{chat_id}/messages/save")
@@ -626,4 +618,52 @@ async def update_message_model(
         db.rollback()
         raise HTTPException(
             status_code=500, detail=f"Failed to update message model: {str(e)}"
+        )
+
+
+@app.get("/api/chat/{chat_id}/agent/{agent_id}/messages")
+async def get_agent_messages(
+    chat_id: uuid.UUID, agent_id: uuid.UUID, db: Session = Depends(get_db)
+):
+    """Get all messages for a specific agent in a chat"""
+    messages = (
+        db.query(Message)
+        .filter(Message.chat_id == chat_id, Message.agent_id == agent_id)
+        .order_by(Message.created_at)
+        .all()
+    )
+    return messages
+
+
+@app.get("/api/docs_system_prompt.txt")
+async def get_docs_system_prompt():
+    with open("./api/docs_system_prompt.txt", "r") as file:
+        return file.read()
+
+
+@app.delete("/api/chat/{chat_id}/messages/{message_id}")
+async def delete_message(
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
+    """Delete a specific message from a chat"""
+    try:
+        # Find and delete the message
+        result = (
+            db.query(Message)
+            .filter(Message.chat_id == chat_id, Message.id == message_id)
+            .delete()
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Message not found")
+
+        db.commit()
+        return {"success": True}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete message: {str(e)}"
         )
