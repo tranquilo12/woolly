@@ -1,0 +1,196 @@
+# Repository Mermaid Diagram Generation System
+
+Please analyze the provided repository and generate comprehensive Mermaid diagrams following this structured approach:
+
+## 1. REPOSITORY STRUCTURE ANALYSIS
+Generate a directory structure diagram showing:
+- Main directories and their relationships
+- Key configuration files
+- Important source files
+- Test directories
+- Resource locations
+
+Example structure diagram:
+```mermaid
+graph TD
+    A[Root Directory] --> B[src/]
+    A --> C[tests/]
+    B --> D[components/]
+    B --> E[utils/]
+```
+
+## 2. COMPONENT RELATIONSHIPS
+For each major component/module:
+
+A. Dependencies Diagram
+- Show import relationships between modules
+- Highlight circular dependencies
+- Mark external dependencies
+- Show dependency direction
+
+B. Class/Interface Hierarchy
+- Class inheritance structures
+- Interface implementations
+- Abstract class relationships
+- Composition relationships
+
+Example component diagram:
+```mermaid
+classDiagram
+    class BaseComponent
+    class ChildComponent
+    BaseComponent <|-- ChildComponent
+```
+
+## 3. DATA FLOW VISUALIZATION
+
+A. Process Flows
+- Main application flows
+- Data transformation pipelines
+- Error handling paths
+- Async operations
+
+B. State Transitions
+- Component state changes
+- Application state management
+- Event handling flows
+
+Example flow diagram:
+```mermaid
+sequenceDiagram
+    participant User
+    participant Component
+    participant API
+```
+
+## 4. ARCHITECTURE OVERVIEW
+
+A. System Architecture
+- High-level system components
+- External service connections
+- Database relationships
+- API endpoints
+
+B. Deployment Architecture
+- Service deployment structure
+- Infrastructure components
+- Network connections
+- Security boundaries
+
+Example architecture diagram:
+```mermaid
+graph LR
+    A[Web Layer] --> B[Service Layer]
+    B --> C[Data Layer]
+```
+
+## LANGUAGE-SPECIFIC CONSIDERATIONS
+
+FOR PYTHON:
+- Show package imports structure
+- Display class hierarchies
+- Illustrate decorator relationships
+- Map async flows
+- Show type hint relationships
+
+FOR TYPESCRIPT:
+- Show interface implementations
+- Display component hierarchy
+- Map prop drilling
+- Illustrate state management flow
+- Show type relationships
+
+## DIAGRAM REQUIREMENTS
+
+1. Basic Rules:
+   - Use clear, descriptive labels
+   - Include diagram title and description
+   - Use consistent naming conventions
+   - Add comments for complex relationships
+   - Keep diagrams focused and not overcrowded
+
+2. Color Coding:
+   - Use colors to distinguish:
+     * Core components
+     * External dependencies
+     * Different layers
+     * Critical paths
+     * Error flows
+
+3. Layout:
+   - Organize elements logically
+   - Group related components
+   - Show clear direction of flow
+   - Minimize crossing lines
+   - Use appropriate spacing
+
+4. Documentation:
+   - Each diagram must include:
+     * Title
+     * Brief description
+     * Legend if using special notation
+     * Version/date
+     * Key assumptions
+
+## ANALYSIS STEPS
+
+1. Initial Scan:
+   - Analyze project structure
+   - Identify main components
+   - List external dependencies
+   - Note configuration files
+
+2. Relationship Analysis:
+   - Map import dependencies
+   - Identify component hierarchies
+   - Document data flows
+   - Note API contracts
+
+3. Diagram Generation:
+   - Create structure diagram
+   - Generate component relationships
+   - Map data flows
+   - Document architecture
+
+4. Review and Refine:
+   - Verify accuracy
+   - Simplify complex diagrams
+   - Add missing relationships
+   - Improve clarity
+
+## OUTPUT FORMAT
+
+For each diagram:
+1. Title and description
+2. Mermaid code block
+3. Legend explaining symbols
+4. Notes about important relationships
+5. Any assumptions made
+6. Related diagrams reference
+
+Example output structure:
+```markdown
+### Component Relationship Diagram
+Description: Shows the relationship between core system components.
+
+```mermaid
+// diagram code here
+```
+
+Legend:
+- 🔷 Core component
+- 🔶 External dependency
+- ➡️ Depends on
+- 🔄 Bidirectional relationship
+
+Notes:
+- Component A is the main entry point
+- External services are marked in orange
+```
+
+Please generate diagrams in order of importance:
+1. Repository structure
+2. Core component relationships
+3. Main data flows
+4. Architecture overview
+5. Additional specific flows as needed

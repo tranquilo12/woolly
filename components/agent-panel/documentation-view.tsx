@@ -19,19 +19,14 @@ interface DocumentationViewProps {
 	chat_id: string;
 }
 
-interface AgentMessage {
-	id: string;
-	content: string;
-	role: string;
-	created_at: string;
-	agent_id: string;
-}
-
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
-
-	// Replace useState and useEffect with React Query
-	const { data: initialMessages = [], isError } = useAgentMessages(chat_id, agent_id);
+	const { data: initialMessages, isError, isLoading: isLoadingInitial, saveMessage } = useAgentMessages(
+		chat_id,
+		agent_id,
+		repo_name,
+		'documentation'
+	);
 
 	const {
 		messages: streamingMessages,
@@ -44,19 +39,37 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		api: `/api/agents/${agent_id}/documentation`,
 		id: chat_id,
 		initialMessages,
+		onFinish: (message) => {
+			saveMessage({
+				agentId: agent_id,
+				chatId: chat_id,
+				repository: repo_name,
+				messageType: 'documentation',
+				role: message.role,
+				content: message.content,
+			});
+		},
 		body: {
 			id: chat_id,
-			model: "gpt-4o-mini",
-			agent_id,
-			repo_name,
-			file_paths,
-			chat_id,
-		}
+			repository: repo_name,
+		},
 	});
 
+	if (isLoadingInitial) {
+		return <div className="flex items-center justify-center h-full">
+			<Loader2 className="h-8 w-8 animate-spin" />
+		</div>;
+	}
+
+	if (isError) {
+		return <div className="flex items-center justify-center h-full text-destructive">
+			Failed to load messages. Please try again.
+		</div>;
+	}
+
 	// Ensure no duplicate messages by using message IDs
-	const allMessages = [...initialMessages, ...streamingMessages].reduce((acc, message) => {
-		const exists = acc.find(m => m.id === message.id);
+	const allMessages = [...initialMessages, ...streamingMessages].reduce((acc: Message[], message: Message) => {
+		const exists = acc.find((m: Message) => m.id === message.id);
 		if (!exists) {
 			acc.push(message);
 		}
@@ -106,37 +119,46 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	};
 
 	return (
-		<div className="flex flex-col gap-4 h-full">
-			<div className="flex items-center justify-between">
-				<Button
-					size="sm"
-					onClick={handleGenerateDoc}
-					disabled={isLoading}
-				>
-					{isLoading ? (
-						<>
-							<Loader2 className="h-4 w-4 animate-spin mr-2" />
-							Generating...
-						</>
-					) : (
-						'Generate Documentation'
-					)}
-				</Button>
-				{isLoading && (
+		<div className="flex flex-col h-full overflow-hidden">
+			<div className="flex-none p-4 space-y-4 border-b">
+				<h2 className="text-lg font-semibold">Documentation</h2>
+				<p className="text-sm text-muted-foreground">
+					Generate comprehensive documentation for your codebase.
+				</p>
+				<div className="flex items-center gap-2">
 					<Button
-						size="sm"
-						variant="ghost"
-						onClick={() => stop()}
-						className="gap-2"
+						variant="outline"
+						onClick={handleGenerateDoc}
+						disabled={isLoading}
 					>
-						<Loader2 className="h-4 w-4 animate-spin" />
-						Stop
+						{isLoading ? (
+							<>
+								<Loader2 className="h-4 w-4 animate-spin mr-2" />
+								Generating...
+							</>
+						) : (
+							'Generate Documentation'
+						)}
 					</Button>
-				)}
+					{isLoading && (
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={() => stop()}
+							className="gap-2"
+						>
+							<Loader2 className="h-4 w-4 animate-spin" />
+							Stop
+						</Button>
+					)}
+				</div>
 			</div>
 
-			<ScrollArea className="flex-1">
-				<div ref={containerRef} className="p-4 space-y-4">
+			<ScrollArea className="flex-1 w-full h-[calc(100%-120px)]">
+				<div
+					ref={containerRef}
+					className="p-4 space-y-4"
+				>
 					<AnimatePresence mode="popLayout">
 						{allMessages.map(renderMessage)}
 					</AnimatePresence>
@@ -156,4 +178,4 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			</ScrollArea>
 		</div>
 	);
-} 
+}

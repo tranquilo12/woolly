@@ -12,7 +12,8 @@ from openai import AsyncOpenAI
 from pydantic_ai.models.openai import ModelResponse, TextPart
 from pydantic import ConfigDict, Field, BaseModel
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, AsyncGenerator
+
 from ..utils.database import get_db
 from ..utils.models import Agent, AgentCreate, AgentUpdate, AgentResponse, Message
 from datetime import datetime, timezone
@@ -24,26 +25,38 @@ router = APIRouter()
 
 # region Agent CRUD
 @router.post("/agents", response_model=AgentResponse)
-async def create_agent(agent: AgentCreate, db: Session = Depends(get_db)):
+async def create_agent(
+    agent: AgentCreate,
+    db: Session = Depends(get_db),
+):
     try:
+        # Convert tools list to JSON string for database storage
+        tools_json = json.dumps(agent.tools)
+
         db_agent = Agent(
             name=agent.name,
             description=agent.description,
             system_prompt=agent.system_prompt,
-            tools=agent.tools,
+            tools=tools_json,
+            repository=agent.repository,
         )
+
         db.add(db_agent)
         db.commit()
         db.refresh(db_agent)
+
+        # Parse the JSON string back to a list for the response
+        tools_list = json.loads(db_agent.tools)
 
         return AgentResponse(
             id=str(db_agent.id),
             name=db_agent.name,
             description=db_agent.description,
             system_prompt=db_agent.system_prompt,
-            tools=db_agent.tools,
+            tools=tools_list,  # Pass the parsed list instead of JSON string
             created_at=db_agent.created_at,
             is_active=db_agent.is_active,
+            repository=db_agent.repository,
         )
     except IntegrityError as e:
         db.rollback()
@@ -53,11 +66,28 @@ async def create_agent(agent: AgentCreate, db: Session = Depends(get_db)):
                 status_code=409, detail="An agent with this name already exists"
             )
         raise
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Failed to process tools data")
 
 
 @router.get("/agents", response_model=List[AgentResponse])
 async def list_agents(db: Session = Depends(get_db)):
-    return db.query(Agent).filter(Agent.is_active == True).all()
+    agents = db.query(Agent).filter(Agent.is_active == True).all()
+
+    # Convert each agent's tools from JSON string to list
+    return [
+        AgentResponse(
+            id=str(agent.id),
+            name=agent.name,
+            description=agent.description,
+            system_prompt=agent.system_prompt,
+            tools=json.loads(agent.tools),
+            created_at=agent.created_at,
+            is_active=agent.is_active,
+            repository=agent.repository,
+        )
+        for agent in agents
+    ]
 
 
 @router.get("/agents/{agent_id}", response_model=AgentResponse)
@@ -231,7 +261,7 @@ class DocumentationRequest(BaseModel):
     chat_id: UUID  # New field
 
 
-async def stream_response(request: DocumentationRequest, db: Session):
+async def stream_documentation_response(request: DocumentationRequest, db: Session):
     base_prompt = f"Generate documentation for {request.repo_name}"
     if request.messages:
         user_messages = [
@@ -284,12 +314,12 @@ async def stream_response(request: DocumentationRequest, db: Session):
                         model=request.model,
                         db=db,
                         agent_id=request.agent_id,
+                        repository=request.repo_name,
+                        message_type="documentation",
                     )
 
-                    if result.usage:
-                        yield f"e:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': result.usage.prompt_tokens, 'completionTokens': result.usage.completion_tokens}})}\n"
-                    else:
-                        yield f"e:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': 0, 'completionTokens': 0}})}\n"
+                    usage = await result.usage()
+                    yield f"e:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': usage.request_tokens, 'completionTokens': usage.response_tokens, 'totalTokens': usage.total_tokens}})}\n"
 
     except Exception as e:
         logging.error(f"Stream error: {e}")
@@ -303,6 +333,8 @@ async def save_documentation_message(
     model: str,
     db: Session,
     agent_id: UUID,
+    repository: str,
+    message_type: str,
 ) -> Message:
     """Save documentation message to database"""
     try:
@@ -315,6 +347,8 @@ async def save_documentation_message(
             created_at=datetime.now(timezone.utc),
             tool_invocations=[],
             agent_id=agent_id,
+            repository=repository,
+            message_type=message_type,
         )
 
         db.add(message)
@@ -324,7 +358,12 @@ async def save_documentation_message(
         # Verify message was saved
         saved_message = (
             db.query(Message)
-            .filter(Message.id == message.id, Message.agent_id == agent_id)
+            .filter(
+                Message.id == message.id,
+                Message.agent_id == agent_id,
+                Message.repository == repository,
+                Message.message_type == message_type,
+            )
             .first()
         )
 
@@ -336,9 +375,6 @@ async def save_documentation_message(
         db.rollback()
         logging.error(f"Error saving message: {str(e)}")
         raise
-
-
-# endregion
 
 
 @router.post("/agents/{agent_id}/documentation")
@@ -359,8 +395,235 @@ async def generate_documentation(
         )
 
     response = StreamingResponse(
-        stream_response(request, db),
+        stream_documentation_response(request, db),
         headers={"x-vercel-ai-data-stream": "v1"},
     )
 
     return response
+
+
+# endregion
+
+
+# region Mermaid
+
+
+class MermaidRequest(BaseModel):
+    id: str  # chat_id
+    repository: str
+    content: Optional[str] = None
+
+
+mermaid_agent = PydanticAgent(
+    model=gpt_4o_mini,
+    deps_type=CodeSearch,
+    result_type=str,
+    system_prompt=Path("api/mermaid_system_prompt.txt").read_text(),
+)
+
+
+async def save_mermaid_message(
+    chat_id: UUID,
+    content: str,
+    role: str,
+    model: str,
+    db: Session,
+    agent_id: UUID,
+    repository: str,
+    message_type: str,
+) -> Message:
+    """Save mermaid message to database"""
+    try:
+        message = Message(
+            id=uuid.uuid4(),
+            chat_id=chat_id,
+            content=content,
+            role=role,
+            model=model,
+            created_at=datetime.now(timezone.utc),
+            tool_invocations=[],
+            agent_id=agent_id,
+            repository=repository,
+            message_type=message_type,
+        )
+
+        db.add(message)
+        db.commit()
+        db.refresh(message)
+
+        # Verify message was saved
+        saved_message = (
+            db.query(Message)
+            .filter(
+                Message.id == message.id,
+                Message.agent_id == agent_id,
+                Message.repository == repository,
+                Message.message_type == message_type,
+            )
+            .first()
+        )
+
+        if not saved_message:
+            raise Exception("Message not saved correctly")
+
+        return message
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error saving message: {str(e)}")
+        raise
+
+
+async def stream_mermaid_response(
+    request: MermaidRequest, db: Session
+) -> AsyncGenerator[str, None]:
+
+    base_prompt = f"Generate a Mermaid diagram for {request.repository}"
+    if request.messages:
+        user_messages = [
+            message["content"]
+            for message in request.messages
+            if message["role"] == "user"
+        ]
+        if user_messages:
+            user_prompt = f"{base_prompt}\n\nHere is some additional context:\n\n{'\n\n'.join(user_messages)}"
+        else:
+            user_prompt = base_prompt
+    else:
+        user_prompt = base_prompt
+
+    code_search_query = CodeSearch(
+        query="*",
+        repo_name=request.repository,
+    )
+
+    last_content = ""  # Track the last content we've seen
+    try:
+        async with mermaid_agent.run_stream(
+            user_prompt=user_prompt,
+            result_type=str,
+            deps=code_search_query,
+        ) as result:
+            async for message, last in result.stream_structured(debounce_by=0.01):
+                try:
+                    if isinstance(message, ModelResponse) and message.parts:
+                        for part in message.parts:
+                            if isinstance(part, TextPart):
+                                # Calculate the delta from the last content
+                                current_content = part.content
+                                delta = current_content[len(last_content) :]
+                                if delta:  # Only yield if there's new content
+                                    yield f"0:{json.dumps(delta)}\n"
+                                    last_content = current_content
+
+                except Exception as e:
+                    logging.error(f"Error processing message: {e}")
+                    continue
+
+                if last:
+                    complete_content = "\n".join(
+                        [part.content for part in message.parts]
+                    )
+                    await save_mermaid_message(
+                        chat_id=request.id,
+                        content=complete_content,
+                        role="assistant",
+                        model="gpt-4o-mini",
+                        db=db,
+                        agent_id=request.agent_id,
+                        repository=request.repository,
+                        message_type="mermaid",
+                    )
+
+                    usage = await result.usage()
+                    yield f"e:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': usage.request_tokens, 'completionTokens': usage.response_tokens, 'totalTokens': usage.total_tokens}})}\n"
+
+    except Exception as e:
+        logging.error(f"Error in stream_mermaid_response: {e}")
+        raise
+
+
+@router.post("/agents/{agent_id}/mermaid")
+async def generate_mermaid(
+    agent_id: UUID,
+    request: MermaidRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        agent = db.query(Agent).filter(Agent.id == str(agent_id)).first()
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Create initial message
+        if request.content:
+            db_message = Message(
+                chat_id=request.id,
+                agent_id=str(agent_id),
+                repository=request.repository,
+                message_type="mermaid",
+                role="user",
+                content=request.content,
+            )
+            db.add(db_message)
+            db.commit()
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Add new model for messages
+class MessageCreate(BaseModel):
+    chat_id: str
+    agent_id: UUID
+    repository: str
+    message_type: str  # 'documentation' or 'mermaid'
+    role: str
+    content: str
+
+
+@router.post("/agents/{agent_id}/messages")
+async def save_message(
+    agent_id: UUID,
+    message: MessageCreate,
+    db: Session = Depends(get_db),
+):
+    try:
+        db_message = Message(
+            chat_id=message.chat_id,
+            agent_id=str(agent_id),
+            repository=message.repository,
+            message_type=message.message_type,
+            role=message.role,
+            content=message.content,
+        )
+        db.add(db_message)
+        db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/agents/{agent_id}/messages")
+async def get_messages(
+    agent_id: UUID,
+    chat_id: str,
+    repository: str,
+    message_type: str,
+    db: Session = Depends(get_db),
+):
+    messages = (
+        db.query(Message)
+        .filter(
+            Message.agent_id == str(agent_id),
+            Message.chat_id == chat_id,
+            Message.repository == repository,
+            Message.message_type == message_type,
+        )
+        .order_by(Message.created_at.asc())
+        .all()
+    )
+    return messages
+
+
+# endregion

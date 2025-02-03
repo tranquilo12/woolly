@@ -1,28 +1,48 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-interface AgentMessage {
-	id: string;
-	content: string;
+interface SaveMessageParams {
+	agentId: string;
+	chatId: string;
+	repository: string;
+	messageType: 'documentation' | 'mermaid';
 	role: string;
-	created_at: string;
-	agent_id: string;
+	content: string;
 }
 
-export function useAgentMessages(chatId: string, agentId: string) {
-	return useQuery({
-		queryKey: ['agent-messages', chatId, agentId],
-		queryFn: async () => {
-			const response = await fetch(`/api/chat/${chatId}/agent/${agentId}/messages`);
-			if (!response.ok) throw new Error('Failed to fetch agent messages');
-			const messages: AgentMessage[] = await response.json();
+export function useAgentMessages(chatId: string, agentId: string, repository: string, messageType: 'documentation' | 'mermaid') {
+	const queryClient = useQueryClient();
 
-			return messages.map(msg => ({
-				id: msg.id,
-				content: msg.content,
-				role: msg.role as "system" | "user" | "assistant" | "data",
-				createdAt: new Date(msg.created_at)
-			}));
+	const { data, isError, isLoading } = useQuery({
+		queryKey: ['messages', chatId, agentId, repository, messageType],
+		queryFn: async () => {
+			const response = await fetch(
+				`/api/agents/${agentId}/messages?chat_id=${chatId}&repository=${repository}&message_type=${messageType}`
+			);
+			if (!response.ok) throw new Error('Failed to fetch messages');
+			return response.json();
 		},
-		staleTime: 30000, // Consider data fresh for 30 seconds
+		enabled: !!chatId && !!agentId && !!repository,
 	});
+
+	const { mutate: saveMessage } = useMutation({
+		mutationFn: async (params: SaveMessageParams) => {
+			const response = await fetch(`/api/agents/${params.agentId}/messages`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(params),
+			});
+			if (!response.ok) throw new Error('Failed to save message');
+			return response.json();
+		},
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ['messages', chatId, agentId, repository, messageType] as const });
+		},
+	});
+
+	return {
+		data,
+		isError,
+		isLoading,
+		saveMessage,
+	};
 } 
