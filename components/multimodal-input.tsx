@@ -387,40 +387,46 @@ export function MultimodalInput({
       <div ref={containerRef} className="relative">
         <div className="p-4">
           <div className="mx-auto max-w-3xl relative flex flex-col gap-2">
-            <div className="flex justify-between items-center mb-2">
-              <Button
-                variant="outline"
-                size="icon"
-                className={cn(
-                  "h-7 w-[120px] shrink-0",
-                  "bg-background/50 hover:bg-accent/50",
-                  "border border-border/50 hover:border-border",
-                  "transition-all duration-200"
-                )}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (isOpen && !isPinned) {
-                    setIsOpen(false);
-                  } else if (!isPinned) {
-                    toggle();
-                  }
-                }}
-              >
-                <MenuIcon size={16} />
-              </Button>
-
-              <ModelSelector
-                currentModel={currentModel}
-                onModelChange={onModelChange}
-              />
-
+            <div className="flex justify-between items-center mb-2 gap-2">
+              {/* Left side buttons */}
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="icon"
                   className={cn(
-                    "h-7 w-[120px] shrink-0",
+                    "h-7 w-9",
+                    "bg-background/50 hover:bg-accent/50",
+                    "border border-border/50 hover:border-border",
+                    "transition-all duration-200"
+                  )}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (isOpen && !isPinned) {
+                      setIsOpen(false);
+                    } else if (!isPinned) {
+                      toggle();
+                    }
+                  }}
+                  title="Toggle Sidebar"
+                >
+                  <MenuIcon size={16} />
+                </Button>
+              </div>
+
+              {/* Center - Model Selector */}
+              <ModelSelector
+                currentModel={currentModel}
+                onModelChange={onModelChange}
+              />
+
+              {/* Right side buttons */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={cn(
+                    "h-7 w-9",
                     "bg-background/50 hover:bg-accent/50",
                     "border border-border/50 hover:border-border",
                     "transition-all duration-200"
@@ -429,15 +435,16 @@ export function MultimodalInput({
                     e.preventDefault();
                     onCopyConversation();
                   }}
-                  title="Copy conversation"
+                  title="Copy Conversation"
                 >
                   <CopyIcon size={16} />
                 </Button>
+
                 <Button
                   variant="outline"
                   size="icon"
                   className={cn(
-                    "h-7 w-[120px] shrink-0",
+                    "h-7 w-9",
                     "bg-background/50 hover:bg-accent/50",
                     "border border-border/50 hover:border-border",
                     "transition-all duration-200"
