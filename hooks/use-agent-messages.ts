@@ -26,10 +26,19 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 
 	const { mutate: saveMessage } = useMutation({
 		mutationFn: async (params: SaveMessageParams) => {
+			const messageData = {
+				chat_id: params.chatId,
+				agent_id: params.agentId,
+				repository: params.repository,
+				message_type: params.messageType,
+				role: params.role,
+				content: params.content
+			};
+
 			const response = await fetch(`/api/agents/${params.agentId}/messages`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(params),
+				body: JSON.stringify(messageData)
 			});
 			if (!response.ok) throw new Error('Failed to save message');
 			return response.json();

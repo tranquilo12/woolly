@@ -294,7 +294,7 @@ async def stream_documentation_response(request: DocumentationRequest, db: Sessi
                                 # Calculate the delta from the last content
                                 current_content = part.content
                                 delta = current_content[len(last_content) :]
-                                if delta:  # Only yield if there's new content
+                                if delta:
                                     yield f"0:{json.dumps(delta)}\n"
                                     last_content = current_content
 
@@ -318,12 +318,33 @@ async def stream_documentation_response(request: DocumentationRequest, db: Sessi
                         message_type="documentation",
                     )
 
-                    usage = await result.usage()
-                    yield f"e:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': usage.request_tokens, 'completionTokens': usage.response_tokens, 'totalTokens': usage.total_tokens}})}\n"
+                    # Fix: Get usage stats safely
+                    try:
+                        usage_stats = result.usage()
+                        usage_data = {
+                            "promptTokens": (
+                                usage_stats.request_tokens if usage_stats else 0
+                            ),
+                            "completionTokens": (
+                                usage_stats.response_tokens if usage_stats else 0
+                            ),
+                            "totalTokens": (
+                                usage_stats.total_tokens if usage_stats else 0
+                            ),
+                        }
+                    except Exception as e:
+                        logging.error(f"Failed to get usage stats: {e}")
+                        usage_data = {
+                            "promptTokens": 0,
+                            "completionTokens": 0,
+                            "totalTokens": 0,
+                        }
+
+                    yield f"e:{json.dumps({'finishReason': 'stop', 'usage': usage_data})}\n"
 
     except Exception as e:
         logging.error(f"Stream error: {e}")
-        yield f"e:{json.dumps({'finishReason': 'error', 'usage': {'promptTokens': 0, 'completionTokens': 0}})}\n"
+        yield f"e:{json.dumps({'finishReason': 'error', 'usage': {'promptTokens': 0, 'completionTokens': 0, 'totalTokens': 0}})}\n"
 
 
 async def save_documentation_message(
@@ -383,22 +404,10 @@ async def generate_documentation(
     request: DocumentationRequest,
     db: Session = Depends(get_db),
 ):
-    # Save initial user message if it exists
-    if request.messages and request.messages[-1]["role"] == "user":
-        await save_documentation_message(
-            chat_id=request.chat_id,
-            content=request.messages[-1]["content"],
-            role="user",
-            model=request.model,
-            db=db,
-            agent_id=agent_id,
-        )
-
     response = StreamingResponse(
         stream_documentation_response(request, db),
         headers={"x-vercel-ai-data-stream": "v1"},
     )
-
     return response
 
 
@@ -412,6 +421,8 @@ class MermaidRequest(BaseModel):
     id: str  # chat_id
     repository: str
     content: Optional[str] = None
+    messages: Optional[List[dict]] = []
+    agent_id: Optional[UUID] = None
 
 
 mermaid_agent = PydanticAgent(
@@ -478,18 +489,17 @@ async def stream_mermaid_response(
 ) -> AsyncGenerator[str, None]:
 
     base_prompt = f"Generate a Mermaid diagram for {request.repository}"
-    if request.messages:
+
+    # Safely handle messages
+    user_prompt = base_prompt
+    if hasattr(request, "messages") and request.messages:
         user_messages = [
             message["content"]
             for message in request.messages
-            if message["role"] == "user"
+            if message.get("role") == "user"
         ]
         if user_messages:
             user_prompt = f"{base_prompt}\n\nHere is some additional context:\n\n{'\n\n'.join(user_messages)}"
-        else:
-            user_prompt = base_prompt
-    else:
-        user_prompt = base_prompt
 
     code_search_query = CodeSearch(
         query="*",
@@ -534,12 +544,31 @@ async def stream_mermaid_response(
                         message_type="mermaid",
                     )
 
-                    usage = await result.usage()
-                    yield f"e:{json.dumps({'finishReason': 'stop', 'usage': {'promptTokens': usage.request_tokens, 'completionTokens': usage.response_tokens, 'totalTokens': usage.total_tokens}})}\n"
+                    try:
+                        usage_stats = result.usage()
+                        usage_data = {
+                            "promptTokens": (
+                                usage_stats.request_tokens if usage_stats else 0
+                            ),
+                            "completionTokens": (
+                                usage_stats.response_tokens if usage_stats else 0
+                            ),
+                            "totalTokens": (
+                                usage_stats.total_tokens if usage_stats else 0
+                            ),
+                        }
+                    except Exception as e:
+                        logging.error(f"Failed to get usage stats: {e}")
+                        usage_data = {
+                            "promptTokens": 0,
+                            "completionTokens": 0,
+                            "totalTokens": 0,
+                        }
+                    yield f"e:{json.dumps({'finishReason': 'stop', 'usage': usage_data})}\n"
 
     except Exception as e:
         logging.error(f"Error in stream_mermaid_response: {e}")
-        raise
+        yield f"e:{json.dumps({'finishReason': 'error', 'usage': {'promptTokens': 0, 'completionTokens': 0, 'totalTokens': 0}})}\n"
 
 
 @router.post("/agents/{agent_id}/mermaid")
@@ -553,18 +582,12 @@ async def generate_mermaid(
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
 
-        # Create initial message
-        if request.content:
-            db_message = Message(
-                chat_id=request.id,
-                agent_id=str(agent_id),
-                repository=request.repository,
-                message_type="mermaid",
-                role="user",
-                content=request.content,
-            )
-            db.add(db_message)
-            db.commit()
+        # Return streaming response
+        response = StreamingResponse(
+            stream_mermaid_response(request, db),
+            headers={"x-vercel-ai-data-stream": "v1"},
+        )
+        return response
 
     except Exception as e:
         db.rollback()
@@ -574,7 +597,7 @@ async def generate_mermaid(
 # Add new model for messages
 class MessageCreate(BaseModel):
     chat_id: str
-    agent_id: UUID
+    agent_id: str  # Change from UUID to str to match database schema
     repository: str
     message_type: str  # 'documentation' or 'mermaid'
     role: str
@@ -588,19 +611,23 @@ async def save_message(
     db: Session = Depends(get_db),
 ):
     try:
+        # Create a new message with proper ID
         db_message = Message(
+            id=uuid.uuid4(),  # Add explicit ID
             chat_id=message.chat_id,
-            agent_id=str(agent_id),
+            agent_id=str(agent_id),  # Convert UUID to string
             repository=message.repository,
             message_type=message.message_type,
             role=message.role,
             content=message.content,
+            created_at=datetime.now(timezone.utc),  # Add timestamp
         )
         db.add(db_message)
         db.commit()
-        return {"status": "success"}
+        return {"status": "success", "message_id": str(db_message.id)}
     except Exception as e:
         db.rollback()
+        logging.error(f"Failed to save message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

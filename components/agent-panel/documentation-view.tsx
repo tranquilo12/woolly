@@ -51,7 +51,12 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		},
 		body: {
 			id: chat_id,
-			repository: repo_name,
+			messages: initialMessages,
+			model: "gpt-4o-mini",
+			agent_id: agent_id,
+			repo_name: repo_name,
+			file_paths: file_paths,
+			chat_id: chat_id,
 		},
 	});
 

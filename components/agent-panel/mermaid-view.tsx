@@ -96,7 +96,7 @@ export function MermaidView({ className, currentChatId, selectedRepo, agentId }:
 		initialMessages,
 		onFinish: (message) => {
 			saveMessage({
-				agentId,
+				agentId: agentId,
 				chatId: currentChatId,
 				repository: selectedRepo,
 				messageType: 'mermaid',
