@@ -3,7 +3,7 @@
 import { useChat } from 'ai/react';
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
-import { Bot, Loader2 } from "lucide-react";
+import { Bot, Loader2, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AvailableRepository } from "@/lib/constants";
 import { Message } from "ai";
@@ -11,6 +11,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Markdown } from "../markdown";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useAgentMessages } from '@/hooks/use-agent-messages';
+import { useState, useEffect, useCallback } from 'react';
+import { ToolInvocationDisplay } from "../tool-invocation";
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -18,6 +20,64 @@ interface DocumentationViewProps {
 	file_paths: string[];
 	chat_id: string;
 }
+
+interface DocumentationState {
+	currentStep: number;
+	completedSteps: number[];
+	context: {
+		systemOverview?: string;
+		componentAnalysis?: string;
+		codeDocumentation?: string;
+		developmentGuides?: string;
+		maintenanceOps?: string;
+	};
+}
+
+interface StepConfig {
+	id: number;
+	title: string;
+	prompt: string;
+	description: string;
+	requiresConfirmation: boolean;
+}
+
+const DOCUMENTATION_STEPS: StepConfig[] = [
+	{
+		id: 1,
+		title: "System Overview",
+		prompt: "Generate a comprehensive system overview including architecture diagrams, core technologies, and key design patterns.",
+		description: "Analyzing system architecture and core components...",
+		requiresConfirmation: true
+	},
+	{
+		id: 2,
+		title: "Component Analysis",
+		prompt: "Analyze each major component's structure, dependencies, and technical details.",
+		description: "Examining component relationships and dependencies...",
+		requiresConfirmation: true
+	},
+	{
+		id: 3,
+		title: "Code Documentation",
+		prompt: "Document significant code modules, their purposes, and usage patterns.",
+		description: "Documenting code modules and patterns...",
+		requiresConfirmation: true
+	},
+	{
+		id: 4,
+		title: "Development Guides",
+		prompt: "Create development setup instructions and workflow documentation.",
+		description: "Generating development guides and workflows...",
+		requiresConfirmation: true
+	},
+	{
+		id: 5,
+		title: "Maintenance & Operations",
+		prompt: "Document maintenance procedures, troubleshooting guides, and operational considerations.",
+		description: "Documenting maintenance and operations...",
+		requiresConfirmation: true
+	}
+];
 
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
@@ -28,37 +88,161 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		'documentation'
 	);
 
+	const [state, setState] = useState<DocumentationState>({
+		currentStep: 0,
+		completedSteps: [],
+		context: {}
+	});
+
+	const [currentStepContent, setCurrentStepContent] = useState<string>('');
+	const [isStepComplete, setIsStepComplete] = useState<boolean>(false);
+
 	const {
 		messages: streamingMessages,
 		append,
 		isLoading,
 		error,
 		reload,
-		stop
+		stop,
+		setMessages: setStreamingMessages
 	} = useChat({
 		api: `/api/agents/${agent_id}/documentation`,
 		id: chat_id,
 		initialMessages,
-		onFinish: (message) => {
-			saveMessage({
-				agentId: agent_id,
-				chatId: chat_id,
-				repository: repo_name,
-				messageType: 'documentation',
-				role: message.role,
-				content: message.content,
-			});
-		},
 		body: {
 			id: chat_id,
-			messages: initialMessages,
+			messages: initialMessages || [],
 			model: "gpt-4o-mini",
 			agent_id: agent_id,
 			repo_name: repo_name,
 			file_paths: file_paths,
 			chat_id: chat_id,
+			step: state.currentStep + 1,
+			context: state.context || {}
+		},
+		onToolCall: async ({ toolCall }) => {
+			console.log(toolCall);
+			// Handle streaming tool calls
+			try {
+				// Update messages with tool invocations
+				setStreamingMessages(prevMessages => {
+					const lastMessage = prevMessages[prevMessages.length - 1];
+					if (!lastMessage) return prevMessages;
+
+					const updatedToolInvocations = lastMessage.toolInvocations || [];
+					const existingToolIndex = updatedToolInvocations.findIndex(
+						t => t.toolCallId === toolCall.toolCallId
+					);
+
+					if (existingToolIndex >= 0) {
+						updatedToolInvocations[existingToolIndex] = {
+							...updatedToolInvocations[existingToolIndex],
+							toolCallId: toolCall.toolCallId,
+							toolName: toolCall.toolName,
+							args: toolCall.args,
+							// @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
+							state: toolCall.state || 'partial-call'
+						};
+					} else {
+						updatedToolInvocations.push({
+							toolCallId: toolCall.toolCallId,
+							toolName: toolCall.toolName,
+							args: toolCall.args,
+							// @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
+							state: toolCall.state || 'partial-call'
+						});
+					}
+
+					return prevMessages.map((msg, i) =>
+						i === prevMessages.length - 1
+							? { ...msg, toolInvocations: updatedToolInvocations }
+							: msg
+					);
+				});
+
+				// Handle streaming JSON content
+				const delta = (toolCall.args as { delta?: string })?.delta;
+				if (delta) {
+					setCurrentStepContent(prev => {
+						try {
+							// If prev is empty, start with empty JSON
+							const prevContent = prev ? prev : '{}';
+
+							// If delta starts with {, it's a new JSON object
+							if (delta.startsWith('{')) {
+								return delta;
+							}
+
+							// Otherwise append to existing content
+							return prevContent.slice(0, -1) + delta;
+						} catch (error) {
+							console.error("Error updating content:", error);
+							return prev;
+						}
+					});
+				}
+
+				return toolCall.args;
+			} catch (error) {
+				console.error("Error handling tool call:", error);
+			}
+		},
+		onFinish: (message) => {
+			try {
+				const parsedContent = JSON.parse(message.content);
+				if (parsedContent.finishReason === 'step_complete') {
+					handleStepComplete(parsedContent.context);
+				}
+			} catch (e) {
+				saveMessage({
+					agentId: agent_id,
+					chatId: chat_id,
+					repository: repo_name,
+					messageType: 'documentation',
+					role: message.role,
+					content: message.content,
+				});
+			}
 		},
 	});
+
+	const handleGenerateDoc = useCallback(async () => {
+		if (isLoading || state.currentStep >= DOCUMENTATION_STEPS.length) {
+			return;
+		}
+
+		const currentStep = DOCUMENTATION_STEPS[state.currentStep];
+		setCurrentStepContent('');
+		setIsStepComplete(false);
+
+		try {
+			await append({
+				role: 'user',
+				content: currentStep.prompt
+			}, {
+				body: {
+					id: chat_id,
+					messages: initialMessages || [],
+					model: "gpt-4o-mini",
+					agent_id: agent_id,
+					repo_name: repo_name,
+					file_paths: file_paths,
+					chat_id: chat_id,
+					step: state.currentStep + 1,
+					context: state.context || {}
+				}
+			});
+
+		} catch (error) {
+			console.error("Failed to generate documentation:", error);
+		}
+	}, [append, state.currentStep, state.context, isLoading, chat_id, agent_id, repo_name, file_paths, initialMessages]);
+
+	useEffect(() => {
+		if (isStepComplete && state.currentStep < DOCUMENTATION_STEPS.length) {
+			handleGenerateDoc();
+		}
+	}, [isStepComplete, state.currentStep, handleGenerateDoc]);
 
 	if (isLoadingInitial) {
 		return <div className="flex items-center justify-center h-full">
@@ -81,15 +265,17 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		return acc;
 	}, [] as Message[]);
 
-	const handleGenerateDoc = async () => {
-		try {
-			await append({
-				role: 'user',
-				content: "Additional context for this conversation"
-			});
-		} catch (error) {
-			console.error("Failed to generate documentation:", error);
-		}
+	const handleStepComplete = (context: any) => {
+		setState(prev => ({
+			...prev,
+			context: {
+				...prev.context,
+				[DOCUMENTATION_STEPS[prev.currentStep].title.toLowerCase().replace(' ', '_')]: currentStepContent
+			},
+			completedSteps: [...prev.completedSteps, prev.currentStep],
+			currentStep: prev.currentStep + 1
+		}));
+		setIsStepComplete(true);
 	};
 
 	const renderMessage = (message: Message) => {
@@ -117,32 +303,93 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					</div>
 					<div className="prose prose-neutral dark:prose-invert flex-1">
 						<Markdown>{message.content}</Markdown>
+
+						{/* Add Tool Invocations Display */}
+						{message.toolInvocations?.map((tool, index) => {
+							const uniqueKey = `${message.id}-${tool.toolCallId || 'tool'}-${index}`;
+							return (
+								<ToolInvocationDisplay
+									key={uniqueKey}
+									toolInvocation={{
+										id: tool.toolCallId,
+										toolCallId: tool.toolCallId,
+										toolName: tool.toolName,
+										args: tool.args,
+										state: tool.state,
+										result: 'result' in tool ? tool.result : undefined
+									}}
+								/>
+							);
+						})}
 					</div>
 				</div>
 			</motion.div>
 		);
 	};
 
+	const renderStepProgress = () => (
+		<div className="flex-none p-4 space-y-4 border-b">
+			<div className="flex items-center justify-between mb-4">
+				<h3 className="text-sm font-medium">
+					Step {state.currentStep + 1} of {DOCUMENTATION_STEPS.length}:
+					{DOCUMENTATION_STEPS[state.currentStep]?.title}
+				</h3>
+				<div className="flex items-center gap-2">
+					{state.completedSteps.length > 0 && (
+						<span className="text-sm text-muted-foreground">
+							{state.completedSteps.length} completed
+						</span>
+					)}
+				</div>
+			</div>
+			<div className="flex items-center gap-4">
+				{DOCUMENTATION_STEPS.map((step, index) => (
+					<div
+						key={step.id}
+						className={cn(
+							"flex items-center gap-2",
+							state.currentStep === index ? "text-primary" : "text-muted-foreground",
+							state.completedSteps.includes(index) && "text-green-500"
+						)}
+					>
+						<div className="w-8 h-8 rounded-full border flex items-center justify-center">
+							{state.completedSteps.includes(index) ? (
+								<CheckCircle className="w-4 h-4" />
+							) : (
+								step.id
+							)}
+						</div>
+						<span className="text-sm font-medium">{step.title}</span>
+					</div>
+				))}
+			</div>
+		</div>
+	);
+
 	return (
 		<div className="flex flex-col h-full overflow-hidden">
 			<div className="flex-none p-4 space-y-4 border-b">
-				<h2 className="text-lg font-semibold">Documentation</h2>
+				<h2 className="text-lg font-semibold">Documentation Generator</h2>
 				<p className="text-sm text-muted-foreground">
-					Generate comprehensive documentation for your codebase.
+					Generating comprehensive documentation in {DOCUMENTATION_STEPS.length} steps
 				</p>
 				<div className="flex items-center gap-2">
 					<Button
 						variant="outline"
 						onClick={handleGenerateDoc}
-						disabled={isLoading}
+						disabled={isLoading || state.currentStep >= DOCUMENTATION_STEPS.length}
 					>
 						{isLoading ? (
 							<>
 								<Loader2 className="h-4 w-4 animate-spin mr-2" />
-								Generating...
+								Generating Step {state.currentStep + 1}...
 							</>
+						) : state.currentStep >= DOCUMENTATION_STEPS.length ? (
+							'Documentation Complete'
+						) : state.currentStep === 0 ? (
+							'Start Documentation'
 						) : (
-							'Generate Documentation'
+							'Continue Documentation'
 						)}
 					</Button>
 					{isLoading && (
@@ -159,11 +406,10 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				</div>
 			</div>
 
+			{renderStepProgress()}
+
 			<ScrollArea className="flex-1 w-full h-[calc(100%-120px)]">
-				<div
-					ref={containerRef}
-					className="p-4 space-y-4"
-				>
+				<div ref={containerRef} className="p-4 space-y-4">
 					<AnimatePresence mode="popLayout">
 						{allMessages.map(renderMessage)}
 					</AnimatePresence>
@@ -175,7 +421,9 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 							className="flex items-center gap-2 text-muted-foreground"
 						>
 							<Bot className="h-4 w-4" />
-							<span className="text-sm">Generating documentation...</span>
+							<span className="text-sm">
+								Generating {DOCUMENTATION_STEPS[state.currentStep]?.title}...
+							</span>
 						</motion.div>
 					)}
 					<div ref={endRef} />

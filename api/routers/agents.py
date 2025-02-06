@@ -9,13 +9,23 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai import Agent as PydanticAgent, RunContext
 from fastapi import APIRouter, Depends, HTTPException
 from openai import AsyncOpenAI
-from pydantic_ai.models.openai import ModelResponse, TextPart
-from pydantic import ConfigDict, Field, BaseModel
+from pydantic_ai.models.openai import ModelResponse, TextPart, ToolCallPart
+from pydantic import ConfigDict, Field, BaseModel, ValidationError
 from sqlalchemy.orm import Session
-from typing import List, Optional, AsyncGenerator
+from typing import List, Optional, AsyncGenerator, Tuple, Dict, Any
+from functools import wraps
 
 from ..utils.database import get_db
-from ..utils.models import Agent, AgentCreate, AgentUpdate, AgentResponse, Message
+from ..utils.models import (
+    Agent,
+    AgentCreate,
+    AgentUpdate,
+    AgentResponse,
+    Message,
+    build_tool_call_partial,
+    build_tool_call_result,
+    is_complete_json,
+)
 from datetime import datetime, timezone
 import uuid
 from sqlalchemy.exc import IntegrityError
@@ -23,51 +33,63 @@ from sqlalchemy.exc import IntegrityError
 router = APIRouter()
 
 
+def handle_db_operation(func):
+    """Decorator for handling database operations with consistent error handling"""
+
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except IntegrityError as e:
+            if "agents_name_key" in str(e):
+                raise HTTPException(
+                    status_code=409, detail="An agent with this name already exists"
+                )
+            raise
+        except Exception as e:
+            if "db" in kwargs:
+                kwargs["db"].rollback()
+            logging.error(f"Error in {func.__name__}: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    return wrapper
+
+
 # region Agent CRUD
 @router.post("/agents", response_model=AgentResponse)
+@handle_db_operation
 async def create_agent(
     agent: AgentCreate,
     db: Session = Depends(get_db),
 ):
-    try:
-        # Convert tools list to JSON string for database storage
-        tools_json = json.dumps(agent.tools)
+    # Convert tools list to JSON string for database storage
+    tools_json = json.dumps(agent.tools)
 
-        db_agent = Agent(
-            name=agent.name,
-            description=agent.description,
-            system_prompt=agent.system_prompt,
-            tools=tools_json,
-            repository=agent.repository,
-        )
+    db_agent = Agent(
+        name=agent.name,
+        description=agent.description,
+        system_prompt=agent.system_prompt,
+        tools=tools_json,
+        repository=agent.repository,
+    )
 
-        db.add(db_agent)
-        db.commit()
-        db.refresh(db_agent)
+    db.add(db_agent)
+    db.commit()
+    db.refresh(db_agent)
 
-        # Parse the JSON string back to a list for the response
-        tools_list = json.loads(db_agent.tools)
+    # Parse the JSON string back to a list for the response
+    tools_list = json.loads(db_agent.tools)
 
-        return AgentResponse(
-            id=str(db_agent.id),
-            name=db_agent.name,
-            description=db_agent.description,
-            system_prompt=db_agent.system_prompt,
-            tools=tools_list,  # Pass the parsed list instead of JSON string
-            created_at=db_agent.created_at,
-            is_active=db_agent.is_active,
-            repository=db_agent.repository,
-        )
-    except IntegrityError as e:
-        db.rollback()
-        # Check if it's a unique constraint violation
-        if "agents_name_key" in str(e):
-            raise HTTPException(
-                status_code=409, detail="An agent with this name already exists"
-            )
-        raise
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Failed to process tools data")
+    return AgentResponse(
+        id=str(db_agent.id),
+        name=db_agent.name,
+        description=db_agent.description,
+        system_prompt=db_agent.system_prompt,
+        tools=tools_list,  # Pass the parsed list instead of JSON string
+        created_at=db_agent.created_at,
+        is_active=db_agent.is_active,
+        repository=db_agent.repository,
+    )
 
 
 @router.get("/agents", response_model=List[AgentResponse])
@@ -208,7 +230,7 @@ gpt_4o_mini = OpenAIModel(
 docs_agent = PydanticAgent(
     model=gpt_4o_mini,
     deps_type=CodeSearch,
-    result_type=SearchResponse,
+    result_type=Dict[str, Any],
     system_prompt=Path("api/docs_system_prompt.txt").read_text(),
 )
 
@@ -247,107 +269,299 @@ async def fetch_repo_content(ctx: RunContext[CodeSearch], repo_name: str) -> str
 # endregion
 
 
-# region Agent Streaming
+# region Documentation Models
+class DocumentationStep(BaseModel):
+    """Base model for documentation steps"""
+
+    step_number: int
+    title: str
+    content: str
+    status: str = "pending"  # pending, in_progress, completed, failed
 
 
-# Update the DocumentationRequest model
+class SystemOverview(BaseModel):
+    """System overview documentation section"""
+
+    architecture_diagram: str = Field(description="Mermaid diagram string")
+    core_technologies: List[str]
+    design_patterns: List[str]
+    system_requirements: List[str]
+    project_structure: str = Field(description="Project structure tree")
+
+    @classmethod
+    def model_validate_json(cls, json_data: str, *args, **kwargs):
+        """Custom JSON validation to handle newlines properly"""
+        if isinstance(json_data, str):
+            # Parse the JSON string while preserving newlines
+            data = json.loads(json_data)
+            return cls.model_validate(data)
+
+
+class ComponentAnalysis(BaseModel):
+    """Component analysis documentation section"""
+
+    name: str
+    purpose: str
+    dependencies: List[str]
+    relationships_diagram: str
+    technical_details: dict
+    integration_points: List[str]
+
+
+class CodeDocumentation(BaseModel):
+    """Code documentation section"""
+
+    modules: List[Dict[str, Any]]
+    patterns: List[str]
+    usage_examples: List[str]
+    api_specs: Optional[dict] = None
+
+
+class DevelopmentGuide(BaseModel):
+    """Development setup and workflow documentation"""
+
+    setup: str
+    workflow: str
+    guidelines: List[str]
+
+
+class MaintenanceOps(BaseModel):
+    """Maintenance and operations documentation"""
+
+    procedures: List[str]
+    troubleshooting: Dict[str, str]
+    operations: str
+
+
+class DocumentationResult(BaseModel):
+    """Combined documentation result"""
+
+    system_overview: Optional[SystemOverview] = None
+    component_analysis: Optional[List[ComponentAnalysis]] = None
+    code_documentation: Optional[List[CodeDocumentation]] = None
+    development_guide: Optional[DevelopmentGuide] = None
+    maintenance_ops: Optional[MaintenanceOps] = None
+
+
+class DocumentationContext(BaseModel):
+    """Context maintained between documentation steps"""
+
+    current_step: int = 1
+    completed_steps: List[int] = Field(default_factory=list)
+    partial_results: Dict[str, Any] = Field(default_factory=dict)
+    last_error: Optional[str] = None
+
+
+# Update the existing DocumentationRequest model
 class DocumentationRequest(BaseModel):
     id: str
     messages: List[dict]
     model: str = "gpt-4o-mini"
     agent_id: UUID
     repo_name: str
-    file_paths: Optional[List[str]] = []
-    chat_id: UUID  # New field
+    file_paths: Optional[List[str]] = Field(default_factory=list)
+    chat_id: UUID
+    step: Optional[int] = None
+    context: Optional[DocumentationContext] = None
 
 
-async def stream_documentation_response(request: DocumentationRequest, db: Session):
-    base_prompt = f"Generate documentation for {request.repo_name}"
-    if request.messages:
-        user_messages = [
-            message["content"]
-            for message in request.messages
-            if message["role"] == "user"
-        ]
-        if user_messages:
-            user_prompt = f"{base_prompt}\n\nHere is some additional context:\n\n{'\n\n'.join(user_messages)}"
-        else:
-            user_prompt = base_prompt
-    else:
-        user_prompt = base_prompt
+# endregion
 
-    code_search_query = CodeSearch(
-        query="*",
-        repo_name=request.repo_name,
-    )
 
-    last_content = ""  # Track the last content we've seen
+# region Documentation Agents
+system_overview_agent = PydanticAgent(
+    model=gpt_4o_mini,
+    deps_type=CodeSearch,
+    result_type=SystemOverview,
+    system_prompt="""You are a software architecture expert focused on creating high-level system overviews.
+    Analyze the codebase and generate a comprehensive system overview including:
+    - Architecture diagrams in mermaid format
+    - Core technologies and their relationships
+    - Key design patterns used
+    - System requirements
+    - Project structure explanation
+    Be precise and technical in your analysis.""",
+)
+
+component_analysis_agent = PydanticAgent(
+    model=gpt_4o_mini,
+    deps_type=CodeSearch,
+    result_type=ComponentAnalysis,
+    system_prompt="""You are a component analysis specialist.
+    Your task is to deeply analyze individual components by:
+    - Identifying component purposes and responsibilities
+    - Mapping dependencies and relationships
+    - Creating component relationship diagrams
+    - Documenting technical implementation details
+    - Identifying integration points
+    Focus on practical, implementation-level details.""",
+)
+
+code_documentation_agent = PydanticAgent(
+    model=gpt_4o_mini,
+    deps_type=CodeSearch,
+    result_type=CodeDocumentation,
+    system_prompt="""You are a code documentation expert.
+    Your role is to:
+    - Document key code modules and their purposes
+    - Identify and explain important patterns
+    - Create clear usage examples
+    - Document APIs and interfaces
+    Focus on helping developers understand how to use and maintain the code.""",
+)
+
+development_guide_agent = PydanticAgent(
+    model=gpt_4o_mini,
+    deps_type=CodeSearch,
+    result_type=DevelopmentGuide,
+    system_prompt="""You are a development workflow specialist.
+    Create comprehensive development guides including:
+    - Development environment setup
+    - Workflow procedures and best practices
+    - Coding guidelines and standards
+    Make the documentation practical and actionable.""",
+)
+
+maintenance_ops_agent = PydanticAgent(
+    model=gpt_4o_mini,
+    deps_type=CodeSearch,
+    result_type=MaintenanceOps,
+    system_prompt="""You are a DevOps and maintenance specialist.
+    Document operational aspects including:
+    - Maintenance procedures and schedules
+    - Troubleshooting guides
+    - Operational considerations
+    - Monitoring and alerting
+    Focus on keeping the system running smoothly.""",
+)
+
+# Map steps to their specialized agents
+STEP_AGENTS = {
+    1: [system_overview_agent, SystemOverview],
+    2: [component_analysis_agent, ComponentAnalysis],
+    3: [code_documentation_agent, CodeDocumentation],
+    4: [development_guide_agent, DevelopmentGuide],
+    5: [maintenance_ops_agent, MaintenanceOps],
+}
+
+
+async def process_documentation_step(
+    step: int,
+    context: DocumentationContext,
+    repo_name: str,
+    code_search_query: CodeSearch,
+) -> AsyncGenerator[Tuple[str, bool], None]:
+    """Process a documentation step using specialized agents with handoff"""
     try:
-        async with docs_agent.run_stream(
-            user_prompt=user_prompt, result_type=str, deps=code_search_query
+        # Get the specialized agent for this step
+        agent, model_class = STEP_AGENTS.get(step)
+        if not agent:
+            raise ValueError(f"No agent found for step {step}")
+
+        logging.info(
+            f"Starting documentation step {step} for {repo_name} with specialized agent"
+        )
+
+        # Run the specialized agent with context from previous steps
+        async with agent.run_stream(
+            user_prompt=f"""For repository {repo_name}, generate documentation based on your expertise.
+            Previous context: {json.dumps(context.partial_results)}""",
+            deps=code_search_query,
         ) as result:
+            content_buffer = []
+            last_content = ""
+
+            draft_tool_calls = []
+            draft_tool_calls_idx = -1
+
             async for message, last in result.stream_structured(debounce_by=0.01):
-                try:
-                    if isinstance(message, ModelResponse) and message.parts:
-                        for part in message.parts:
-                            if isinstance(part, TextPart):
-                                # Calculate the delta from the last content
-                                current_content = part.content
-                                delta = current_content[len(last_content) :]
-                                if delta:
-                                    yield f"0:{json.dumps(delta)}\n"
-                                    last_content = current_content
+                if isinstance(message, ModelResponse) and message.parts:
+                    for part in message.parts:
+                        if isinstance(part, TextPart):
+                            content_buffer.append(part.content)
+                            current_content = part.content
+                            delta = current_content[len(last_content) :]
+                            if delta:
+                                yield f"0:{json.dumps(delta)}\n"
+                                last_content = current_content
+                        elif isinstance(part, ToolCallPart):
+                            tool_call_id = part.tool_call_id
+                            tool_name = part.tool_name
+                            arguments = part.args_as_json_str()
+                            content_buffer.append(arguments)
 
-                except Exception as e:
-                    logging.error(f"Error processing message: {e}")
-                    continue
+                            if tool_call_id not in [
+                                tc["id"] for tc in draft_tool_calls
+                            ]:
+                                # New tool call
+                                draft_tool_calls_idx += 1
+                                draft_tool_calls.append(
+                                    {
+                                        "id": tool_call_id,
+                                        "name": tool_name,
+                                        "arguments": "{}",
+                                    }
+                                )
+                                # yield build_tool_call_partial(
+                                #     tool_call_id=tool_call_id,
+                                #     tool_name=tool_name,
+                                #     args={},  # Empty dict for initial call
+                                # )
+                            elif arguments:
+                                try:
+                                    # Accumulate arguments
+                                    current_args = draft_tool_calls[
+                                        draft_tool_calls_idx
+                                    ]["arguments"]
+                                    # Concatenate argument strings
+                                    draft_tool_calls[draft_tool_calls_idx][
+                                        "arguments"
+                                    ] = current_args.rstrip("}") + arguments.lstrip("{")
 
-                if last:
-                    # Save the complete message
-                    complete_content = "\n".join(
-                        [part.content for part in message.parts]
-                    )
-                    await save_documentation_message(
-                        chat_id=request.chat_id,
-                        content=complete_content,
-                        role="assistant",
-                        model=request.model,
-                        db=db,
-                        agent_id=request.agent_id,
-                        repository=request.repo_name,
-                        message_type="documentation",
-                    )
+                                    # Only try to parse and stream if we have complete JSON
+                                    if is_complete_json(
+                                        draft_tool_calls[draft_tool_calls_idx][
+                                            "arguments"
+                                        ]
+                                    ):
+                                        parsed_args = json.loads(
+                                            draft_tool_calls[draft_tool_calls_idx][
+                                                "arguments"
+                                            ]
+                                        )
+                                        yield build_tool_call_partial(
+                                            tool_call_id=draft_tool_calls[
+                                                draft_tool_calls_idx
+                                            ]["id"],
+                                            tool_name=draft_tool_calls[
+                                                draft_tool_calls_idx
+                                            ]["name"],
+                                            args=parsed_args,
+                                        )
+                                except json.JSONDecodeError:
+                                    # Skip streaming for incomplete JSON
+                                    continue
 
-                    # Fix: Get usage stats safely
-                    try:
-                        usage_stats = result.usage()
-                        usage_data = {
-                            "promptTokens": (
-                                usage_stats.request_tokens if usage_stats else 0
-                            ),
-                            "completionTokens": (
-                                usage_stats.response_tokens if usage_stats else 0
-                            ),
-                            "totalTokens": (
-                                usage_stats.total_tokens if usage_stats else 0
-                            ),
-                        }
-                    except Exception as e:
-                        logging.error(f"Failed to get usage stats: {e}")
-                        usage_data = {
-                            "promptTokens": 0,
-                            "completionTokens": 0,
-                            "totalTokens": 0,
-                        }
+            # When complete, send the final tool call result
+            try:
+                complete_content = content_buffer[-1] if content_buffer else "{}"
+                validated_content = model_class.model_validate_json(complete_content)
+                context.partial_results[f"step_{step}"] = validated_content.model_dump()
+                yield f"e:{json.dumps({'finishReason': 'step_complete', 'context': context.model_dump()})}\n"
 
-                    yield f"e:{json.dumps({'finishReason': 'stop', 'usage': usage_data})}\n"
+            except json.JSONDecodeError as e:
+                logging.error(f"JSON parsing error: {str(e)}")
+                yield f"e:{json.dumps({'finishReason': 'error', 'error': f'Invalid JSON format: {str(e)}'})}\n"
+            except ValidationError as e:
+                logging.error(f"Validation error for step {step}: {e}")
+                yield f"e:{json.dumps({'finishReason': 'error', 'error': f'Validation failed: {str(e)}'})}\n"
 
     except Exception as e:
-        logging.error(f"Stream error: {e}")
-        yield f"e:{json.dumps({'finishReason': 'error', 'usage': {'promptTokens': 0, 'completionTokens': 0, 'totalTokens': 0}})}\n"
+        logging.error(f"Error in specialized agent for step {step}: {e}")
+        yield f"e:{json.dumps({'finishReason': 'error', 'error': str(e)})}\n"
 
 
-async def save_documentation_message(
+async def save_agent_message(
     chat_id: UUID,
     content: str,
     role: str,
@@ -356,8 +570,9 @@ async def save_documentation_message(
     agent_id: UUID,
     repository: str,
     message_type: str,
+    tool_invocations: List = None,
 ) -> Message:
-    """Save documentation message to database"""
+    """Unified function to save any type of agent message"""
     try:
         message = Message(
             id=uuid.uuid4(),
@@ -366,7 +581,7 @@ async def save_documentation_message(
             role=role,
             model=model,
             created_at=datetime.now(timezone.utc),
-            tool_invocations=[],
+            tool_invocations=tool_invocations or [],
             agent_id=agent_id,
             repository=repository,
             message_type=message_type,
@@ -398,17 +613,51 @@ async def save_documentation_message(
         raise
 
 
+async def stream_documentation_response(request: DocumentationRequest, db: Session):
+    """Stream documentation generation with step-based approach"""
+
+    # Initialize or get existing context
+    context = request.context or DocumentationContext()
+
+    code_search_query = CodeSearch(
+        query="*",
+        repo_name=request.repo_name,
+    )
+
+    try:
+        # Process current step
+        async for content in process_documentation_step(
+            context.current_step, context, request.repo_name, code_search_query
+        ):
+            # Forward the streaming content
+            yield content
+
+    except Exception as e:
+        logging.error(f"Documentation stream error: {e}")
+        yield f"e:{json.dumps({'finishReason': 'error', 'error': str(e), 'usage': {'promptTokens': 0, 'completionTokens': 0, 'totalTokens': 0}})}\n"
+
+
 @router.post("/agents/{agent_id}/documentation")
 async def generate_documentation(
     agent_id: UUID,
     request: DocumentationRequest,
     db: Session = Depends(get_db),
 ):
-    response = StreamingResponse(
-        stream_documentation_response(request, db),
-        headers={"x-vercel-ai-data-stream": "v1"},
-    )
-    return response
+    """Generate documentation with streaming response"""
+    try:
+        agent = db.query(Agent).filter(Agent.id == str(agent_id)).first()
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Return streaming response
+        return StreamingResponse(
+            stream_documentation_response(request, db),
+            headers={"x-vercel-ai-data-stream": "v1"},
+        )
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # endregion
@@ -431,57 +680,6 @@ mermaid_agent = PydanticAgent(
     result_type=str,
     system_prompt=Path("api/mermaid_system_prompt.txt").read_text(),
 )
-
-
-async def save_mermaid_message(
-    chat_id: UUID,
-    content: str,
-    role: str,
-    model: str,
-    db: Session,
-    agent_id: UUID,
-    repository: str,
-    message_type: str,
-) -> Message:
-    """Save mermaid message to database"""
-    try:
-        message = Message(
-            id=uuid.uuid4(),
-            chat_id=chat_id,
-            content=content,
-            role=role,
-            model=model,
-            created_at=datetime.now(timezone.utc),
-            tool_invocations=[],
-            agent_id=agent_id,
-            repository=repository,
-            message_type=message_type,
-        )
-
-        db.add(message)
-        db.commit()
-        db.refresh(message)
-
-        # Verify message was saved
-        saved_message = (
-            db.query(Message)
-            .filter(
-                Message.id == message.id,
-                Message.agent_id == agent_id,
-                Message.repository == repository,
-                Message.message_type == message_type,
-            )
-            .first()
-        )
-
-        if not saved_message:
-            raise Exception("Message not saved correctly")
-
-        return message
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Error saving message: {str(e)}")
-        raise
 
 
 async def stream_mermaid_response(
@@ -533,7 +731,7 @@ async def stream_mermaid_response(
                     complete_content = "\n".join(
                         [part.content for part in message.parts]
                     )
-                    await save_mermaid_message(
+                    await save_agent_message(
                         chat_id=request.id,
                         content=complete_content,
                         role="assistant",
@@ -542,6 +740,7 @@ async def stream_mermaid_response(
                         agent_id=request.agent_id,
                         repository=request.repository,
                         message_type="mermaid",
+                        tool_invocations=[],
                     )
 
                     try:
@@ -654,3 +853,42 @@ async def get_messages(
 
 
 # endregion
+
+
+class BaseStreamingResponse:
+    """Base class for streaming responses"""
+
+    def __init__(self, db: Session):
+        self.db = db
+        self.last_content = ""
+
+    async def process_message(self, message: ModelResponse) -> str:
+        """Process a single message and return the delta"""
+        if not message.parts:
+            return ""
+
+        for part in message.parts:
+            if isinstance(part, TextPart):
+                current_content = part.content
+                delta = current_content[len(self.last_content) :]
+                if delta:
+                    self.last_content = current_content
+                    return f"0:{json.dumps(delta)}\n"
+        return ""
+
+    def get_usage_data(self, result) -> dict:
+        """Get usage statistics"""
+        try:
+            usage_stats = result.usage()
+            return {
+                "promptTokens": usage_stats.request_tokens if usage_stats else 0,
+                "completionTokens": usage_stats.response_tokens if usage_stats else 0,
+                "totalTokens": usage_stats.total_tokens if usage_stats else 0,
+            }
+        except Exception as e:
+            logging.error(f"Failed to get usage stats: {e}")
+            return {
+                "promptTokens": 0,
+                "completionTokens": 0,
+                "totalTokens": 0,
+            }
