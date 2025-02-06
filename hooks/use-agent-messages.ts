@@ -7,6 +7,7 @@ interface SaveMessageParams {
 	messageType: 'documentation' | 'mermaid';
 	role: string;
 	content: string;
+	toolInvocations?: any[];
 }
 
 export function useAgentMessages(chatId: string, agentId: string, repository: string, messageType: 'documentation' | 'mermaid') {
@@ -32,7 +33,8 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 				repository: params.repository,
 				message_type: params.messageType,
 				role: params.role,
-				content: params.content
+				content: params.content,
+				tool_invocations: params.toolInvocations
 			};
 
 			const response = await fetch(`/api/agents/${params.agentId}/messages`, {

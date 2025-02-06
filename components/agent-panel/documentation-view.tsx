@@ -189,19 +189,37 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		},
 		onFinish: (message) => {
 			try {
-				const parsedContent = JSON.parse(message.content);
-				if (parsedContent.finishReason === 'step_complete') {
-					handleStepComplete(parsedContent.context);
-				}
-			} catch (e) {
+				console.log("Finished message:", message);
+				// Save message with tool invocations
 				saveMessage({
 					agentId: agent_id,
 					chatId: chat_id,
 					repository: repo_name,
 					messageType: 'documentation',
 					role: message.role,
-					content: message.content,
+					content: message.content || '', // Ensure content is never undefined
+					toolInvocations: message.toolInvocations?.map(tool => ({
+						toolCallId: tool.toolCallId,
+						toolName: tool.toolName,
+						args: tool.args,
+						state: tool.state,
+						result: 'result' in tool ? tool.result : undefined
+					})) || []
 				});
+
+				// Only try to parse if content is not empty
+				if (message.content) {
+					try {
+						const parsedContent = JSON.parse(message.content);
+						if (parsedContent.finishReason === 'step_complete') {
+							handleStepComplete(parsedContent.context);
+						}
+					} catch (e) {
+						console.error("Error parsing message content:", e);
+					}
+				}
+			} catch (e) {
+				console.error("Error in onFinish:", e);
 			}
 		},
 	});

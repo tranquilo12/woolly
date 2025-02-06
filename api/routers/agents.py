@@ -458,15 +458,12 @@ async def process_documentation_step(
         if not agent:
             raise ValueError(f"No agent found for step {step}")
 
-        logging.info(
-            f"Starting documentation step {step} for {repo_name} with specialized agent"
-        )
-
         # Run the specialized agent with context from previous steps
         async with agent.run_stream(
             user_prompt=f"""For repository {repo_name}, generate documentation based on your expertise.
             Previous context: {json.dumps(context.partial_results)}""",
             deps=code_search_query,
+            result_type=model_class,
         ) as result:
             content_buffer = []
             last_content = ""
@@ -493,7 +490,6 @@ async def process_documentation_step(
                             if tool_call_id not in [
                                 tc["id"] for tc in draft_tool_calls
                             ]:
-                                # New tool call
                                 draft_tool_calls_idx += 1
                                 draft_tool_calls.append(
                                     {
@@ -502,23 +498,15 @@ async def process_documentation_step(
                                         "arguments": "{}",
                                     }
                                 )
-                                # yield build_tool_call_partial(
-                                #     tool_call_id=tool_call_id,
-                                #     tool_name=tool_name,
-                                #     args={},  # Empty dict for initial call
-                                # )
                             elif arguments:
                                 try:
-                                    # Accumulate arguments
                                     current_args = draft_tool_calls[
                                         draft_tool_calls_idx
                                     ]["arguments"]
-                                    # Concatenate argument strings
                                     draft_tool_calls[draft_tool_calls_idx][
                                         "arguments"
                                     ] = current_args.rstrip("}") + arguments.lstrip("{")
 
-                                    # Only try to parse and stream if we have complete JSON
                                     if is_complete_json(
                                         draft_tool_calls[draft_tool_calls_idx][
                                             "arguments"
@@ -541,20 +529,6 @@ async def process_documentation_step(
                                 except json.JSONDecodeError:
                                     # Skip streaming for incomplete JSON
                                     continue
-
-            # When complete, send the final tool call result
-            try:
-                complete_content = content_buffer[-1] if content_buffer else "{}"
-                validated_content = model_class.model_validate_json(complete_content)
-                context.partial_results[f"step_{step}"] = validated_content.model_dump()
-                yield f"e:{json.dumps({'finishReason': 'step_complete', 'context': context.model_dump()})}\n"
-
-            except json.JSONDecodeError as e:
-                logging.error(f"JSON parsing error: {str(e)}")
-                yield f"e:{json.dumps({'finishReason': 'error', 'error': f'Invalid JSON format: {str(e)}'})}\n"
-            except ValidationError as e:
-                logging.error(f"Validation error for step {step}: {e}")
-                yield f"e:{json.dumps({'finishReason': 'error', 'error': f'Validation failed: {str(e)}'})}\n"
 
     except Exception as e:
         logging.error(f"Error in specialized agent for step {step}: {e}")
@@ -801,6 +775,7 @@ class MessageCreate(BaseModel):
     message_type: str  # 'documentation' or 'mermaid'
     role: str
     content: str
+    tool_invocations: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
 
 
 @router.post("/agents/{agent_id}/messages")
@@ -810,7 +785,7 @@ async def save_message(
     db: Session = Depends(get_db),
 ):
     try:
-        # Create a new message with proper ID
+        # Create a new message with proper ID and tool invocations
         db_message = Message(
             id=uuid.uuid4(),  # Add explicit ID
             chat_id=message.chat_id,
@@ -819,7 +794,12 @@ async def save_message(
             message_type=message.message_type,
             role=message.role,
             content=message.content,
-            created_at=datetime.now(timezone.utc),  # Add timestamp
+            tool_invocations=(
+                json.dumps(message.tool_invocations)
+                if message.tool_invocations
+                else None
+            ),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(db_message)
         db.commit()
@@ -849,6 +829,17 @@ async def get_messages(
         .order_by(Message.created_at.asc())
         .all()
     )
+
+    # Parse tool invocations JSON for each message
+    for message in messages:
+        if message.tool_invocations:
+            try:
+                message.tool_invocations = json.loads(message.tool_invocations)
+            except json.JSONDecodeError:
+                message.tool_invocations = []
+        else:
+            message.tool_invocations = []
+
     return messages
 
 
