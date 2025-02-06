@@ -13,6 +13,7 @@ import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useAgentMessages } from '@/hooks/use-agent-messages';
 import { useState, useEffect, useCallback } from 'react';
 import { ToolInvocationDisplay } from "../tool-invocation";
+import { isSystemOverview, isComponentAnalysis, isCodeDocumentation, isDevelopmentGuide, isMaintenanceOps, DocumentationResult } from '../../types/documentation';
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -79,6 +80,122 @@ const DOCUMENTATION_STEPS: StepConfig[] = [
 	}
 ];
 
+const formatToolResult = (result: DocumentationResult, step: number): string => {
+	try {
+		// Parse result if it's a string
+		const parsedResult = typeof result === 'string' ? JSON.parse(result) : result;
+
+		switch (step) {
+			case 0: {
+				if (isSystemOverview(parsedResult)) {
+					return [
+						"# System Overview\n",
+						"## Architecture Diagram",
+						"```mermaid",
+						parsedResult.architecture_diagram,
+						"```\n",
+						"## Core Technologies",
+						parsedResult.core_technologies.map((tech: string) => `- ${tech}`).join('\n'),
+						"\n## Design Patterns",
+						parsedResult.design_patterns.map((pattern: string) => `- ${pattern}`).join('\n'),
+						"\n## System Requirements",
+						parsedResult.system_requirements.map((req: string) => `- ${req}`).join('\n'),
+						"\n## Project Structure",
+						"```",
+						parsedResult.project_structure,
+						"```"
+					].join('\n');
+				}
+				break;
+			}
+			case 1: {
+				if (isComponentAnalysis(parsedResult)) {
+					return [
+						`# Component: ${parsedResult.name}\n`,
+						`## Purpose\n${parsedResult.purpose}\n`,
+						"## Dependencies",
+						parsedResult.dependencies.map(dep => `- ${dep}`).join('\n'),
+						"\n## Relationships Diagram",
+						"```mermaid",
+						parsedResult.relationships_diagram,
+						"```\n",
+						"## Technical Details",
+						Object.entries(parsedResult.technical_details)
+							.map(([key, value]) => `### ${key}\n${value}`)
+							.join('\n\n'),
+						"\n## Integration Points",
+						parsedResult.integration_points.map(point => `- ${point}`).join('\n')
+					].join('\n');
+				}
+				break;
+			}
+			case 2: {
+				if (isCodeDocumentation(parsedResult)) {
+					return [
+						"# Code Documentation\n",
+						"## Modules",
+						parsedResult.modules.map(module =>
+							`### ${module.name}\n${module.purpose}\n\nDependencies:\n${module.dependencies.map((dep: string) => `- ${dep}`).join('\n')
+							}\n\nUsage Examples:\n${module.usage_examples.map((ex: string) => `\`\`\`\n${ex}\n\`\`\``).join('\n')
+							}`
+						).join('\n\n'),
+						"\n## Patterns",
+						parsedResult.patterns.map(pattern => `- ${pattern}`).join('\n'),
+						"\n## Usage Examples",
+						parsedResult.usage_examples.map(ex => `\`\`\`\n${ex}\n\`\`\``).join('\n'),
+						parsedResult.api_specs ? [
+							"\n## API Specifications",
+							"### Endpoints",
+							parsedResult.api_specs.endpoints.map((ep: string) => `- ${ep}`).join('\n'),
+							"\n### Authentication",
+							parsedResult.api_specs.authentication,
+							"\n### Error Handling",
+							parsedResult.api_specs.error_handling
+						].join('\n') : ''
+					].join('\n');
+				}
+				break;
+			}
+			case 3: {
+				if (isDevelopmentGuide(parsedResult)) {
+					return [
+						"# Development Guide\n",
+						"## Setup",
+						parsedResult.setup,
+						"\n## Workflow",
+						parsedResult.workflow,
+						"\n## Guidelines",
+						parsedResult.guidelines.map((guideline: string) => `- ${guideline}`).join('\n')
+					].join('\n');
+				}
+				break;
+			}
+			case 4: {
+				if (isMaintenanceOps(parsedResult)) {
+					return [
+						"# Maintenance & Operations\n",
+						"## Procedures",
+						parsedResult.procedures.map((proc: string) => `- ${proc}`).join('\n'),
+						"\n## Troubleshooting",
+						Object.entries(parsedResult.troubleshooting)
+							.map(([key, value]) => `### ${key}\n${value}`)
+							.join('\n\n'),
+						"\n## Operations",
+						parsedResult.operations
+					].join('\n');
+				}
+				break;
+			}
+		}
+
+		// Fallback for unhandled cases
+		return JSON.stringify(parsedResult, null, 2);
+	} catch (error) {
+		console.error('Error formatting tool result:', error);
+		return String(result);
+	}
+};
+
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
 	const { data: initialMessages, isError, isLoading: isLoadingInitial, saveMessage } = useAgentMessages(
@@ -103,22 +220,67 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		console.log('Current step:', state.currentStep);
 		console.log('Current step content:', currentStepContent);
 
-		const currentStepKey = DOCUMENTATION_STEPS[state.currentStep].title.toLowerCase().replace(/\s+/g, '_');
-		console.log('Generated step key:', currentStepKey);
+		const contextKeyMap: { [key: number]: string } = {
+			0: 'systemOverview',
+			1: 'componentAnalysis',
+			2: 'codeDocumentation',
+			3: 'developmentGuides',
+			4: 'maintenanceOps'
+		};
 
-		setState(prev => {
-			const newState = {
-				...prev,
-				context: {
-					...prev.context,
-					[currentStepKey]: currentStepContent
-				},
-				completedSteps: [...prev.completedSteps, prev.currentStep],
-				currentStep: Math.min(prev.currentStep + 1, DOCUMENTATION_STEPS.length)
-			};
-			console.log('Updated state:', newState);
-			return newState;
-		});
+		const contextKey = contextKeyMap[state.currentStep];
+
+		// Get content either from context parameter or currentStepContent
+		let parsedContent: any;
+		try {
+			// Prefer context overview if available
+			if (context?.context?.[contextKey]) {
+				parsedContent = context.context[contextKey];
+				// If it's a string that looks like JSON, try to parse it
+				if (typeof parsedContent === 'string' && parsedContent.trim().startsWith('{')) {
+					parsedContent = JSON.parse(parsedContent);
+				}
+			} else if (currentStepContent) {
+				// If currentStepContent looks like JSON, parse it
+				if (currentStepContent.trim().startsWith('{')) {
+					try {
+						parsedContent = JSON.parse(currentStepContent);
+					} catch (e) {
+						console.warn('Failed to parse currentStepContent as JSON:', e);
+						parsedContent = currentStepContent;
+					}
+				} else {
+					parsedContent = currentStepContent;
+				}
+			} else {
+				parsedContent = {};
+			}
+		} catch (error) {
+			console.error('Error parsing content:', error);
+			parsedContent = {};
+		}
+
+		// Format the content based on the step
+		let formattedContent: string;
+		try {
+			formattedContent = formatToolResult(parsedContent, state.currentStep);
+		} catch (error) {
+			console.error('Error formatting content:', error);
+			formattedContent = typeof parsedContent === 'string' ?
+				parsedContent :
+				JSON.stringify(parsedContent, null, 2);
+		}
+
+		// Update state with the formatted content
+		setState(prev => ({
+			...prev,
+			context: {
+				...prev.context,
+				[contextKey]: formattedContent
+			},
+			completedSteps: [...prev.completedSteps, prev.currentStep],
+			currentStep: prev.currentStep + 1,
+		}));
 
 		setIsStepComplete(true);
 		setCurrentStepContent('');
@@ -148,8 +310,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			context: state.context || {}
 		},
 		onToolCall: async ({ toolCall }) => {
-			console.log(toolCall);
-			// Handle streaming tool calls
+			console.log('Tool call received:', toolCall);
 			try {
 				// Update messages with tool invocations
 				setStreamingMessages(prevMessages => {
@@ -192,16 +353,18 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				if (delta) {
 					setCurrentStepContent(prev => {
 						try {
-							// If prev is empty, start with empty JSON
-							const prevContent = prev ? prev : '{}';
-
-							// If delta starts with {, it's a new JSON object
-							if (delta.startsWith('{')) {
+							// If prev is empty or delta starts with {, treat it as a new JSON object
+							if (!prev || delta.startsWith('{')) {
 								return delta;
 							}
 
 							// Otherwise append to existing content
-							return prevContent.slice(0, -1) + delta;
+							const currentJson = prev.endsWith('}') ? prev.slice(0, -1) : prev;
+							const deltaJson = delta.startsWith('{') ? delta.slice(1) : delta;
+							const combinedJson = currentJson + deltaJson;
+
+							// Don't try to parse incomplete JSON
+							return combinedJson + (delta.endsWith('}') ? '' : '');
 						} catch (error) {
 							console.error("Error updating content:", error);
 							return prev;
@@ -215,7 +378,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				return toolCall.args;
 			}
 		},
-		onFinish: (message) => {
+		onFinish: (message) => { // TODO: Please change this data type to something that contains the 'result' field
 			try {
 				console.log("Finished message:", message);
 				// Save message with tool invocations
@@ -244,19 +407,31 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					try {
 						const parsedContent = JSON.parse(message.content);
 						if (parsedContent.finishReason === "step_complete") {
-							// Use the updated handleStepComplete provided by useCallback
-							handleStepComplete(parsedContent.context || {});
+							handleStepComplete(parsedContent);
 						}
 					} catch (e) {
 						console.error("Error parsing message content:", e);
-						// If parsing fails, check if we have a completed tool invocation
-						if (hasCompletedToolInvocation) {
-							handleStepComplete({});
-						}
 					}
 				} else if (hasCompletedToolInvocation) {
-					// If no content but we have a completed final_result tool invocation
-					handleStepComplete({});
+					// Find the final_result tool invocation
+					const finalResultTool = message.toolInvocations?.find(
+						tool => tool.toolName === 'final_result'
+					);
+
+					// @ts-ignore Property 'result' does not exist on type 'ToolInvocation'
+					if (finalResultTool?.result) {
+						// Format the result into a markdown document based on the step
+						// @ts-ignore Property 'result' does not exist on type 'ToolInvocation'
+						const formattedContent = formatToolResult(finalResultTool.result, state.currentStep);
+
+						const context = {
+							context: {
+								[state.currentStep]: formattedContent
+							}
+						};
+
+						handleStepComplete(context);
+					}
 				}
 			} catch (e) {
 				console.error("Error in onFinish:", e);
