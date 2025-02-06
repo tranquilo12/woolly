@@ -134,23 +134,23 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						t => t.toolCallId === toolCall.toolCallId
 					);
 
+					const formattedToolCall = {
+						toolCallId: toolCall.toolCallId,
+						toolName: toolCall.toolName,
+						args: toolCall.args,
+						// @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
+						state: toolCall.state || 'partial-call',
+						// @ts-ignore Property 'result' does not exist on type 'ToolCall<string, unknown>'
+						result: toolCall.result
+					};
+
 					if (existingToolIndex >= 0) {
 						updatedToolInvocations[existingToolIndex] = {
 							...updatedToolInvocations[existingToolIndex],
-							toolCallId: toolCall.toolCallId,
-							toolName: toolCall.toolName,
-							args: toolCall.args,
-							// @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
-							state: toolCall.state || 'partial-call'
+							...formattedToolCall
 						};
 					} else {
-						updatedToolInvocations.push({
-							toolCallId: toolCall.toolCallId,
-							toolName: toolCall.toolName,
-							args: toolCall.args,
-							// @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
-							state: toolCall.state || 'partial-call'
-						});
+						updatedToolInvocations.push(formattedToolCall);
 					}
 
 					return prevMessages.map((msg, i) =>
@@ -185,6 +185,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				return toolCall.args;
 			} catch (error) {
 				console.error("Error handling tool call:", error);
+				return toolCall.args;
 			}
 		},
 		onFinish: (message) => {
@@ -322,9 +323,12 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					<div className="prose prose-neutral dark:prose-invert flex-1">
 						<Markdown>{message.content}</Markdown>
 
-						{/* Add Tool Invocations Display */}
-						{message.toolInvocations?.map((tool, index) => {
-							const uniqueKey = `${message.id}-${tool.toolCallId || 'tool'}-${index}`;
+						{/* Tool Invocations Display */}
+						{message.tool_invocations?.map((tool: any, index: number) => {
+							// Create a unique key that's stable across renders
+							const uniqueKey = `${message.id}-${tool.toolCallId}-${index}`;
+
+							// Map the backend format to what ToolInvocationDisplay expects
 							return (
 								<ToolInvocationDisplay
 									key={uniqueKey}
@@ -334,7 +338,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 										toolName: tool.toolName,
 										args: tool.args,
 										state: tool.state,
-										result: 'result' in tool ? tool.result : undefined
+										result: tool.result
 									}}
 								/>
 							);

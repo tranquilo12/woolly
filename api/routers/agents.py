@@ -548,6 +548,13 @@ async def save_agent_message(
 ) -> Message:
     """Unified function to save any type of agent message"""
     try:
+        # Convert tool_invocations to list of dicts if it's a string
+        if isinstance(tool_invocations, str):
+            try:
+                tool_invocations = json.loads(tool_invocations)
+            except json.JSONDecodeError:
+                tool_invocations = []
+
         message = Message(
             id=uuid.uuid4(),
             chat_id=chat_id,
@@ -785,6 +792,16 @@ async def save_message(
     db: Session = Depends(get_db),
 ):
     try:
+        # Ensure tool_invocations is properly serialized for JSON storage
+        tool_invocations = message.tool_invocations
+        if isinstance(tool_invocations, str):
+            try:
+                tool_invocations = json.loads(tool_invocations)
+            except json.JSONDecodeError:
+                tool_invocations = []
+        elif tool_invocations is None:
+            tool_invocations = []
+
         # Create a new message with proper ID and tool invocations
         db_message = Message(
             id=uuid.uuid4(),  # Add explicit ID
@@ -794,19 +811,24 @@ async def save_message(
             message_type=message.message_type,
             role=message.role,
             content=message.content,
-            tool_invocations=(
-                json.dumps(message.tool_invocations)
-                if message.tool_invocations
-                else None
-            ),
+            tool_invocations=tool_invocations,  # Now properly serialized
             created_at=datetime.now(timezone.utc),
         )
         db.add(db_message)
         db.commit()
+        db.refresh(db_message)  # Add refresh to ensure the message was saved
+
+        # Verify the message was saved
+        saved_message = db.query(Message).filter(Message.id == db_message.id).first()
+
+        if not saved_message:
+            raise HTTPException(status_code=500, detail="Message failed to save")
+
         return {"status": "success", "message_id": str(db_message.id)}
     except Exception as e:
         db.rollback()
         logging.error(f"Failed to save message: {e}")
+        print(f"Failed to save message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -830,11 +852,23 @@ async def get_messages(
         .all()
     )
 
-    # Parse tool invocations JSON for each message
+    # Parse tool invocations JSON for each message and ensure consistent format
     for message in messages:
         if message.tool_invocations:
             try:
-                message.tool_invocations = json.loads(message.tool_invocations)
+                tool_invocations = message.tool_invocations
+                # Ensure each tool invocation has the required format
+                formatted_invocations = []
+                for tool in tool_invocations:
+                    formatted_tool = {
+                        "toolCallId": tool.get("toolCallId") or tool.get("id"),
+                        "toolName": tool.get("toolName"),
+                        "args": tool.get("args", {}),
+                        "state": tool.get("state", "result"),
+                        "result": tool.get("result"),
+                    }
+                    formatted_invocations.append(formatted_tool)
+                message.tool_invocations = formatted_invocations
             except json.JSONDecodeError:
                 message.tool_invocations = []
         else:
