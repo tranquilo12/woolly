@@ -350,6 +350,7 @@ class DocumentationContext(BaseModel):
     completed_steps: List[int] = Field(default_factory=list)
     partial_results: Dict[str, Any] = Field(default_factory=dict)
     last_error: Optional[str] = None
+    current_prompt: Optional[str] = None
 
 
 # Update the existing DocumentationRequest model
@@ -363,6 +364,7 @@ class DocumentationRequest(BaseModel):
     chat_id: UUID
     step: Optional[int] = None
     context: Optional[DocumentationContext] = None
+    prompt: Optional[str] = None
 
 
 # endregion
@@ -450,13 +452,18 @@ async def process_documentation_step(
     context: DocumentationContext,
     repo_name: str,
     code_search_query: CodeSearch,
-) -> AsyncGenerator[Tuple[str, bool], None]:
+    prompt: str,
+) -> AsyncGenerator[str, None]:
     """Process a documentation step using specialized agents with handoff"""
     try:
         # Get the specialized agent for this step
-        agent, model_class = STEP_AGENTS.get(step)
-        if not agent:
+        step_config = STEP_AGENTS.get(step)
+        if not step_config:
             raise ValueError(f"No agent found for step {step}")
+
+        agent, model_class = (
+            step_config  # Only unpack after we verify step_config exists
+        )
 
         # Map step numbers to context keys
         step_to_context_key = {
@@ -467,9 +474,11 @@ async def process_documentation_step(
             5: "maintenanceOps",
         }
 
+        # Construct a more specific prompt that includes the user's intent and previous context
+        enhanced_prompt = f"""For repository {repo_name}, {prompt}\n\nPrevious documentation context:\n\n {json.dumps(context.partial_results, indent=2)}\n\nFocus on generating documentation for the current step ({step_to_context_key.get(step, 'unknown')}). \n\n Your response should be a complete, well-structured JSON object matching the schema for this step"""
+
         async with agent.run_stream(
-            user_prompt=f"""For repository {repo_name}, generate documentation based on your expertise.
-            Previous context: {json.dumps(context.partial_results)}""",
+            user_prompt=enhanced_prompt,
             deps=code_search_query,
             result_type=model_class,
         ) as result:
@@ -581,8 +590,8 @@ async def process_documentation_step(
                             yield f"e:{json.dumps(completion_message)}\n"
 
     except Exception as e:
-        logging.error(f"Error in specialized agent for step {step}: {e}")
-        yield f"e:{json.dumps({'finishReason': 'error', 'error': str(e)})}\n"
+        logging.error(f"Error in process_documentation_step: {e}")
+        yield f"e:{json.dumps({'error': str(e)})}\n"
 
 
 async def save_agent_message(
@@ -646,24 +655,36 @@ async def save_agent_message(
 
 async def stream_documentation_response(request: DocumentationRequest, db: Session):
     """Stream documentation generation with step-based approach"""
-
-    # Initialize or get existing context
-    context = request.context or DocumentationContext()
-
-    code_search_query = CodeSearch(
-        query="*",
-        repo_name=request.repo_name,
-    )
-
     try:
+        # Initialize or get existing context
+        context = request.context or DocumentationContext()
+
+        # Ensure step is properly set
+        step = request.step if request.step is not None else context.current_step
+        if step < 1 or step > 5:  # Validate step range
+            raise ValueError(f"Invalid step number: {step}")
+
+        code_search_query = CodeSearch(
+            query="*",
+            repo_name=request.repo_name,
+        )
+
         # Process current step
         async for content in process_documentation_step(
-            context.current_step, context, request.repo_name, code_search_query
+            step,  # Use validated step number
+            context,
+            request.repo_name,
+            code_search_query,
+            request.prompt or "",
         ):
-            # Forward the streaming content
-            yield content
+            if isinstance(content, str):  # Ensure we only yield strings
+                yield content
+            else:
+                logging.error(f"Unexpected content type in stream: {type(content)}")
+                yield f"e:{json.dumps({'error': 'Unexpected response format'})}\n"
 
     except Exception as e:
+        print(f"Documentation stream error: {e}")
         logging.error(f"Documentation stream error: {e}")
         yield f"e:{json.dumps({'finishReason': 'error', 'error': str(e), 'usage': {'promptTokens': 0, 'completionTokens': 0, 'totalTokens': 0}})}\n"
 
@@ -676,17 +697,20 @@ async def generate_documentation(
 ):
     """Generate documentation with streaming response"""
     try:
+        # Verify agent exists
         agent = db.query(Agent).filter(Agent.id == str(agent_id)).first()
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
 
         # Return streaming response
         return StreamingResponse(
-            stream_documentation_response(request, db),
+            stream_documentation_response(request=request, db=db),
+            media_type="text/event-stream",
             headers={"x-vercel-ai-data-stream": "v1"},
         )
 
     except Exception as e:
+        logging.error(f"Documentation generation error: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 

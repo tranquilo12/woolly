@@ -31,6 +31,7 @@ interface DocumentationState {
 		codeDocumentation?: string;
 		developmentGuides?: string;
 		maintenanceOps?: string;
+		currentPrompt?: string;
 	};
 }
 
@@ -276,7 +277,8 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			...prev,
 			context: {
 				...prev.context,
-				[contextKey]: formattedContent
+				[contextKey]: formattedContent,
+				currentPrompt: DOCUMENTATION_STEPS[prev.currentStep].prompt
 			},
 			completedSteps: [...prev.completedSteps, prev.currentStep],
 			currentStep: prev.currentStep + 1,
@@ -427,7 +429,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						const context = {
 							context: {
 								[state.currentStep]: formattedContent
-							}
+							},
 						};
 
 						handleStepComplete(context);
@@ -449,6 +451,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		setIsStepComplete(false);
 
 		try {
+			// Ensure we're sending the current step's prompt
 			await append({
 				role: 'user',
 				content: currentStep.prompt
@@ -462,12 +465,18 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					file_paths: file_paths,
 					chat_id: chat_id,
 					step: state.currentStep + 1,
-					context: state.context || {}
+					context: {
+						...state.context,
+						current_step: state.currentStep,
+						currentPrompt: currentStep.prompt, // Add the current prompt to context
+					},
+					prompt: currentStep.prompt, // Add the prompt directly to the request
 				}
 			});
 
 		} catch (error) {
 			console.error("Failed to generate documentation:", error);
+			setIsStepComplete(false);
 		}
 	}, [append, state.currentStep, state.context, isLoading, chat_id, agent_id, repo_name, file_paths, initialMessages]);
 
