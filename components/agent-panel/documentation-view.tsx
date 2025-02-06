@@ -97,6 +97,33 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	const [currentStepContent, setCurrentStepContent] = useState<string>('');
 	const [isStepComplete, setIsStepComplete] = useState<boolean>(false);
 
+	// NEW: Define handleStepComplete early using useCallback so it's available for useChat.onFinish
+	const handleStepComplete = useCallback((context: any) => {
+		console.log('Step Complete triggered with context:', context);
+		console.log('Current step:', state.currentStep);
+		console.log('Current step content:', currentStepContent);
+
+		const currentStepKey = DOCUMENTATION_STEPS[state.currentStep].title.toLowerCase().replace(/\s+/g, '_');
+		console.log('Generated step key:', currentStepKey);
+
+		setState(prev => {
+			const newState = {
+				...prev,
+				context: {
+					...prev.context,
+					[currentStepKey]: currentStepContent
+				},
+				completedSteps: [...prev.completedSteps, prev.currentStep],
+				currentStep: Math.min(prev.currentStep + 1, DOCUMENTATION_STEPS.length)
+			};
+			console.log('Updated state:', newState);
+			return newState;
+		});
+
+		setIsStepComplete(true);
+		setCurrentStepContent('');
+	}, [state.currentStep, currentStepContent]);
+
 	const {
 		messages: streamingMessages,
 		append,
@@ -198,7 +225,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					repository: repo_name,
 					messageType: 'documentation',
 					role: message.role,
-					content: message.content || '', // Ensure content is never undefined
+					content: message.content || '',
 					toolInvocations: message.toolInvocations?.map(tool => ({
 						toolCallId: tool.toolCallId,
 						toolName: tool.toolName,
@@ -208,16 +235,28 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					})) || []
 				});
 
-				// Only try to parse if content is not empty
+				// Check for completion in either message content or tool invocations
+				const hasCompletedToolInvocation = message.toolInvocations?.some(
+					tool => tool.toolName === 'final_result'
+				);
+
 				if (message.content) {
 					try {
 						const parsedContent = JSON.parse(message.content);
-						if (parsedContent.finishReason === 'step_complete') {
-							handleStepComplete(parsedContent.context);
+						if (parsedContent.finishReason === "step_complete") {
+							// Use the updated handleStepComplete provided by useCallback
+							handleStepComplete(parsedContent.context || {});
 						}
 					} catch (e) {
 						console.error("Error parsing message content:", e);
+						// If parsing fails, check if we have a completed tool invocation
+						if (hasCompletedToolInvocation) {
+							handleStepComplete({});
+						}
 					}
+				} else if (hasCompletedToolInvocation) {
+					// If no content but we have a completed final_result tool invocation
+					handleStepComplete({});
 				}
 			} catch (e) {
 				console.error("Error in onFinish:", e);
@@ -259,7 +298,13 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 	useEffect(() => {
 		if (isStepComplete && state.currentStep < DOCUMENTATION_STEPS.length) {
-			handleGenerateDoc();
+			// Small delay to ensure state updates are complete
+			const timer = setTimeout(() => {
+				setIsStepComplete(false); // Reset completion flag
+				handleGenerateDoc(); // Start next step
+			}, 100);
+
+			return () => clearTimeout(timer);
 		}
 	}, [isStepComplete, state.currentStep, handleGenerateDoc]);
 
@@ -289,19 +334,6 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		}
 		return acc;
 	}, [] as Message[]);
-
-	const handleStepComplete = (context: any) => {
-		setState(prev => ({
-			...prev,
-			context: {
-				...prev.context,
-				[DOCUMENTATION_STEPS[prev.currentStep].title.toLowerCase().replace(' ', '_')]: currentStepContent
-			},
-			completedSteps: [...prev.completedSteps, prev.currentStep],
-			currentStep: prev.currentStep + 1
-		}));
-		setIsStepComplete(true);
-	};
 
 	const renderMessage = (message: Message) => {
 		return (

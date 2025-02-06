@@ -458,7 +458,15 @@ async def process_documentation_step(
         if not agent:
             raise ValueError(f"No agent found for step {step}")
 
-        # Run the specialized agent with context from previous steps
+        # Map step numbers to context keys
+        step_to_context_key = {
+            1: "systemOverview",
+            2: "componentAnalysis",
+            3: "codeDocumentation",
+            4: "developmentGuides",
+            5: "maintenanceOps",
+        }
+
         async with agent.run_stream(
             user_prompt=f"""For repository {repo_name}, generate documentation based on your expertise.
             Previous context: {json.dumps(context.partial_results)}""",
@@ -529,6 +537,48 @@ async def process_documentation_step(
                                 except json.JSONDecodeError:
                                     # Skip streaming for incomplete JSON
                                     continue
+
+                        if last:
+                            # Get the complete content from all parts
+                            complete_content = "\n".join(
+                                [
+                                    part.content
+                                    for part in message.parts
+                                    if isinstance(part, TextPart)
+                                ]
+                            )
+
+                            # Get usage statistics
+                            usage_data = {
+                                "promptTokens": (
+                                    result.usage().request_tokens
+                                    if result.usage()
+                                    else 0
+                                ),
+                                "completionTokens": (
+                                    result.usage().response_tokens
+                                    if result.usage()
+                                    else 0
+                                ),
+                                "totalTokens": (
+                                    result.usage().total_tokens if result.usage() else 0
+                                ),
+                            }
+
+                            # Get the context key for this step
+                            context_key = step_to_context_key.get(step)
+
+                            # Format the completion message with proper context structure
+                            completion_message = {
+                                "finishReason": "step_complete",
+                                "usage": usage_data,
+                                "context": {
+                                    context_key: complete_content,
+                                    "step": step,
+                                },
+                            }
+
+                            yield f"e:{json.dumps(completion_message)}\n"
 
     except Exception as e:
         logging.error(f"Error in specialized agent for step {step}: {e}")
