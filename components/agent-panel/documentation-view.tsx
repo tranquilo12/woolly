@@ -279,7 +279,13 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	const allMessages = [...initialMessages, ...streamingMessages].reduce((acc: Message[], message: Message) => {
 		const exists = acc.find((m: Message) => m.id === message.id);
 		if (!exists) {
-			acc.push(message);
+			// Map tool_invocations to toolInvocations if it exists
+			const mappedMessage = {
+				...message,
+				// @ts-ignore - handle snake_case to camelCase conversion
+				toolInvocations: message.tool_invocations || message.toolInvocations || []
+			};
+			acc.push(mappedMessage);
 		}
 		return acc;
 	}, [] as Message[]);
@@ -324,7 +330,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						<Markdown>{message.content}</Markdown>
 
 						{/* Tool Invocations Display */}
-						{message.tool_invocations?.map((tool: any, index: number) => {
+						{message.toolInvocations?.map((tool: any, index: number) => {
 							// Create a unique key that's stable across renders
 							const uniqueKey = `${message.id}-${tool.toolCallId}-${index}`;
 
