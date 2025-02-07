@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 
 interface SaveMessageParams {
 	agentId: string;
@@ -13,7 +14,7 @@ interface SaveMessageParams {
 export function useAgentMessages(chatId: string, agentId: string, repository: string, messageType: 'documentation' | 'mermaid') {
 	const queryClient = useQueryClient();
 
-	const { data, isError, isLoading } = useQuery({
+	const { data, isError, isLoading, refetch } = useQuery({
 		queryKey: ['messages', chatId, agentId, repository, messageType],
 		queryFn: async () => {
 			const response = await fetch(
@@ -49,6 +50,12 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 			queryClient.invalidateQueries({ queryKey: ['messages', chatId, agentId, repository, messageType] as const });
 		},
 	});
+
+	useEffect(() => {
+		if (chatId && agentId && repository) {
+			refetch();
+		}
+	}, [chatId, agentId, repository, refetch]);
 
 	return {
 		data,

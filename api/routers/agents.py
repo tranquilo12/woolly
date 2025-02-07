@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, AsyncGenerator, Tuple, Dict, Any
 from functools import wraps
 
+from ..utils.tools import execute_python_code
 from ..utils.database import get_db
 from ..utils.models import (
     Agent,
@@ -31,6 +32,10 @@ import uuid
 from sqlalchemy.exc import IntegrityError
 
 router = APIRouter()
+
+available_tools = {
+    "execute_python_code": execute_python_code,
+}
 
 
 def handle_db_operation(func):
@@ -297,6 +302,26 @@ class SystemOverview(BaseModel):
             return cls.model_validate(data)
 
 
+# Add this new function to standardize tool invocation format
+def standardize_tool_invocations(tool_invocations: List[dict]) -> List[dict]:
+    """Standardize tool invocations to match index.py format"""
+    if not tool_invocations:
+        return []
+
+    standardized = []
+    for tool in tool_invocations:
+        # Convert from pydantic_ai format to standard format
+        standardized_tool = {
+            "id": tool.get("toolCallId") or tool.get("id"),  # Handle both formats
+            "toolName": tool.get("toolName"),
+            "args": tool.get("args", {}),
+            "state": tool.get("state", "result"),
+            "result": tool.get("result"),
+        }
+        standardized.append(standardized_tool)
+    return standardized
+
+
 class ComponentAnalysis(BaseModel):
     """Component analysis documentation section"""
 
@@ -515,6 +540,14 @@ async def process_documentation_step(
                                         "arguments": "{}",
                                     }
                                 )
+
+                                # Send initial partial call
+                                # yield build_tool_call_partial(
+                                #     tool_call_id=tool_call_id,
+                                #     tool_name=tool_name,
+                                #     args={},
+                                # )
+
                             elif arguments:
                                 try:
                                     current_args = draft_tool_calls[
@@ -534,6 +567,8 @@ async def process_documentation_step(
                                                 "arguments"
                                             ]
                                         )
+
+                                        # First send the "call" state
                                         yield build_tool_call_partial(
                                             tool_call_id=draft_tool_calls[
                                                 draft_tool_calls_idx
@@ -543,6 +578,37 @@ async def process_documentation_step(
                                             ]["name"],
                                             args=parsed_args,
                                         )
+
+                                        # Then execute and send the result
+                                        try:
+                                            if tool_name in available_tools:
+                                                tool_result = available_tools[
+                                                    tool_name
+                                                ](**parsed_args)
+                                            else:
+                                                tool_result = None
+
+                                            yield build_tool_call_result(
+                                                tool_call_id=draft_tool_calls[
+                                                    draft_tool_calls_idx
+                                                ]["id"],
+                                                tool_name=draft_tool_calls[
+                                                    draft_tool_calls_idx
+                                                ]["name"],
+                                                args=parsed_args,
+                                                result=tool_result,
+                                            )
+                                        except Exception as e:
+                                            yield build_tool_call_result(
+                                                tool_call_id=draft_tool_calls[
+                                                    draft_tool_calls_idx
+                                                ]["id"],
+                                                tool_name=draft_tool_calls[
+                                                    draft_tool_calls_idx
+                                                ]["name"],
+                                                args=parsed_args,
+                                                result={"error": str(e)},
+                                            )
                                 except json.JSONDecodeError:
                                     # Skip streaming for incomplete JSON
                                     continue
@@ -581,6 +647,7 @@ async def process_documentation_step(
                             completion_message = {
                                 "finishReason": "step_complete",
                                 "usage": usage_data,
+                                "state": "result",
                                 "context": {
                                     context_key: complete_content,
                                     "step": step,
@@ -865,16 +932,10 @@ async def save_message(
     message: MessageCreate,
     db: Session = Depends(get_db),
 ):
+    """Save a message for an agent"""
     try:
-        # Ensure tool_invocations is properly serialized for JSON storage
-        tool_invocations = message.tool_invocations
-        if isinstance(tool_invocations, str):
-            try:
-                tool_invocations = json.loads(tool_invocations)
-            except json.JSONDecodeError:
-                tool_invocations = []
-        elif tool_invocations is None:
-            tool_invocations = []
+        # Standardize tool invocations to match index.py format
+        tool_invocations = standardize_tool_invocations(message.tool_invocations or [])
 
         # Create a new message with proper ID and tool invocations
         db_message = Message(
@@ -885,12 +946,12 @@ async def save_message(
             message_type=message.message_type,
             role=message.role,
             content=message.content,
-            tool_invocations=tool_invocations,  # Now properly serialized
+            tool_invocations=tool_invocations,  # Now properly standardized
             created_at=datetime.now(timezone.utc),
         )
         db.add(db_message)
         db.commit()
-        db.refresh(db_message)  # Add refresh to ensure the message was saved
+        db.refresh(db_message)
 
         # Verify the message was saved
         saved_message = db.query(Message).filter(Message.id == db_message.id).first()
@@ -926,25 +987,12 @@ async def get_messages(
         .all()
     )
 
-    # Parse tool invocations JSON for each message and ensure consistent format
+    # Standardize tool invocations for each message
     for message in messages:
         if message.tool_invocations:
-            try:
-                tool_invocations = message.tool_invocations
-                # Ensure each tool invocation has the required format
-                formatted_invocations = []
-                for tool in tool_invocations:
-                    formatted_tool = {
-                        "toolCallId": tool.get("toolCallId") or tool.get("id"),
-                        "toolName": tool.get("toolName"),
-                        "args": tool.get("args", {}),
-                        "state": tool.get("state", "result"),
-                        "result": tool.get("result"),
-                    }
-                    formatted_invocations.append(formatted_tool)
-                message.tool_invocations = formatted_invocations
-            except json.JSONDecodeError:
-                message.tool_invocations = []
+            message.tool_invocations = standardize_tool_invocations(
+                message.tool_invocations
+            )
         else:
             message.tool_invocations = []
 

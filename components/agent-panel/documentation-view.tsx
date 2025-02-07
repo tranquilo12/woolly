@@ -317,57 +317,37 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			step: state.currentStep + 1,
 			context: state.context || {}
 		},
-		onToolCall: async ({ toolCall }) => {
-			console.log('Tool call received:', toolCall);
-			try {
-				setStreamingMessages(prevMessages => {
-					const lastMessage = prevMessages[prevMessages.length - 1];
-					if (!lastMessage) return prevMessages;
+		onToolCall: async (tool) => {
+			setStreamingMessages(prevMessages => {
+				const lastMessage = prevMessages[prevMessages.length - 1];
+				if (!lastMessage) return prevMessages;
 
-					// @ts-ignore
-					const updatedToolInvocations = lastMessage.toolInvocations || lastMessage.tool_invocations || [];
-					const existingToolIndex = updatedToolInvocations.findIndex(
-						(t: any) => t.toolCallId === toolCall.toolCallId
-					);
+				const updatedToolInvocations = lastMessage.toolInvocations || [];
+				const existingToolIndex = updatedToolInvocations.findIndex(t => t.toolCallId === tool.toolCall.toolCallId);
 
-					// First send empty partial call
-					const initialToolCall = {
-						toolCallId: toolCall.toolCallId,
-						toolName: toolCall.toolName,
-						args: {},
-						state: 'partial-call' as const
+				if (existingToolIndex >= 0) {
+					updatedToolInvocations[existingToolIndex] = {
+						...updatedToolInvocations[existingToolIndex],
+						toolCallId: tool.toolCall.toolCallId,
+						toolName: tool.toolCall.toolName,
+						args: tool.toolCall.args,
 					};
+				} else {
+					updatedToolInvocations.push({
+						toolCallId: tool.toolCall.toolCallId,
+						toolName: tool.toolCall.toolName,
+						args: tool.toolCall.args,
+						// @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
+						state: tool.toolCall.state || 'partial-call'
+					});
+				}
 
-					// If we have args, validate them as complete JSON before including
-					if (toolCall.args) {
-						try {
-							const argsStr = JSON.stringify(toolCall.args);
-							if (argsStr.startsWith('{') && argsStr.endsWith('}')) {
-								initialToolCall.args = toolCall.args;
-							}
-						} catch (e) {
-							console.error('Invalid JSON in tool args:', e);
-						}
-					}
-
-					if (existingToolIndex >= 0) {
-						updatedToolInvocations[existingToolIndex] = {
-							...updatedToolInvocations[existingToolIndex],
-							...initialToolCall
-						};
-					} else {
-						updatedToolInvocations.push(initialToolCall);
-					}
-
-					return prevMessages.map((msg, i) =>
-						i === prevMessages.length - 1
-							? { ...msg, toolInvocations: updatedToolInvocations }
-							: msg
-					);
-				});
-			} catch (e) {
-				console.error('Error in onToolCall:', e);
-			}
+				return prevMessages.map((msg, i) =>
+					i === prevMessages.length - 1
+						? { ...msg, toolInvocations: updatedToolInvocations }
+						: msg
+				);
+			});
 		},
 		onFinish: async (message) => {
 			try {
@@ -380,7 +360,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					totalTokens: 0
 				}, 'gpt-4o');
 
-				// Save message to DB
+				// Save message to DB and wait for confirmation
 				await saveMessage({
 					agentId: agent_id,
 					chatId: chat_id,
@@ -397,7 +377,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					})) || []
 				});
 
-				// Reset streaming messages - this will force the UI to use DB messages
+				// Only reset streaming messages after successful DB save
 				setStreamingMessages([]);
 
 				// Handle step completion
@@ -502,7 +482,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 	// Update the message reduction to prefer DB messages over streaming ones
 	const allMessages = [...initialMessages, ...streamingMessages].reduce((acc: MessageWithModel[], message: Message) => {
-		// If message exists in initialMessages (DB), skip the streaming version
+		// If message exists in initialMessages (DB), use that version
 		const existingDbMessage = initialMessages.find((m: MessageWithModel) => m.id === message.id);
 		if (existingDbMessage) {
 			if (!acc.some(m => m.id === existingDbMessage.id)) {
@@ -511,7 +491,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			return acc;
 		}
 
-		// Only add streaming message if it's not already saved to DB
+		// Only add streaming message if it's not already in DB
 		if (!acc.some(m => m.id === message.id)) {
 			const messageWithModel = toMessageWithModel(message, null);
 			acc.push(messageWithModel);
