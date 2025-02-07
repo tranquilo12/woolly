@@ -213,7 +213,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	);
 
 	const [state, setState] = useState<DocumentationState>({
-		currentStep: 1,
+		currentStep: 0,
 		completedSteps: [],
 		context: {}
 	});
