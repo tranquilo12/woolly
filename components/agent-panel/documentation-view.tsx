@@ -349,14 +349,31 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			try {
 				console.log("Finished message:", message);
 
-				// Convert and save message
-				const messageWithModel = toMessageWithModel(message, {
+				// De-duplicate tool invocations based on args content
+				const uniqueToolInvocations = message.toolInvocations?.reduce((acc: any[], tool: any) => {
+					// Skip if we already have a tool with the same args
+					const hasMatchingTool = acc.some(existingTool =>
+						JSON.stringify(existingTool.args) === JSON.stringify(tool.args) &&
+						existingTool.toolName === tool.toolName
+					);
+
+					if (!hasMatchingTool) {
+						acc.push(tool);
+					}
+					return acc;
+				}, []) || [];
+
+				// Convert and save message with de-duplicated tool invocations
+				const messageWithModel = toMessageWithModel({
+					...message,
+					toolInvocations: uniqueToolInvocations
+				}, {
 					promptTokens: usage?.promptTokens,
 					completionTokens: usage?.completionTokens,
 					totalTokens: usage?.totalTokens
 				}, 'gpt-4o');
 
-				// Save message to DB and wait for confirmation
+				// Save message to DB
 				await saveMessage({
 					agentId: agent_id,
 					chatId: chat_id,
@@ -364,23 +381,23 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					messageType: 'documentation',
 					role: messageWithModel.role,
 					content: messageWithModel.content || '',
-					toolInvocations: (messageWithModel.toolInvocations || messageWithModel.tool_invocations)?.map(tool => ({
-						toolCallId: tool.toolCallId || (tool as any).id,
+					toolInvocations: uniqueToolInvocations.map(tool => ({
+						toolCallId: tool.toolCallId || tool.id,
 						toolName: tool.toolName,
 						args: tool.args,
 						state: tool.state,
 						result: 'result' in tool ? tool.result : undefined
-					})) || []
+					}))
 				});
 
-				// Only reset streaming messages after successful DB save
+				// Rest of the existing onFinish logic...
 				setStreamingMessages([]);
 
-				// Handle step completion
-				const hasCompletedToolInvocation = (messageWithModel.toolInvocations || messageWithModel.tool_invocations)?.some(
+				const hasCompletedToolInvocation = uniqueToolInvocations.some(
 					tool => tool.toolName === 'final_result'
 				);
 
+				// Continue with existing logic...
 				if (messageWithModel.content) {
 					try {
 						const parsedContent = JSON.parse(messageWithModel.content);
@@ -391,7 +408,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						console.error("Error parsing message content:", e);
 					}
 				} else if (hasCompletedToolInvocation) {
-					const finalResultTool = (messageWithModel.toolInvocations || messageWithModel.tool_invocations)?.find(
+					const finalResultTool = uniqueToolInvocations.find(
 						tool => tool.toolName === 'final_result'
 					);
 
