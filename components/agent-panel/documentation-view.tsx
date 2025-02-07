@@ -3,10 +3,10 @@
 import { useChat } from 'ai/react';
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
-import { Bot, Loader2, CheckCircle } from "lucide-react";
+import { Bot, Loader2, CheckCircle, FileText, Play, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AvailableRepository } from "@/lib/constants";
-import { Message, LanguageModelUsage } from "ai";
+import { Message } from "ai";
 import { motion, AnimatePresence } from "framer-motion";
 import { Markdown } from "../markdown";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
@@ -14,7 +14,7 @@ import { useAgentMessages } from '@/hooks/use-agent-messages';
 import { useState, useEffect, useCallback } from 'react';
 import { ToolInvocationDisplay } from "../tool-invocation";
 import { isSystemOverview, isComponentAnalysis, isCodeDocumentation, isDevelopmentGuide, isMaintenanceOps, DocumentationResult } from '../../types/documentation';
-import { MessageWithModel, toMessage, toMessageWithModel } from "../chat";
+import { MessageWithModel, toMessageWithModel } from "../chat";
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -567,16 +567,8 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		<div className="flex-none p-4 space-y-4 border-b">
 			<div className="flex items-center justify-between mb-4">
 				<h3 className="text-sm font-medium">
-					Step {state.currentStep + 1} of {DOCUMENTATION_STEPS.length}:
 					{DOCUMENTATION_STEPS[state.currentStep]?.title}
 				</h3>
-				<div className="flex items-center gap-2">
-					{state.completedSteps.length > 0 && (
-						<span className="text-sm text-muted-foreground">
-							{state.completedSteps.length} completed
-						</span>
-					)}
-				</div>
 			</div>
 			<div className="flex items-center gap-4">
 				{DOCUMENTATION_STEPS.map((step, index) => (
@@ -604,41 +596,42 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 	return (
 		<div className="flex flex-col h-full overflow-hidden">
-			<div className="flex-none p-4 space-y-4 border-b">
-				<h2 className="text-lg font-semibold">Documentation Generator</h2>
-				<p className="text-sm text-muted-foreground">
-					Generating comprehensive documentation in {DOCUMENTATION_STEPS.length} steps
-				</p>
-				<div className="flex items-center gap-2">
-					<Button
-						variant="outline"
-						onClick={handleGenerateDoc}
-						disabled={isLoading || state.currentStep >= DOCUMENTATION_STEPS.length}
-					>
-						{isLoading ? (
-							<>
-								<Loader2 className="h-4 w-4 animate-spin mr-2" />
-								Generating Step {state.currentStep + 1}...
-							</>
-						) : state.currentStep >= DOCUMENTATION_STEPS.length ? (
-							'Documentation Complete'
-						) : state.currentStep === 0 ? (
-							'Start Documentation'
-						) : (
-							'Continue Documentation'
-						)}
-					</Button>
-					{isLoading && (
+			<div className="flex-none p-4 border-b">
+				<div className="flex items-center justify-between">
+					<div>
+						<h2 className="text-lg font-semibold">Documentation Generator</h2>
+						<p className="text-sm text-muted-foreground">
+							Generating comprehensive documentation
+						</p>
+					</div>
+					<div className="flex items-center gap-2">
 						<Button
-							variant="ghost"
-							size="sm"
-							onClick={() => stop()}
-							className="gap-2"
+							size="lg"
+							className={cn(
+								"gap-2 transition-all",
+								isLoading ? "bg-destructive hover:bg-destructive/90" : "bg-primary hover:bg-primary/90"
+							)}
+							onClick={handleGenerateDoc}
+							disabled={isLoading || state.currentStep >= DOCUMENTATION_STEPS.length}
 						>
-							<Loader2 className="h-4 w-4 animate-spin" />
-							Stop
+							{isLoading ? (
+								<>
+									<Square className="h-4 w-4" />
+									Stop Generation
+								</>
+							) : state.currentStep >= DOCUMENTATION_STEPS.length ? (
+								<>
+									<FileText className="h-4 w-4" />
+									Documentation Complete
+								</>
+							) : (
+								<>
+									<Play className="h-4 w-4" />
+									{state.currentStep === 0 ? 'Generate Documentation' : 'Continue Generation'}
+								</>
+							)}
 						</Button>
-					)}
+					</div>
 				</div>
 			</div>
 
