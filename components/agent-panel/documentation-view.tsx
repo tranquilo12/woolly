@@ -6,7 +6,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Bot, Loader2, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AvailableRepository } from "@/lib/constants";
-import { Message } from "ai";
+import { Message, LanguageModelUsage } from "ai";
 import { motion, AnimatePresence } from "framer-motion";
 import { Markdown } from "../markdown";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
@@ -14,6 +14,7 @@ import { useAgentMessages } from '@/hooks/use-agent-messages';
 import { useState, useEffect, useCallback } from 'react';
 import { ToolInvocationDisplay } from "../tool-invocation";
 import { isSystemOverview, isComponentAnalysis, isCodeDocumentation, isDevelopmentGuide, isMaintenanceOps, DocumentationResult } from '../../types/documentation';
+import { MessageWithModel, toMessage, toMessageWithModel } from "../chat";
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -199,7 +200,12 @@ const formatToolResult = (result: DocumentationResult, step: number): string => 
 
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
-	const { data: initialMessages, isError, isLoading: isLoadingInitial, saveMessage } = useAgentMessages(
+	const {
+		data: initialMessages,
+		isError,
+		isLoading: isLoadingInitial,
+		saveMessage
+	} = useAgentMessages(
 		chat_id,
 		agent_id,
 		repo_name,
@@ -314,33 +320,43 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		onToolCall: async ({ toolCall }) => {
 			console.log('Tool call received:', toolCall);
 			try {
-				// Update messages with tool invocations
 				setStreamingMessages(prevMessages => {
 					const lastMessage = prevMessages[prevMessages.length - 1];
 					if (!lastMessage) return prevMessages;
 
-					const updatedToolInvocations = lastMessage.toolInvocations || [];
+					// @ts-ignore
+					const updatedToolInvocations = lastMessage.toolInvocations || lastMessage.tool_invocations || [];
 					const existingToolIndex = updatedToolInvocations.findIndex(
-						t => t.toolCallId === toolCall.toolCallId
+						(t: any) => t.toolCallId === toolCall.toolCallId
 					);
 
-					const formattedToolCall = {
+					// First send empty partial call
+					const initialToolCall = {
 						toolCallId: toolCall.toolCallId,
 						toolName: toolCall.toolName,
-						args: toolCall.args,
-						// @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
-						state: toolCall.state || 'partial-call',
-						// @ts-ignore Property 'result' does not exist on type 'ToolCall<string, unknown>'
-						result: toolCall.result
+						args: {},
+						state: 'partial-call' as const
 					};
+
+					// If we have args, validate them as complete JSON before including
+					if (toolCall.args) {
+						try {
+							const argsStr = JSON.stringify(toolCall.args);
+							if (argsStr.startsWith('{') && argsStr.endsWith('}')) {
+								initialToolCall.args = toolCall.args;
+							}
+						} catch (e) {
+							console.error('Invalid JSON in tool args:', e);
+						}
+					}
 
 					if (existingToolIndex >= 0) {
 						updatedToolInvocations[existingToolIndex] = {
 							...updatedToolInvocations[existingToolIndex],
-							...formattedToolCall
+							...initialToolCall
 						};
 					} else {
-						updatedToolInvocations.push(formattedToolCall);
+						updatedToolInvocations.push(initialToolCall);
 					}
 
 					return prevMessages.map((msg, i) =>
@@ -349,49 +365,30 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 							: msg
 					);
 				});
-
-				// Handle streaming JSON content
-				const delta = (toolCall.args as { delta?: string })?.delta;
-				if (delta) {
-					setCurrentStepContent(prev => {
-						try {
-							// If prev is empty or delta starts with {, treat it as a new JSON object
-							if (!prev || delta.startsWith('{')) {
-								return delta;
-							}
-
-							// Otherwise append to existing content
-							const currentJson = prev.endsWith('}') ? prev.slice(0, -1) : prev;
-							const deltaJson = delta.startsWith('{') ? delta.slice(1) : delta;
-							const combinedJson = currentJson + deltaJson;
-
-							// Don't try to parse incomplete JSON
-							return combinedJson + (delta.endsWith('}') ? '' : '');
-						} catch (error) {
-							console.error("Error updating content:", error);
-							return prev;
-						}
-					});
-				}
-
-				return toolCall.args;
-			} catch (error) {
-				console.error("Error handling tool call:", error);
-				return toolCall.args;
+			} catch (e) {
+				console.error('Error in onToolCall:', e);
 			}
 		},
-		onFinish: (message) => { // TODO: Please change this data type to something that contains the 'result' field
+		onFinish: async (message) => {
 			try {
 				console.log("Finished message:", message);
-				// Save message with tool invocations
-				saveMessage({
+
+				// Convert and save message
+				const messageWithModel = toMessageWithModel(message, {
+					promptTokens: 0,
+					completionTokens: 0,
+					totalTokens: 0
+				}, 'gpt-4o');
+
+				// Save message to DB
+				await saveMessage({
 					agentId: agent_id,
 					chatId: chat_id,
 					repository: repo_name,
 					messageType: 'documentation',
-					role: message.role,
-					content: message.content || '',
-					toolInvocations: message.toolInvocations?.map(tool => ({
+					role: messageWithModel.role,
+					content: messageWithModel.content || '',
+					toolInvocations: messageWithModel.toolInvocations?.map(tool => ({
 						toolCallId: tool.toolCallId,
 						toolName: tool.toolName,
 						args: tool.args,
@@ -400,14 +397,17 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					})) || []
 				});
 
-				// Check for completion in either message content or tool invocations
-				const hasCompletedToolInvocation = message.toolInvocations?.some(
+				// Reset streaming messages - this will force the UI to use DB messages
+				setStreamingMessages([]);
+
+				// Handle step completion
+				const hasCompletedToolInvocation = messageWithModel.toolInvocations?.some(
 					tool => tool.toolName === 'final_result'
 				);
 
-				if (message.content) {
+				if (messageWithModel.content) {
 					try {
-						const parsedContent = JSON.parse(message.content);
+						const parsedContent = JSON.parse(messageWithModel.content);
 						if (parsedContent.finishReason === "step_complete") {
 							handleStepComplete(parsedContent);
 						}
@@ -415,23 +415,19 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						console.error("Error parsing message content:", e);
 					}
 				} else if (hasCompletedToolInvocation) {
-					// Find the final_result tool invocation
-					const finalResultTool = message.toolInvocations?.find(
+					const finalResultTool = messageWithModel.toolInvocations?.find(
 						tool => tool.toolName === 'final_result'
 					);
 
-					// @ts-ignore Property 'result' does not exist on type 'ToolInvocation'
+					// @ts-ignore
 					if (finalResultTool?.result) {
-						// Format the result into a markdown document based on the step
-						// @ts-ignore Property 'result' does not exist on type 'ToolInvocation'
+						// @ts-ignore
 						const formattedContent = formatToolResult(finalResultTool.result, state.currentStep);
-
 						const context = {
 							context: {
 								[state.currentStep]: formattedContent
 							},
 						};
-
 						handleStepComplete(context);
 					}
 				}
@@ -504,22 +500,26 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		</div>;
 	}
 
-	// Ensure no duplicate messages by using message IDs
-	const allMessages = [...initialMessages, ...streamingMessages].reduce((acc: Message[], message: Message) => {
-		const exists = acc.find((m: Message) => m.id === message.id);
-		if (!exists) {
-			// Map tool_invocations to toolInvocations if it exists
-			const mappedMessage = {
-				...message,
-				// @ts-ignore - handle snake_case to camelCase conversion
-				toolInvocations: message.tool_invocations || message.toolInvocations || []
-			};
-			acc.push(mappedMessage);
+	// Update the message reduction to prefer DB messages over streaming ones
+	const allMessages = [...initialMessages, ...streamingMessages].reduce((acc: MessageWithModel[], message: Message) => {
+		// If message exists in initialMessages (DB), skip the streaming version
+		const existingDbMessage = initialMessages.find((m: MessageWithModel) => m.id === message.id);
+		if (existingDbMessage) {
+			if (!acc.some(m => m.id === existingDbMessage.id)) {
+				acc.push(existingDbMessage);
+			}
+			return acc;
+		}
+
+		// Only add streaming message if it's not already saved to DB
+		if (!acc.some(m => m.id === message.id)) {
+			const messageWithModel = toMessageWithModel(message, null);
+			acc.push(messageWithModel);
 		}
 		return acc;
-	}, [] as Message[]);
+	}, [] as MessageWithModel[]);
 
-	const renderMessage = (message: Message) => {
+	const renderMessage = (message: MessageWithModel) => {
 		return (
 			<motion.div
 				key={message.id}
@@ -545,12 +545,11 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					<div className="prose prose-neutral dark:prose-invert flex-1">
 						<Markdown>{message.content}</Markdown>
 
-						{/* Tool Invocations Display */}
-						{message.toolInvocations?.map((tool: any, index: number) => {
+						{/* Handle both toolInvocations and tool_invocations */}
+						{(message.toolInvocations || (message as any).tool_invocations)?.map((tool: any, index: number) => {
 							// Create a unique key that's stable across renders
-							const uniqueKey = `${message.id}-${tool.toolCallId}-${index}`;
+							const uniqueKey = `${message.id}-${tool.toolCallId || 'tool'}-${index}`;
 
-							// Map the backend format to what ToolInvocationDisplay expects
 							return (
 								<ToolInvocationDisplay
 									key={uniqueKey}
@@ -560,7 +559,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 										toolName: tool.toolName,
 										args: tool.args,
 										state: tool.state,
-										result: tool.result
+										result: 'result' in tool ? tool.result : undefined
 									}}
 								/>
 							);
