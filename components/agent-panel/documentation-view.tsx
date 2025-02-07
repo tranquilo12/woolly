@@ -213,7 +213,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	);
 
 	const [state, setState] = useState<DocumentationState>({
-		currentStep: 0,
+		currentStep: 1,
 		completedSteps: [],
 		context: {}
 	});
@@ -223,10 +223,6 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 	// NEW: Define handleStepComplete early using useCallback so it's available for useChat.onFinish
 	const handleStepComplete = useCallback((context: any) => {
-		console.log('Step Complete triggered with context:', context);
-		console.log('Current step:', state.currentStep);
-		console.log('Current step content:', currentStepContent);
-
 		const contextKeyMap: { [key: number]: string } = {
 			0: 'systemOverview',
 			1: 'componentAnalysis',
@@ -322,19 +318,19 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				const lastMessage = prevMessages[prevMessages.length - 1];
 				if (!lastMessage) return prevMessages;
 
-				const updatedToolInvocations = lastMessage.toolInvocations || [];
-				const existingToolIndex = updatedToolInvocations.findIndex(t => t.toolCallId === tool.toolCall.toolCallId);
+				const updatedToolInvocations = lastMessage.toolInvocations || (lastMessage as any).tool_invocations || [];
+				const existingToolIndex = updatedToolInvocations.findIndex((t: any) => t.toolCallId === tool.toolCall.toolCallId);
 
 				if (existingToolIndex >= 0) {
 					updatedToolInvocations[existingToolIndex] = {
 						...updatedToolInvocations[existingToolIndex],
-						toolCallId: tool.toolCall.toolCallId,
+						toolCallId: tool.toolCall.toolCallId || (tool.toolCall as any).id,
 						toolName: tool.toolCall.toolName,
 						args: tool.toolCall.args,
 					};
 				} else {
 					updatedToolInvocations.push({
-						toolCallId: tool.toolCall.toolCallId,
+						toolCallId: tool.toolCall.toolCallId || (tool.toolCall as any).id,
 						toolName: tool.toolCall.toolName,
 						args: tool.toolCall.args,
 						// @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
@@ -349,15 +345,15 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				);
 			});
 		},
-		onFinish: async (message) => {
+		onFinish: async (message, { usage, finishReason }) => {
 			try {
 				console.log("Finished message:", message);
 
 				// Convert and save message
 				const messageWithModel = toMessageWithModel(message, {
-					promptTokens: 0,
-					completionTokens: 0,
-					totalTokens: 0
+					promptTokens: usage?.promptTokens,
+					completionTokens: usage?.completionTokens,
+					totalTokens: usage?.totalTokens
 				}, 'gpt-4o');
 
 				// Save message to DB and wait for confirmation
@@ -368,8 +364,8 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					messageType: 'documentation',
 					role: messageWithModel.role,
 					content: messageWithModel.content || '',
-					toolInvocations: messageWithModel.toolInvocations?.map(tool => ({
-						toolCallId: tool.toolCallId,
+					toolInvocations: (messageWithModel.toolInvocations || messageWithModel.tool_invocations)?.map(tool => ({
+						toolCallId: tool.toolCallId || (tool as any).id,
 						toolName: tool.toolName,
 						args: tool.args,
 						state: tool.state,
@@ -381,7 +377,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				setStreamingMessages([]);
 
 				// Handle step completion
-				const hasCompletedToolInvocation = messageWithModel.toolInvocations?.some(
+				const hasCompletedToolInvocation = (messageWithModel.toolInvocations || messageWithModel.tool_invocations)?.some(
 					tool => tool.toolName === 'final_result'
 				);
 
@@ -395,14 +391,14 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						console.error("Error parsing message content:", e);
 					}
 				} else if (hasCompletedToolInvocation) {
-					const finalResultTool = messageWithModel.toolInvocations?.find(
+					const finalResultTool = (messageWithModel.toolInvocations || messageWithModel.tool_invocations)?.find(
 						tool => tool.toolName === 'final_result'
 					);
 
 					// @ts-ignore
-					if (finalResultTool?.result) {
+					if (finalResultTool?.result || finalResultTool?.args) {
 						// @ts-ignore
-						const formattedContent = formatToolResult(finalResultTool.result, state.currentStep);
+						const formattedContent = formatToolResult(finalResultTool.result || finalResultTool.args, state.currentStep);
 						const context = {
 							context: {
 								[state.currentStep]: formattedContent
