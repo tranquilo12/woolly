@@ -97,6 +97,17 @@ export function AgentPanel() {
 		}
 	}, [selectedRepo, systemPrompt, chatId]);
 
+	useEffect(() => {
+		if (selectedRepo && docAgentId && activeTab === 'documentation') {
+			// Automatically start documentation generation when repository is selected
+			const documentationView = document.querySelector('[data-documentation-view]');
+			if (documentationView) {
+				const event = new CustomEvent('startDocumentation');
+				documentationView.dispatchEvent(event);
+			}
+		}
+	}, [selectedRepo, docAgentId, activeTab]);
+
 	useClickOutside(panelRef as RefObject<HTMLElement>, () => {
 		if (isOpen && !isPinned) {
 			setIsOpen(false);

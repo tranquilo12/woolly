@@ -50,35 +50,35 @@ const DOCUMENTATION_STEPS: StepConfig[] = [
 		title: "System Overview",
 		prompt: "Generate a comprehensive system overview including architecture diagrams, core technologies, and key design patterns.",
 		description: "Analyzing system architecture and core components...",
-		requiresConfirmation: true
+		requiresConfirmation: false
 	},
 	{
 		id: 2,
 		title: "Component Analysis",
 		prompt: "Analyze each major component's structure, dependencies, and technical details.",
 		description: "Examining component relationships and dependencies...",
-		requiresConfirmation: true
+		requiresConfirmation: false
 	},
 	{
 		id: 3,
 		title: "Code Documentation",
 		prompt: "Document significant code modules, their purposes, and usage patterns.",
 		description: "Documenting code modules and patterns...",
-		requiresConfirmation: true
+		requiresConfirmation: false
 	},
 	{
 		id: 4,
 		title: "Development Guides",
 		prompt: "Create development setup instructions and workflow documentation.",
 		description: "Generating development guides and workflows...",
-		requiresConfirmation: true
+		requiresConfirmation: false
 	},
 	{
 		id: 5,
 		title: "Maintenance & Operations",
 		prompt: "Document maintenance procedures, troubleshooting guides, and operational considerations.",
 		description: "Documenting maintenance and operations...",
-		requiresConfirmation: true
+		requiresConfirmation: false
 	}
 ];
 
@@ -440,7 +440,6 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		setIsStepComplete(false);
 
 		try {
-			// Ensure we're sending the current step's prompt
 			await append({
 				role: 'user',
 				content: currentStep.prompt
@@ -457,12 +456,11 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					context: {
 						...state.context,
 						current_step: state.currentStep,
-						currentPrompt: currentStep.prompt, // Add the current prompt to context
+						currentPrompt: currentStep.prompt,
 					},
-					prompt: currentStep.prompt, // Add the prompt directly to the request
+					prompt: currentStep.prompt,
 				}
 			});
-
 		} catch (error) {
 			console.error("Failed to generate documentation:", error);
 			setIsStepComplete(false);
@@ -471,13 +469,8 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 	useEffect(() => {
 		if (isStepComplete && state.currentStep < DOCUMENTATION_STEPS.length) {
-			// Small delay to ensure state updates are complete
-			const timer = setTimeout(() => {
-				setIsStepComplete(false); // Reset completion flag
-				handleGenerateDoc(); // Start next step
-			}, 100);
-
-			return () => clearTimeout(timer);
+			setIsStepComplete(false);
+			handleGenerateDoc();
 		}
 	}, [isStepComplete, state.currentStep, handleGenerateDoc]);
 
