@@ -1,36 +1,38 @@
 import json
 import logging
 import os
-from pathlib import Path
-from httpx import AsyncClient
-from uuid import UUID
-from fastapi.responses import StreamingResponse
-from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai import Agent as PydanticAgent, RunContext
-from fastapi import APIRouter, Depends, HTTPException
-from openai import AsyncOpenAI
-from pydantic_ai.models.openai import ModelResponse, TextPart, ToolCallPart
-from pydantic import ConfigDict, Field, BaseModel, ValidationError
-from sqlalchemy.orm import Session
-from typing import List, Optional, AsyncGenerator, Tuple, Dict, Any
+import uuid
+from datetime import datetime, timezone
 from functools import wraps
+from pathlib import Path
+from typing import Any, AsyncGenerator, Dict, List, Optional
+from uuid import UUID
 
-from ..utils.tools import execute_python_code
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from httpx import AsyncClient
+from openai import AsyncOpenAI
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai import Agent as PydanticAgent
+from pydantic_ai import RunContext
+from pydantic_ai.models.openai import ModelResponse, OpenAIModel, TextPart, ToolCallPart
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
 from ..utils.database import get_db
 from ..utils.models import (
     Agent,
     AgentCreate,
-    AgentUpdate,
     AgentResponse,
+    AgentUpdate,
     Message,
     build_tool_call_partial,
     build_tool_call_result,
     is_complete_json,
 )
-from datetime import datetime, timezone
-import uuid
-from sqlalchemy.exc import IntegrityError
+from ..utils.tools import execute_python_code
 
+# region Router Setup
 router = APIRouter()
 
 available_tools = {
@@ -60,7 +62,75 @@ def handle_db_operation(func):
     return wrapper
 
 
-# region Agent CRUD
+# endregion
+
+
+# region Base Models & Types
+class BaseRepositoryRequest(BaseModel):
+    """Base model for repository-related requests"""
+
+    repo_name: str
+    file_paths: Optional[List[str]] = None
+    limit: int = Field(default=10, ge=1, le=100)
+    threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+
+
+class CodeSearch(BaseRepositoryRequest):
+    """Model for code search operations"""
+
+    query: str
+    client: AsyncClient = Field(default_factory=AsyncClient)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def generate_request(self) -> dict:
+        """Generate request dictionary for HTTP client."""
+        return {
+            "url": f"http://localhost:7779/indexer/{self.repo_name}/search",
+            "params": self.model_dump(exclude={"generate_request", "client"}),
+        }
+
+
+class SearchResult(BaseModel):
+    """Model for code search results with metadata"""
+
+    content: str
+    file_path: str
+    chunk_type: str = "code"
+    score: float
+    location: dict[str, List[int]] = Field(
+        default_factory=lambda: {"start": [0], "end": [0]}
+    )
+    repository: str
+
+    def __str__(self) -> str:
+        """Human-readable result format"""
+        return (
+            f"File: {self.file_path}\n"
+            f"Score: {self.score:.2f}\n"
+            f"Content:\n{self.content}"
+        )
+
+
+class SearchResponse(BaseModel):
+    """Container for search results with metrics"""
+
+    results: List[SearchResult]
+    total_found: int = 0
+    query_time_ms: float = 0.0
+
+    def __str__(self) -> str:
+        """Generate formatted response summary"""
+        results = "\n\n".join(str(result) for result in self.results)
+        return (
+            f"Found {self.total_found} results in {self.query_time_ms:.2f}ms\n\n"
+            f"{results}"
+        )
+
+
+# endregion
+
+
+# region Core Agent CRUD Operations
 @router.post("/agents", response_model=AgentResponse)
 @handle_db_operation
 async def create_agent(
@@ -159,121 +229,6 @@ async def delete_agent(agent_id: str, db: Session = Depends(get_db)):
 # endregion
 
 
-# region Agent Operations Types
-class BaseRepositoryRequest(BaseModel):
-    """Base model for repository-related requests"""
-
-    repo_name: str
-    file_paths: Optional[List[str]] = None
-    limit: int = Field(default=10, ge=1, le=100)
-    threshold: float = Field(default=0.7, ge=0.0, le=1.0)
-
-
-class CodeSearch(BaseRepositoryRequest):
-    """Model for code search operations"""
-
-    query: str
-    client: AsyncClient = Field(default_factory=AsyncClient)
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    def generate_request(self) -> dict:
-        """Generate request dictionary for HTTP client."""
-        return {
-            "url": f"http://localhost:7779/indexer/{self.repo_name}/search",
-            "params": self.model_dump(exclude={"generate_request", "client"}),
-        }
-
-
-class SearchResult(BaseModel):
-    """Model for code search results with metadata"""
-
-    content: str
-    file_path: str
-    chunk_type: str = "code"
-    score: float
-    location: dict[str, List[int]] = Field(
-        default_factory=lambda: {"start": [0], "end": [0]}
-    )
-    repository: str
-
-    def __str__(self) -> str:
-        """Human-readable result format"""
-        return (
-            f"File: {self.file_path}\n"
-            f"Score: {self.score:.2f}\n"
-            f"Content:\n{self.content}"
-        )
-
-
-class SearchResponse(BaseModel):
-    """Container for search results with metrics"""
-
-    results: List[SearchResult]
-    total_found: int = 0
-    query_time_ms: float = 0.0
-
-    def __str__(self) -> str:
-        """Generate formatted response summary"""
-        results = "\n\n".join(str(result) for result in self.results)
-        return (
-            f"Found {self.total_found} results in {self.query_time_ms:.2f}ms\n\n"
-            f"{results}"
-        )
-
-
-# endregion
-
-
-# region Agents
-gpt_4o_mini = OpenAIModel(
-    model_name="gpt-4o-mini",
-    openai_client=AsyncOpenAI(
-        api_key=os.getenv("OPENAI_API_KEY"),
-    ),
-)
-
-docs_agent = PydanticAgent(
-    model=gpt_4o_mini,
-    deps_type=CodeSearch,
-    result_type=Dict[str, Any],
-    system_prompt=Path("api/docs_system_prompt.txt").read_text(),
-)
-
-# endregion
-
-
-# region Agent Tools
-@docs_agent.tool
-async def fetch_repo_content(ctx: RunContext[CodeSearch], repo_name: str) -> str:
-    """Fetch repository content from the indexing service"""
-    try:
-        code_search_query = CodeSearch(repo_name=repo_name, query=ctx.deps.query)
-
-        # Get the URL from the request
-        result = code_search_query.generate_request()
-
-        # Send the request with proper JSON payload
-        response = await ctx.deps.client.post(url=result["url"], json=result["params"])
-
-        # Check for error response
-        if response.status_code != 200:
-            error_data = response.json()
-            error_msg = error_data.get("detail", "Unknown error occurred")
-            return f"Error fetching repository content: {error_msg}"
-
-        # Parse successful response
-        response_data = response.json()
-        data = SearchResponse(**response_data)
-        return str(data)
-
-    except Exception as e:
-        print(f"Error in fetch_repo_content: {str(e)}")
-        return f"Error processing repository content: {str(e)}"
-
-
-# endregion
-
-
 # region Documentation Models
 class DocumentationStep(BaseModel):
     """Base model for documentation steps"""
@@ -302,7 +257,6 @@ class SystemOverview(BaseModel):
             return cls.model_validate(data)
 
 
-# Add this new function to standardize tool invocation format
 def standardize_tool_invocations(tool_invocations: List[dict]) -> List[dict]:
     """Standardize tool invocations to match index.py format"""
     if not tool_invocations:
@@ -395,7 +349,22 @@ class DocumentationRequest(BaseModel):
 # endregion
 
 
-# region Documentation Agents
+# region Agent Configuration
+gpt_4o_mini = OpenAIModel(
+    model_name="gpt-4o-mini",
+    openai_client=AsyncOpenAI(
+        api_key=os.getenv("OPENAI_API_KEY"),
+    ),
+)
+
+docs_agent = PydanticAgent(
+    model=gpt_4o_mini,
+    deps_type=CodeSearch,
+    result_type=Dict[str, Any],
+    system_prompt=Path("api/docs_system_prompt.txt").read_text(),
+)
+
+# Define specialized agents
 system_overview_agent = PydanticAgent(
     model=gpt_4o_mini,
     deps_type=CodeSearch,
@@ -462,7 +431,7 @@ maintenance_ops_agent = PydanticAgent(
     Focus on keeping the system running smoothly.""",
 )
 
-# Map steps to their specialized agents
+# Map steps to agents
 STEP_AGENTS = {
     1: [system_overview_agent, SystemOverview],
     2: [component_analysis_agent, ComponentAnalysis],
@@ -470,6 +439,95 @@ STEP_AGENTS = {
     4: [development_guide_agent, DevelopmentGuide],
     5: [maintenance_ops_agent, MaintenanceOps],
 }
+# endregion
+
+
+# region Agent Tools & Utilities
+@docs_agent.tool
+async def fetch_repo_content(ctx: RunContext[CodeSearch], repo_name: str) -> str:
+    """Fetch repository content from the indexing service"""
+    try:
+        code_search_query = CodeSearch(repo_name=repo_name, query=ctx.deps.query)
+
+        # Get the URL from the request
+        result = code_search_query.generate_request()
+
+        # Send the request with proper JSON payload
+        response = await ctx.deps.client.post(url=result["url"], json=result["params"])
+
+        # Check for error response
+        if response.status_code != 200:
+            error_data = response.json()
+            error_msg = error_data.get("detail", "Unknown error occurred")
+            return f"Error fetching repository content: {error_msg}"
+
+        # Parse successful response
+        response_data = response.json()
+        data = SearchResponse(**response_data)
+        return str(data)
+
+    except Exception as e:
+        print(f"Error in fetch_repo_content: {str(e)}")
+        return f"Error processing repository content: {str(e)}"
+
+
+async def save_agent_message(
+    chat_id: UUID,
+    content: str,
+    role: str,
+    model: str,
+    db: Session,
+    agent_id: UUID,
+    repository: str,
+    message_type: str,
+    tool_invocations: List = None,
+) -> Message:
+    """Unified function to save any type of agent message"""
+    try:
+        # Convert tool_invocations to list of dicts if it's a string
+        if isinstance(tool_invocations, str):
+            try:
+                tool_invocations = json.loads(tool_invocations)
+            except json.JSONDecodeError:
+                tool_invocations = []
+
+        message = Message(
+            id=uuid.uuid4(),
+            chat_id=chat_id,
+            content=content,
+            role=role,
+            model=model,
+            created_at=datetime.now(timezone.utc),
+            tool_invocations=tool_invocations or [],
+            agent_id=agent_id,
+            repository=repository,
+            message_type=message_type,
+        )
+
+        db.add(message)
+        db.commit()
+        db.refresh(message)
+
+        # Verify message was saved
+        saved_message = (
+            db.query(Message)
+            .filter(
+                Message.id == message.id,
+                Message.agent_id == agent_id,
+                Message.repository == repository,
+                Message.message_type == message_type,
+            )
+            .first()
+        )
+
+        if not saved_message:
+            raise Exception("Message not saved correctly")
+
+        return message
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error saving message: {str(e)}")
+        raise
 
 
 async def process_documentation_step(
@@ -661,65 +719,6 @@ async def process_documentation_step(
         yield f"e:{json.dumps({'error': str(e)})}\n"
 
 
-async def save_agent_message(
-    chat_id: UUID,
-    content: str,
-    role: str,
-    model: str,
-    db: Session,
-    agent_id: UUID,
-    repository: str,
-    message_type: str,
-    tool_invocations: List = None,
-) -> Message:
-    """Unified function to save any type of agent message"""
-    try:
-        # Convert tool_invocations to list of dicts if it's a string
-        if isinstance(tool_invocations, str):
-            try:
-                tool_invocations = json.loads(tool_invocations)
-            except json.JSONDecodeError:
-                tool_invocations = []
-
-        message = Message(
-            id=uuid.uuid4(),
-            chat_id=chat_id,
-            content=content,
-            role=role,
-            model=model,
-            created_at=datetime.now(timezone.utc),
-            tool_invocations=tool_invocations or [],
-            agent_id=agent_id,
-            repository=repository,
-            message_type=message_type,
-        )
-
-        db.add(message)
-        db.commit()
-        db.refresh(message)
-
-        # Verify message was saved
-        saved_message = (
-            db.query(Message)
-            .filter(
-                Message.id == message.id,
-                Message.agent_id == agent_id,
-                Message.repository == repository,
-                Message.message_type == message_type,
-            )
-            .first()
-        )
-
-        if not saved_message:
-            raise Exception("Message not saved correctly")
-
-        return message
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Error saving message: {str(e)}")
-        raise
-
-
 async def stream_documentation_response(request: DocumentationRequest, db: Session):
     """Stream documentation generation with step-based approach"""
     try:
@@ -785,10 +784,10 @@ async def generate_documentation(
 # endregion
 
 
-# region Mermaid
-
-
+# region Mermaid Diagram Generation
 class MermaidRequest(BaseModel):
+    """Request model for Mermaid diagram generation"""
+
     id: str  # chat_id
     repository: str
     content: Optional[str] = None
@@ -915,8 +914,13 @@ async def generate_mermaid(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Add new model for messages
+# endregion
+
+
+# region Message Management
 class MessageCreate(BaseModel):
+    """Model for creating new messages"""
+
     chat_id: str
     agent_id: str  # Change from UUID to str to match database schema
     repository: str
@@ -1002,6 +1006,7 @@ async def get_messages(
 # endregion
 
 
+# region Base Classes
 class BaseStreamingResponse:
     """Base class for streaming responses"""
 
@@ -1039,3 +1044,6 @@ class BaseStreamingResponse:
                 "completionTokens": 0,
                 "totalTokens": 0,
             }
+
+
+# endregion

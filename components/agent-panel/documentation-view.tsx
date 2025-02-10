@@ -15,9 +15,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ToolInvocationDisplay } from "../tool-invocation";
 import { isSystemOverview, isComponentAnalysis, isCodeDocumentation, isDevelopmentGuide, isMaintenanceOps, DocumentationResult } from '../../types/documentation';
 import { MessageWithModel, toMessageWithModel } from "../chat";
-import { ReasoningUIPart } from '@ai-sdk/ui-utils';
 import { ToolInvocationUIPart } from '@ai-sdk/ui-utils';
-import { TextUIPart } from '@ai-sdk/ui-utils';
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -364,6 +362,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			context: state.context || {}
 		},
 		onToolCall: async (tool) => {
+			// @ts-ignore
 			setStreamingMessages(prevMessages => {
 				const lastMessage = prevMessages[prevMessages.length - 1];
 				if (!lastMessage) return prevMessages;
