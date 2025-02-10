@@ -15,6 +15,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { ToolInvocationDisplay } from "../tool-invocation";
 import { isSystemOverview, isComponentAnalysis, isCodeDocumentation, isDevelopmentGuide, isMaintenanceOps, DocumentationResult } from '../../types/documentation';
 import { MessageWithModel, toMessageWithModel } from "../chat";
+import { ReasoningUIPart } from '@ai-sdk/ui-utils';
+import { ToolInvocationUIPart } from '@ai-sdk/ui-utils';
+import { TextUIPart } from '@ai-sdk/ui-utils';
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -198,6 +201,53 @@ const formatToolResult = (result: DocumentationResult, step: number): string => 
 	}
 };
 
+// Update the validation helper to handle both parts and toolInvocations
+const isValidDocumentationResponse = (message: Message): boolean => {
+	// First check parts array (new format)
+	if (message.parts?.length) {
+		const hasValidToolResult = message.parts.some(part => {
+			if (part.type !== 'tool-invocation') return false;
+			const toolInvocation = (part as ToolInvocationUIPart).toolInvocation;
+			return (
+				toolInvocation.toolName === 'final_result' &&
+				toolInvocation.state === 'result' &&
+				toolInvocation.args &&
+				Object.keys(toolInvocation.args).length > 0
+			);
+		});
+		if (hasValidToolResult) return true;
+	}
+
+	// Then check toolInvocations array (fallback format)
+	if (message.toolInvocations?.length) {
+		const hasValidToolResult = message.toolInvocations.some(tool => {
+			return (
+				tool.toolName === 'final_result' &&
+				tool.state === 'result' &&
+				tool.args &&
+				Object.keys(tool.args).length > 0
+			);
+		});
+		if (hasValidToolResult) return true;
+	}
+
+	// Finally check content for JSON format
+	if (message.content?.trim()) {
+		try {
+			const parsedContent = JSON.parse(message.content);
+			return Boolean(
+				parsedContent.finishReason === "step_complete" &&
+				parsedContent.context &&
+				Object.keys(parsedContent.context).length > 0
+			);
+		} catch {
+			return false;
+		}
+	}
+
+	return false;
+};
+
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
 	const {
@@ -280,7 +330,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			context: {
 				...prev.context,
 				[contextKey]: formattedContent,
-				currentPrompt: DOCUMENTATION_STEPS[prev.currentStep].prompt
+				currentPrompt: DOCUMENTATION_STEPS[prev.currentStep].prompt || ''
 			},
 			completedSteps: [...prev.completedSteps, prev.currentStep],
 			currentStep: prev.currentStep + 1,
@@ -319,7 +369,10 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				if (!lastMessage) return prevMessages;
 
 				const updatedToolInvocations = lastMessage.toolInvocations || (lastMessage as any).tool_invocations || [];
-				const existingToolIndex = updatedToolInvocations.findIndex((t: any) => t.toolCallId === tool.toolCall.toolCallId);
+				const existingToolIndex = updatedToolInvocations.findIndex((t: any) =>
+					t.type === 'tool-invocation' &&
+					(t as ToolInvocationUIPart).toolInvocation.toolCallId === tool.toolCall.toolCallId
+				);
 
 				if (existingToolIndex >= 0) {
 					updatedToolInvocations[existingToolIndex] = {
@@ -340,14 +393,48 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 				return prevMessages.map((msg, i) =>
 					i === prevMessages.length - 1
-						? { ...msg, toolInvocations: updatedToolInvocations }
+						? {
+							...msg,
+							parts: [
+								...(msg.parts || []),
+								{
+									type: 'tool-invocation',
+									toolInvocation: {
+										toolCallId: tool.toolCall.toolCallId,
+										toolName: tool.toolCall.toolName,
+										args: tool.toolCall.args
+									}
+								}
+							]
+						}
 						: msg
 				);
 			});
 		},
 		onFinish: async (message, { usage, finishReason }) => {
+			if (finishReason === 'stop') {
+				// Handle manual stop
+				setIsStepComplete(false);
+				return;
+			}
+
 			try {
 				console.log("Finished message:", message);
+
+				// Validate the response
+				if (!isValidDocumentationResponse(message)) {
+					console.warn("Invalid documentation response, retrying...");
+
+					// Clear streaming messages and retry
+					setStreamingMessages([]);
+
+					// Small delay before retry
+					await new Promise(resolve => setTimeout(resolve, 1000));
+
+					// Retry the current step
+					handleGenerateDoc();
+					return;
+				}
 
 				// De-duplicate tool invocations based on args content
 				const uniqueToolInvocations = message.toolInvocations?.reduce((acc: any[], tool: any) => {
@@ -371,9 +458,9 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					promptTokens: usage?.promptTokens,
 					completionTokens: usage?.completionTokens,
 					totalTokens: usage?.totalTokens
-				}, 'gpt-4o');
+				}, 'gpt-4o-mini');
 
-				// Save message to DB
+				// Only save valid messages to DB
 				await saveMessage({
 					agentId: agent_id,
 					chatId: chat_id,
@@ -390,7 +477,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					}))
 				});
 
-				// Rest of the existing onFinish logic...
+				// Clear streaming messages after successful save
 				setStreamingMessages([]);
 
 				const hasCompletedToolInvocation = uniqueToolInvocations.some(
@@ -406,6 +493,8 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						}
 					} catch (e) {
 						console.error("Error parsing message content:", e);
+						// Retry on parse error
+						handleGenerateDoc();
 					}
 				} else if (hasCompletedToolInvocation) {
 					const finalResultTool = uniqueToolInvocations.find(
@@ -422,16 +511,31 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 							},
 						};
 						handleStepComplete(context);
+					} else {
+						// Retry if tool result is missing
+						handleGenerateDoc();
 					}
+				} else {
+					// Retry if no valid content or tool results
+					handleGenerateDoc();
 				}
 			} catch (e) {
 				console.error("Error in onFinish:", e);
+				// Retry on any error
+				handleGenerateDoc();
 			}
 		},
 	});
 
 	const handleGenerateDoc = useCallback(async () => {
-		if (isLoading || state.currentStep >= DOCUMENTATION_STEPS.length) {
+		if (isLoading) {
+			// If currently loading, stop the generation
+			stop();
+			setIsStepComplete(false);
+			return;
+		}
+
+		if (state.currentStep >= DOCUMENTATION_STEPS.length) {
 			return;
 		}
 
@@ -465,14 +569,20 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			console.error("Failed to generate documentation:", error);
 			setIsStepComplete(false);
 		}
-	}, [append, state.currentStep, state.context, isLoading, chat_id, agent_id, repo_name, file_paths, initialMessages]);
+	}, [append, state.currentStep, state.context, isLoading, chat_id, agent_id, repo_name, file_paths, initialMessages, stop]);
 
 	useEffect(() => {
-		if (isStepComplete && state.currentStep < DOCUMENTATION_STEPS.length) {
-			setIsStepComplete(false);
-			handleGenerateDoc();
+		// Only proceed if we have a valid step and we're not already loading
+		if (!isLoading && state.currentStep < DOCUMENTATION_STEPS.length && isStepComplete) {
+			// Small delay to prevent potential race conditions
+			const timeoutId = setTimeout(() => {
+				setIsStepComplete(false);
+				handleGenerateDoc();
+			}, 100);
+
+			return () => clearTimeout(timeoutId);
 		}
-	}, [isStepComplete, state.currentStep, handleGenerateDoc]);
+	}, [isStepComplete, state.currentStep, handleGenerateDoc, isLoading]);
 
 	if (isLoadingInitial) {
 		return <div className="flex items-center justify-center h-full">
@@ -604,8 +714,8 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 								"gap-2 transition-all",
 								isLoading ? "bg-destructive hover:bg-destructive/90" : "bg-primary hover:bg-primary/90"
 							)}
-							onClick={handleGenerateDoc}
-							disabled={isLoading || state.currentStep >= DOCUMENTATION_STEPS.length}
+							onClick={isLoading ? stop : handleGenerateDoc}
+							disabled={state.currentStep >= DOCUMENTATION_STEPS.length}
 						>
 							{isLoading ? (
 								<>

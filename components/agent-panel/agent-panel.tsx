@@ -99,12 +99,12 @@ export function AgentPanel() {
 
 	useEffect(() => {
 		if (selectedRepo && docAgentId && activeTab === 'documentation') {
-			// Automatically start documentation generation when repository is selected
-			const documentationView = document.querySelector('[data-documentation-view]');
-			if (documentationView) {
-				const event = new CustomEvent('startDocumentation');
-				documentationView.dispatchEvent(event);
-			}
+			// Comment out or remove the auto-start code
+			// const documentationView = document.querySelector('[data-documentation-view]');
+			// if (documentationView) {
+			//     const event = new CustomEvent('startDocumentation');
+			//     documentationView.dispatchEvent(event);
+			// }
 		}
 	}, [selectedRepo, docAgentId, activeTab]);
 
