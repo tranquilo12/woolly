@@ -979,28 +979,44 @@ async def get_messages(
     message_type: str,
     db: Session = Depends(get_db),
 ):
-    messages = (
-        db.query(Message)
-        .filter(
-            Message.agent_id == str(agent_id),
-            Message.chat_id == chat_id,
-            Message.repository == repository,
-            Message.message_type == message_type,
+    try:
+        # Convert string chat_id to UUID
+        chat_id_uuid = UUID(chat_id)
+
+        logging.info(
+            f"Fetching messages with params: agent_id={agent_id}, chat_id={chat_id}, repository={repository}, message_type={message_type}"
         )
-        .order_by(Message.created_at.asc())
-        .all()
-    )
 
-    # Standardize tool invocations for each message
-    for message in messages:
-        if message.tool_invocations:
-            message.tool_invocations = standardize_tool_invocations(
-                message.tool_invocations
+        messages = (
+            db.query(Message)
+            .filter(
+                Message.agent_id == str(agent_id),
+                Message.chat_id == chat_id_uuid,  # Use UUID
+                Message.repository == repository,
+                Message.message_type == message_type,
             )
-        else:
-            message.tool_invocations = []
+            .order_by(Message.created_at.asc())
+            .all()
+        )
 
-    return messages
+        logging.info(f"Found {len(messages)} messages")
+
+        # Standardize tool invocations for each message
+        for message in messages:
+            if message.tool_invocations:
+                message.tool_invocations = standardize_tool_invocations(
+                    message.tool_invocations
+                )
+            else:
+                message.tool_invocations = []
+
+        return messages
+    except ValueError as e:
+        logging.error(f"Invalid UUID format for chat_id: {chat_id}")
+        raise HTTPException(status_code=400, detail=f"Invalid chat_id format: {str(e)}")
+    except Exception as e:
+        logging.error(f"Error fetching messages: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # endregion

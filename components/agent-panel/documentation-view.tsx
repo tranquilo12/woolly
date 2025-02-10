@@ -518,9 +518,8 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					// Retry if no valid content or tool results
 					handleGenerateDoc();
 				}
-			} catch (e) {
-				console.error("Error in onFinish:", e);
-				// Retry on any error
+			} catch (error) {
+				console.error('Error in onFinish:', error);
 				handleGenerateDoc();
 			}
 		},
