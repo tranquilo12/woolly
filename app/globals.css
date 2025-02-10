@@ -617,3 +617,20 @@
   @apply bg-background/50 border-border/50;
   backdrop-filter: blur(4px);
 }
+
+/* Add new loading animation styles */
+@keyframes pulse-subtle {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.loading-line {
+  animation: pulse-subtle 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  will-change: opacity;
+  contain: content;
+}

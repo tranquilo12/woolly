@@ -38,6 +38,7 @@ export function AgentPanel() {
 	const panelRef = useRef<HTMLDivElement>(null);
 	const pathname = usePathname();
 	const chatId = pathname?.split('/').pop() || '';
+	const [isMounted, setIsMounted] = useState(false);
 
 	// Create or get agents when repository or tab changes
 	useEffect(() => {
@@ -114,6 +115,15 @@ export function AgentPanel() {
 		}
 	});
 
+	useEffect(() => {
+		setIsMounted(true);
+	}, []);
+
+	// Skip rendering until mounted to prevent hydration mismatch
+	if (!isMounted) {
+		return null;
+	}
+
 	const containerVariants = {
 		hidden: { opacity: 0 },
 		visible: {
@@ -136,7 +146,7 @@ export function AgentPanel() {
 
 	return (
 		<div className="agent-panel-container relative">
-			<AnimatePresence>
+			<AnimatePresence mode="wait">
 				{isOpen && (
 					<motion.div
 						ref={panelRef}

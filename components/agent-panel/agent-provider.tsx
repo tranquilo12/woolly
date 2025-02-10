@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 
 interface AgentPanelContextType {
@@ -16,6 +16,14 @@ const AgentPanelContext = createContext<AgentPanelContextType | undefined>(undef
 export function AgentPanelProvider({ children }: { children: ReactNode }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [isPinned, setIsPinned] = useLocalStorage('agent-panel-pinned', false);
+	const [isMounted, setIsMounted] = useState(false);
+
+	useEffect(() => {
+		setIsMounted(true);
+		if (isPinned) {
+			setIsOpen(true);
+		}
+	}, [isPinned]);
 
 	const toggle = useCallback(() => {
 		if (!isPinned) {
@@ -23,8 +31,16 @@ export function AgentPanelProvider({ children }: { children: ReactNode }) {
 		}
 	}, [isPinned]);
 
+	const value = {
+		isOpen: isMounted ? isOpen : false,
+		toggle,
+		setIsOpen,
+		isPinned: isMounted ? isPinned : false,
+		setIsPinned
+	};
+
 	return (
-		<AgentPanelContext.Provider value={{ isOpen, toggle, setIsOpen, isPinned, setIsPinned }}>
+		<AgentPanelContext.Provider value={value}>
 			{children}
 		</AgentPanelContext.Provider>
 	);
