@@ -44,6 +44,7 @@ export interface MessageWithModel extends Message {
     dbId?: string;
   };
   tool_invocations?: ExtendedToolCall[];
+  messageType?: string;
 }
 
 export function toMessage(messageWithModel: MessageWithModel): Message {
@@ -66,7 +67,8 @@ export function toMessageWithModel(
     completion_tokens: usage?.completionTokens,
     total_tokens: usage?.totalTokens,
     toolInvocations: (message.toolInvocations) as ExtendedToolCall[],
-    data: { dbId: message.id }
+    data: { dbId: message.id },
+    messageType: (message as MessageWithModel).messageType
   };
 }
 
@@ -394,7 +396,10 @@ export function Chat({ chatId }: ChatProps) {
           body: JSON.stringify({
             role: message.role,
             content: message.content,
-            model: currentModel
+            agentId: undefined,
+            model: currentModel,
+            toolInvocations: message.toolInvocations,
+            messageType: 'chat',
           }),
         });
       } catch (error) {
@@ -573,6 +578,11 @@ export function Chat({ chatId }: ChatProps) {
   }, [chatId, handleEditComplete, handleModelChange, messages, onDelete]);
 
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
+    // Skip messages that belong to specific agents
+    const messageType = (message as MessageWithModel).messageType;
+    if (messageType === 'documentation' || messageType === 'mermaid') {
+      return groups;
+    }
 
     if (message.role === 'user') {
       // Start a new group with user message
