@@ -25,13 +25,14 @@ import uuid
 from sqlalchemy.orm import Session
 from .utils.database import get_db
 from datetime import datetime, timezone, timedelta
-from .routers import agents
+from .routers import agents, strategies
 
 
 load_dotenv(".env.local")
 
 app = FastAPI()
 app.include_router(agents.router, prefix="/api")
+app.include_router(strategies.router)
 
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),

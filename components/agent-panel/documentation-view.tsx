@@ -1,21 +1,24 @@
 'use client';
 
+import { useAgentMessages } from '@/hooks/use-agent-messages';
+import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
+import { documentationApi } from '@/lib/api/documentation';
+import { AvailableRepository } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+import { ToolInvocation } from '@ai-sdk/ui-utils';
+import { useQuery } from '@tanstack/react-query';
+import { Message } from "ai";
 import { useChat } from 'ai/react';
+import { AnimatePresence, motion } from "framer-motion";
+import { Bot, CheckCircle, FileText, Play, Square } from "lucide-react";
+import { useCallback, useEffect, useState, useMemo } from 'react';
+import { DocumentationResult, isCodeDocumentation, isComponentAnalysis, isDevelopmentGuide, isMaintenanceOps, isSystemOverview } from '../../types/documentation';
+import { MessageWithModel, toMessageWithModel } from "../chat";
+import { Markdown } from "../markdown";
+import { ToolInvocationDisplay } from "../tool-invocation";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
-import { Bot, Loader2, CheckCircle, FileText, Play, Square } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { AvailableRepository } from "@/lib/constants";
-import { Message } from "ai";
-import { motion, AnimatePresence } from "framer-motion";
-import { Markdown } from "../markdown";
-import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
-import { useAgentMessages } from '@/hooks/use-agent-messages';
-import { useState, useEffect, useCallback } from 'react';
-import { ToolInvocationDisplay } from "../tool-invocation";
-import { isSystemOverview, isComponentAnalysis, isCodeDocumentation, isDevelopmentGuide, isMaintenanceOps, DocumentationResult } from '../../types/documentation';
-import { MessageWithModel, toMessageWithModel } from "../chat";
-import { ToolInvocationUIPart } from '@ai-sdk/ui-utils';
+import { StrategySelector } from './strategy-selector';
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -28,12 +31,8 @@ interface DocumentationState {
 	currentStep: number;
 	completedSteps: number[];
 	context: {
-		systemOverview?: string;
-		componentAnalysis?: string;
-		codeDocumentation?: string;
-		developmentGuides?: string;
-		maintenanceOps?: string;
-		currentPrompt?: string;
+		[key: string]: string;
+		currentPrompt: string;
 	};
 }
 
@@ -44,44 +43,6 @@ interface StepConfig {
 	description: string;
 	requiresConfirmation: boolean;
 }
-
-const DOCUMENTATION_STEPS: StepConfig[] = [
-	{
-		id: 1,
-		title: "System Overview",
-		prompt: "Generate a comprehensive system overview including architecture diagrams, core technologies, and key design patterns.",
-		description: "Analyzing system architecture and core components...",
-		requiresConfirmation: false
-	},
-	{
-		id: 2,
-		title: "Component Analysis",
-		prompt: "Analyze each major component's structure, dependencies, and technical details.",
-		description: "Examining component relationships and dependencies...",
-		requiresConfirmation: false
-	},
-	{
-		id: 3,
-		title: "Code Documentation",
-		prompt: "Document significant code modules, their purposes, and usage patterns.",
-		description: "Documenting code modules and patterns...",
-		requiresConfirmation: false
-	},
-	{
-		id: 4,
-		title: "Development Guides",
-		prompt: "Create development setup instructions and workflow documentation.",
-		description: "Generating development guides and workflows...",
-		requiresConfirmation: false
-	},
-	{
-		id: 5,
-		title: "Maintenance & Operations",
-		prompt: "Document maintenance procedures, troubleshooting guides, and operational considerations.",
-		description: "Documenting maintenance and operations...",
-		requiresConfirmation: false
-	}
-];
 
 const formatToolResult = (result: DocumentationResult, step: number): string => {
 	try {
@@ -202,10 +163,12 @@ const formatToolResult = (result: DocumentationResult, step: number): string => 
 // Update the validation helper to handle both parts and toolInvocations
 const isValidDocumentationResponse = (message: Message): boolean => {
 	// First check parts array (new format)
+	// @ts-ignore
 	if (message.parts?.length) {
+		// @ts-ignore
 		const hasValidToolResult = message.parts.some(part => {
 			if (part.type !== 'tool-invocation') return false;
-			const toolInvocation = (part as ToolInvocationUIPart).toolInvocation;
+			const toolInvocation = (part as ToolInvocation);
 			return (
 				toolInvocation.toolName === 'final_result' &&
 				toolInvocation.state === 'result' &&
@@ -263,23 +226,34 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	const [state, setState] = useState<DocumentationState>({
 		currentStep: 0,
 		completedSteps: [],
-		context: {}
+		context: {
+			currentPrompt: ''
+		}
 	});
 
 	const [currentStepContent, setCurrentStepContent] = useState<string>('');
 	const [isStepComplete, setIsStepComplete] = useState<boolean>(false);
+	const [selectedStrategy, setSelectedStrategy] = useState<string>("basic");
+
+	// Fetch strategy details
+	const { data: strategyDetails, isLoading: isLoadingStrategy } = useQuery({
+		queryKey: ['documentation', 'strategy', selectedStrategy],
+		queryFn: () => documentationApi.getStrategyDetails(selectedStrategy),
+		enabled: !!selectedStrategy,
+	});
+
+	// Use strategy steps instead of DOCUMENTATION_STEPS
+	const currentStep = strategyDetails?.steps[state.currentStep];
 
 	// NEW: Define handleStepComplete early using useCallback so it's available for useChat.onFinish
 	const handleStepComplete = useCallback((context: any) => {
-		const contextKeyMap: { [key: number]: string } = {
-			0: 'systemOverview',
-			1: 'componentAnalysis',
-			2: 'codeDocumentation',
-			3: 'developmentGuides',
-			4: 'maintenanceOps'
-		};
+		if (!strategyDetails?.steps) return;
 
-		const contextKey = contextKeyMap[state.currentStep];
+		// Get current step model name to use as context key
+		const currentStep = strategyDetails.steps[state.currentStep];
+		if (!currentStep) return;
+
+		const contextKey = currentStep.model.toLowerCase();
 
 		// Get content either from context parameter or currentStepContent
 		let parsedContent: any;
@@ -311,24 +285,13 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			parsedContent = {};
 		}
 
-		// Format the content based on the step
-		let formattedContent: string;
-		try {
-			formattedContent = formatToolResult(parsedContent, state.currentStep);
-		} catch (error) {
-			console.error('Error formatting content:', error);
-			formattedContent = typeof parsedContent === 'string' ?
-				parsedContent :
-				JSON.stringify(parsedContent, null, 2);
-		}
-
-		// Update state with the formatted content
+		// Update state with the content
 		setState(prev => ({
 			...prev,
 			context: {
 				...prev.context,
-				[contextKey]: formattedContent,
-				currentPrompt: DOCUMENTATION_STEPS[prev.currentStep].prompt || ''
+				[contextKey]: parsedContent,
+				currentPrompt: currentStep?.prompt || ''
 			},
 			completedSteps: [...prev.completedSteps, prev.currentStep],
 			currentStep: prev.currentStep + 1,
@@ -336,7 +299,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 		setIsStepComplete(true);
 		setCurrentStepContent('');
-	}, [state.currentStep, currentStepContent]);
+	}, [state.currentStep, currentStepContent, strategyDetails]);
 
 	const {
 		messages: streamingMessages,
@@ -349,7 +312,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	} = useChat({
 		api: `/api/agents/${agent_id}/documentation`,
 		id: chat_id,
-		initialMessages,
+		initialMessages: initialMessages || [],
 		body: {
 			id: chat_id,
 			messages: initialMessages || [],
@@ -370,7 +333,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				const updatedToolInvocations = lastMessage.toolInvocations || (lastMessage as any).tool_invocations || [];
 				const existingToolIndex = updatedToolInvocations.findIndex((t: any) =>
 					t.type === 'tool-invocation' &&
-					(t as ToolInvocationUIPart).toolInvocation.toolCallId === tool.toolCall.toolCallId
+					(t as ToolInvocation).toolCallId === tool.toolCall.toolCallId
 				);
 
 				if (existingToolIndex >= 0) {
@@ -395,6 +358,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						? {
 							...msg,
 							parts: [
+								// @ts-ignore
 								...(msg.parts || []),
 								{
 									type: 'tool-invocation',
@@ -525,19 +489,40 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		},
 	});
 
+	// Fetch available strategies
+	const {
+		data: strategies,
+		error: strategiesError,
+		isLoading: isLoadingStrategies
+	} = useQuery({
+		queryKey: ['documentation', 'strategies'],
+		queryFn: documentationApi.listStrategies,
+	});
+
+	// Handle strategy change
+	const handleStrategyChange = useCallback((strategy: string) => {
+		setSelectedStrategy(strategy);
+		setState(prev => ({
+			...prev,
+			currentStep: 0,
+			completedSteps: [],
+		}));
+	}, []);
+
 	const handleGenerateDoc = useCallback(async () => {
+		if (!strategyDetails?.steps) return;  // Early return if no steps
+
 		if (isLoading) {
-			// If currently loading, stop the generation
 			stop();
 			setIsStepComplete(false);
 			return;
 		}
 
-		if (state.currentStep >= DOCUMENTATION_STEPS.length) {
+		if (state.currentStep >= strategyDetails.steps.length) {
 			return;
 		}
 
-		const currentStep = DOCUMENTATION_STEPS[state.currentStep];
+		const currentStep = strategyDetails.steps[state.currentStep];
 		setCurrentStepContent('');
 		setIsStepComplete(false);
 
@@ -561,43 +546,45 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						currentPrompt: currentStep.prompt,
 					},
 					prompt: currentStep.prompt,
+					strategy: selectedStrategy,
 				}
 			});
 		} catch (error) {
 			console.error("Failed to generate documentation:", error);
 			setIsStepComplete(false);
 		}
-	}, [append, state.currentStep, state.context, isLoading, chat_id, agent_id, repo_name, file_paths, initialMessages, stop]);
+	}, [append, state.currentStep, state.context, isLoading, chat_id, agent_id,
+		repo_name, file_paths, initialMessages, stop, strategyDetails, selectedStrategy]);
 
+	// Update useEffect to handle strategy loading safely
 	useEffect(() => {
-		// Only proceed if we have a valid step and we're not already loading
-		if (!isLoading && state.currentStep < DOCUMENTATION_STEPS.length && isStepComplete) {
-			// Small delay to prevent potential race conditions
+		if (!strategyDetails) return;  // Early return if no strategy details
+
+		// Reset state when strategy changes
+		setState({
+			currentStep: 0,
+			completedSteps: [],
+			context: {
+				currentPrompt: strategyDetails.steps[0]?.prompt || ''
+			}
+		});
+	}, [selectedStrategy, strategyDetails]);
+
+	// Place useEffect after handleGenerateDoc
+	useEffect(() => {
+		if (!isLoading && state.currentStep < (strategyDetails?.steps?.length || 0) && isStepComplete) {
 			const timeoutId = setTimeout(() => {
 				setIsStepComplete(false);
 				handleGenerateDoc();
 			}, 100);
-
 			return () => clearTimeout(timeoutId);
 		}
-	}, [isStepComplete, state.currentStep, handleGenerateDoc, isLoading]);
+	}, [isStepComplete, state.currentStep, isLoading, handleGenerateDoc, strategyDetails]);
 
-	if (isLoadingInitial) {
-		return <div className="flex items-center justify-center h-full">
-			<Loader2 className="h-8 w-8 animate-spin" />
-		</div>;
-	}
-
-	if (isError) {
-		return <div className="flex items-center justify-center h-full text-destructive">
-			Failed to load messages. Please try again.
-		</div>;
-	}
-
-	// Update the message reduction to prefer DB messages over streaming ones
-	const allMessages = [...initialMessages, ...streamingMessages].reduce((acc: MessageWithModel[], message: Message) => {
+	// Update the message reduction to handle undefined initialMessages
+	const allMessages = [...(initialMessages || []), ...streamingMessages].reduce((acc: MessageWithModel[], message: Message) => {
 		// If message exists in initialMessages (DB), use that version
-		const existingDbMessage = initialMessages.find((m: MessageWithModel) => m.id === message.id);
+		const existingDbMessage = initialMessages?.find((m: MessageWithModel) => m.id === message.id);
 		if (existingDbMessage) {
 			if (!acc.some(m => m.id === existingDbMessage.id)) {
 				acc.push(existingDbMessage);
@@ -664,63 +651,72 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		);
 	};
 
-	const renderStepProgress = () => (
-		<div className="flex-none p-4 space-y-4 border-b">
-			<div className="flex items-center justify-between mb-4">
-				<h3 className="text-sm font-medium">
-					{DOCUMENTATION_STEPS[state.currentStep]?.title}
-				</h3>
-			</div>
-			<div className="flex items-center gap-4">
-				{DOCUMENTATION_STEPS.map((step, index) => (
-					<div
-						key={step.id}
-						className={cn(
-							"flex items-center gap-2",
-							state.currentStep === index ? "text-primary" : "text-muted-foreground",
-							state.completedSteps.includes(index) && "text-green-500"
-						)}
-					>
-						<div className="w-8 h-8 rounded-full border flex items-center justify-center">
-							{state.completedSteps.includes(index) ? (
-								<CheckCircle className="w-4 h-4" />
-							) : (
-								step.id
-							)}
-						</div>
-						<span className="text-sm font-medium">{step.title}</span>
-					</div>
-				))}
-			</div>
-		</div>
-	);
+	// Update step validation
+	const isLastStep = useCallback(() => {
+		if (!strategyDetails) return true;
+		return state.currentStep >= strategyDetails.steps.length - 1;
+	}, [state.currentStep, strategyDetails]);
+
+	// Update progress display
+	const progress = useMemo(() => {
+		if (!strategyDetails) return 0;
+		return (state.completedSteps.length / strategyDetails.steps.length) * 100;
+	}, [state.completedSteps, strategyDetails]);
+
+	// Update step buttons
+	const getStepVariant = (index: number) => {
+		if (state.currentStep === index) {
+			return "default";
+		} else if (state.completedSteps.includes(index)) {
+			return "outline";
+		} else {
+			return "ghost";
+		}
+	};
+
+	const handleStepClick = (index: number) => {
+		if (!state.completedSteps.includes(index)) {
+			setState(prev => ({
+				...prev,
+				currentStep: index,
+			}));
+		}
+	};
 
 	return (
 		<div className="flex flex-col h-full overflow-hidden">
-			<div className="flex-none p-4 border-b">
-				<div className="flex items-center justify-between">
+			<div className="flex-none p-6 border-b">
+				<div className="flex flex-col space-y-4">
+					{/* Title Section */}
 					<div>
-						<h2 className="text-lg font-semibold">Documentation Generator</h2>
-						<p className="text-sm text-muted-foreground">
+						<h2 className="text-xl font-semibold">Documentation Generator</h2>
+						<p className="text-sm text-muted-foreground mt-1">
 							Generating comprehensive documentation
 						</p>
 					</div>
-					<div className="flex items-center gap-2">
+
+					{/* Controls Section */}
+					<div className="flex items-center justify-start gap-4">
+						<StrategySelector
+							value={selectedStrategy}
+							onChange={handleStrategyChange}
+							strategies={strategies || []}
+						/>
 						<Button
 							size="lg"
 							className={cn(
-								"gap-2 transition-all",
+								"gap-2 transition-all min-w-[200px]",
 								isLoading ? "bg-destructive hover:bg-destructive/90" : "bg-primary hover:bg-primary/90"
 							)}
 							onClick={isLoading ? stop : handleGenerateDoc}
-							disabled={state.currentStep >= DOCUMENTATION_STEPS.length}
+							disabled={!strategyDetails || state.currentStep >= strategyDetails.steps.length}
 						>
 							{isLoading ? (
 								<>
 									<Square className="h-4 w-4" />
 									Stop Generation
 								</>
-							) : state.currentStep >= DOCUMENTATION_STEPS.length ? (
+							) : strategyDetails && state.currentStep >= strategyDetails.steps.length ? (
 								<>
 									<FileText className="h-4 w-4" />
 									Documentation Complete
@@ -736,9 +732,37 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				</div>
 			</div>
 
-			{renderStepProgress()}
+			{strategyDetails && (
+				<div className="flex-none p-4 space-y-4 border-b">
+					<div className="flex items-center justify-between mb-4">
+						<h3 className="text-sm font-medium">
+							{currentStep?.title}
+						</h3>
+					</div>
+					<div className="flex items-center gap-4">
+						{strategyDetails.steps.map((step, index) => (
+							<Button
+								key={step.id}
+								variant={getStepVariant(index)}
+								size="sm"
+								className={cn(
+									"relative",
+									state.currentStep === index && "animate-pulse"
+								)}
+								onClick={() => handleStepClick(index)}
+								disabled={!state.completedSteps.includes(index) && index !== state.currentStep}
+							>
+								{step.title}
+								{state.completedSteps.includes(index) && (
+									<CheckCircle className="ml-2 h-4 w-4" />
+								)}
+							</Button>
+						))}
+					</div>
+				</div>
+			)}
 
-			<ScrollArea className="flex-1 w-full h-[calc(100%-120px)]">
+			<ScrollArea className="flex-1 w-full h-[calc(100%-180px)]">
 				<div ref={containerRef} className="p-4 space-y-4">
 					<AnimatePresence mode="popLayout">
 						{allMessages.map(renderMessage)}
@@ -752,7 +776,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						>
 							<Bot className="h-4 w-4" />
 							<span className="text-sm">
-								Generating {DOCUMENTATION_STEPS[state.currentStep]?.title}...
+								{currentStep ? `Generating ${currentStep.title}...` : 'Loading...'}
 							</span>
 						</motion.div>
 					)}

@@ -28,6 +28,7 @@
     "@vercel/kv": "^3.0.0",
     "ai": "^4.0.33",
     "autoprefixer": "10.4.20",
+    "axios": "^1.7.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "concurrently": "^9.1.2",

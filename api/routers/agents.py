@@ -31,6 +31,7 @@ from ..utils.models import (
     is_complete_json,
 )
 from ..utils.tools import execute_python_code
+from ..documentation.strategies import strategy_registry
 
 # region Router Setup
 router = APIRouter()
@@ -344,6 +345,7 @@ class DocumentationRequest(BaseModel):
     step: Optional[int] = None
     context: Optional[DocumentationContext] = None
     prompt: Optional[str] = None
+    strategy: str = "basic"  # Add strategy selection
 
 
 # endregion
@@ -431,14 +433,29 @@ maintenance_ops_agent = PydanticAgent(
     Focus on keeping the system running smoothly.""",
 )
 
+
 # Map steps to agents
-STEP_AGENTS = {
-    1: [system_overview_agent, SystemOverview],
-    2: [component_analysis_agent, ComponentAnalysis],
-    3: [code_documentation_agent, CodeDocumentation],
-    4: [development_guide_agent, DevelopmentGuide],
-    5: [maintenance_ops_agent, MaintenanceOps],
-}
+def get_step_agents(strategy_name: str):
+    """Get strategy-specific agents with proper system prompts"""
+    strategy = strategy_registry[strategy_name]
+    if not strategy:
+        raise ValueError(f"Strategy {strategy_name} not found")
+
+    return {
+        step.id: [
+            PydanticAgent(
+                model=gpt_4o_mini,
+                deps_type=CodeSearch,
+                result_type=strategy.models[step.model],
+                system_prompt=step.system_prompt
+                or "You are a technical documentation specialist.",
+            ),
+            strategy.models[step.model],
+        ]
+        for step in strategy.steps
+    }
+
+
 # endregion
 
 
@@ -536,31 +553,36 @@ async def process_documentation_step(
     repo_name: str,
     code_search_query: CodeSearch,
     prompt: str,
+    strategy: str = "basic",
 ) -> AsyncGenerator[str, None]:
     """Process a documentation step using specialized agents with handoff"""
     try:
-        # Get the specialized agent for this step
-        step_config = STEP_AGENTS.get(step)
+        # Get the strategy-specific agents
+        step_agents = get_step_agents(strategy)
+        step_config = step_agents.get(step)
         if not step_config:
-            raise ValueError(f"No agent found for step {step}")
+            raise ValueError(f"No agent found for step {step} in strategy {strategy}")
 
-        agent, model_class = (
-            step_config  # Only unpack after we verify step_config exists
-        )
+        step_agent, model_class = step_config
+        print(f"Step agent: {step_agent}")
+        print(f"Model class: {model_class}")
 
-        # Map step numbers to context keys
-        step_to_context_key = {
-            1: "systemOverview",
-            2: "componentAnalysis",
-            3: "codeDocumentation",
-            4: "developmentGuides",
-            5: "maintenanceOps",
-        }
+        # Get strategy details
+        strategy_details = strategy_registry.get(strategy)
+        if not strategy_details:
+            raise ValueError(f"Strategy {strategy} not found")
+
+        # Generate context key from step model name
+        current_step = next((s for s in strategy_details.steps if s.id == step), None)
+        if not current_step:
+            raise ValueError(f"Step {step} not found in strategy {strategy}")
+
+        context_key = current_step.model.lower()  # Use model name as context key
 
         # Construct a more specific prompt that includes the user's intent and previous context
-        enhanced_prompt = f"""For repository {repo_name}, {prompt}\n\nPrevious documentation context:\n\n {json.dumps(context.partial_results, indent=2)}\n\nFocus on generating documentation for the current step ({step_to_context_key.get(step, 'unknown')}). \n\n Your response should be a complete, well-structured JSON object matching the schema for this step"""
+        enhanced_prompt = f"""For repository {repo_name}, {prompt}\n\nPrevious documentation context:\n\n {json.dumps(context.partial_results, indent=2)}\n\nFocus on generating documentation for the current step ({context_key}). \n\n Your response should be a complete, well-structured JSON object matching the schema for this step"""
 
-        async with agent.run_stream(
+        async with step_agent.run_stream(
             user_prompt=enhanced_prompt,
             deps=code_search_query,
             result_type=model_class,
@@ -568,8 +590,11 @@ async def process_documentation_step(
             content_buffer = []
             last_content = ""
 
-            draft_tool_calls = []
-            draft_tool_calls_idx = -1
+            # For draft tool calls
+            dtc = []
+
+            # Index of the current draft tool call
+            i_dtc = -1
 
             async for message, last in result.stream_structured(debounce_by=0.01):
                 if isinstance(message, ModelResponse) and message.parts:
@@ -581,59 +606,38 @@ async def process_documentation_step(
                             if delta:
                                 yield f"0:{json.dumps(delta)}\n"
                                 last_content = current_content
+
                         elif isinstance(part, ToolCallPart):
                             tool_call_id = part.tool_call_id
                             tool_name = part.tool_name
                             arguments = part.args_as_json_str()
-                            content_buffer.append(arguments)
 
-                            if tool_call_id not in [
-                                tc["id"] for tc in draft_tool_calls
-                            ]:
-                                draft_tool_calls_idx += 1
-                                draft_tool_calls.append(
+                            if tool_call_id not in [tc["id"] for tc in dtc]:
+                                i_dtc += 1
+                                dtc.append(
                                     {
                                         "id": tool_call_id,
                                         "name": tool_name,
-                                        "arguments": "{}",
+                                        "arguments": arguments if arguments else "{}",
                                     }
                                 )
-
-                                # Send initial partial call
-                                # yield build_tool_call_partial(
-                                #     tool_call_id=tool_call_id,
-                                #     tool_name=tool_name,
-                                #     args={},
-                                # )
-
-                            elif arguments:
+                            if arguments:
                                 try:
-                                    current_args = draft_tool_calls[
-                                        draft_tool_calls_idx
-                                    ]["arguments"]
-                                    draft_tool_calls[draft_tool_calls_idx][
-                                        "arguments"
-                                    ] = current_args.rstrip("}") + arguments.lstrip("{")
+                                    # print(f"\n\n----- dtc:\n\n{dtc}\n\n -----")
+                                    # print(
+                                    #     f"\n\n----- arguments:\n\n{arguments}\n\n -----"
+                                    # )
+                                    dtc[i_dtc]["arguments"] = arguments
 
-                                    if is_complete_json(
-                                        draft_tool_calls[draft_tool_calls_idx][
-                                            "arguments"
-                                        ]
-                                    ):
-                                        parsed_args = json.loads(
-                                            draft_tool_calls[draft_tool_calls_idx][
-                                                "arguments"
-                                            ]
+                                    if is_complete_json(arguments):
+                                        parsed_args = json.loads(arguments)
+                                        context.partial_results[context_key] = (
+                                            parsed_args
                                         )
-
                                         # First send the "call" state
                                         yield build_tool_call_partial(
-                                            tool_call_id=draft_tool_calls[
-                                                draft_tool_calls_idx
-                                            ]["id"],
-                                            tool_name=draft_tool_calls[
-                                                draft_tool_calls_idx
-                                            ]["name"],
+                                            tool_call_id=tool_call_id,
+                                            tool_name=tool_name,
                                             args=parsed_args,
                                         )
 
@@ -647,23 +651,15 @@ async def process_documentation_step(
                                                 tool_result = None
 
                                             yield build_tool_call_result(
-                                                tool_call_id=draft_tool_calls[
-                                                    draft_tool_calls_idx
-                                                ]["id"],
-                                                tool_name=draft_tool_calls[
-                                                    draft_tool_calls_idx
-                                                ]["name"],
+                                                tool_call_id=tool_call_id,
+                                                tool_name=tool_name,
                                                 args=parsed_args,
                                                 result=tool_result,
                                             )
                                         except Exception as e:
                                             yield build_tool_call_result(
-                                                tool_call_id=draft_tool_calls[
-                                                    draft_tool_calls_idx
-                                                ]["id"],
-                                                tool_name=draft_tool_calls[
-                                                    draft_tool_calls_idx
-                                                ]["name"],
+                                                tool_call_id=tool_call_id,
+                                                tool_name=tool_name,
                                                 args=parsed_args,
                                                 result={"error": str(e)},
                                             )
@@ -698,10 +694,7 @@ async def process_documentation_step(
                                 ),
                             }
 
-                            # Get the context key for this step
-                            context_key = step_to_context_key.get(step)
-
-                            # Format the completion message with proper context structure
+                            # Update completion message to use dynamic context key
                             completion_message = {
                                 "finishReason": "step_complete",
                                 "usage": usage_data,
@@ -742,6 +735,7 @@ async def stream_documentation_response(request: DocumentationRequest, db: Sessi
             request.repo_name,
             code_search_query,
             request.prompt or "",
+            request.strategy,
         ):
             if isinstance(content, str):  # Ensure we only yield strings
                 yield content
