@@ -138,7 +138,7 @@ class Agent(Base):
     tools = Column(JSON, default=list)  # List of tool names this agent can use
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
-
+    repository = Column(String, nullable=True)
     # Add relationship to chats
     chats = relationship("Chat", back_populates="agent")
 
@@ -172,6 +172,8 @@ class Message(Base):
     total_tokens = Column(Integer, nullable=True)
     tool_invocations = Column(JSON, nullable=True)
     agent_id = Column(UUID(as_uuid=True), nullable=True)
+    repository = Column(String, nullable=True)
+    message_type = Column(String, nullable=True)
 
     chat = relationship("Chat", back_populates="messages")
 
@@ -201,6 +203,7 @@ class AgentCreate(BaseModel):
     description: str
     system_prompt: str
     tools: List[str] = []
+    repository: Optional[str] = None
 
 
 class AgentUpdate(BaseModel):
@@ -219,6 +222,7 @@ class AgentResponse(BaseModel):
     tools: List[str]
     created_at: datetime
     is_active: bool
+    repository: Optional[str] = None
 
     class Config:
         from_attributes = True

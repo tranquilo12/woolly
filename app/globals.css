@@ -588,3 +588,49 @@
 .content-container {
   transition: all 0.3s ease-in-out;
 }
+
+/* Add these styles for a more minimalist dark theme */
+.agent-panel-header {
+  @apply bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60;
+}
+
+/* Update tab styles for a more minimalist look */
+.tabs-list {
+  @apply bg-background/50 border border-border/50;
+}
+
+.tabs-trigger[data-state="active"] {
+  @apply bg-primary/10 text-primary;
+}
+
+.tabs-trigger[data-state="inactive"] {
+  @apply text-muted-foreground hover:bg-muted/50;
+}
+
+/* Add these styles */
+[data-agent-panel] {
+  @apply bg-gradient-to-b from-background to-background/95;
+  backdrop-filter: blur(8px);
+}
+
+.agent-select-trigger {
+  @apply bg-background/50 border-border/50;
+  backdrop-filter: blur(4px);
+}
+
+/* Add new loading animation styles */
+@keyframes pulse-subtle {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.loading-line {
+  animation: pulse-subtle 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  will-change: opacity;
+  contain: content;
+}

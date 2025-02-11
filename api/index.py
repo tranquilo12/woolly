@@ -25,13 +25,14 @@ import uuid
 from sqlalchemy.orm import Session
 from .utils.database import get_db
 from datetime import datetime, timezone, timedelta
-from .routers import agents
+from .routers import agents, strategies
 
 
 load_dotenv(".env.local")
 
 app = FastAPI()
 app.include_router(agents.router, prefix="/api")
+app.include_router(strategies.router)
 
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
@@ -623,15 +624,28 @@ async def update_message_model(
 
 @app.get("/api/chat/{chat_id}/agent/{agent_id}/messages")
 async def get_agent_messages(
-    chat_id: uuid.UUID, agent_id: uuid.UUID, db: Session = Depends(get_db)
+    chat_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    repository: str = None,
+    db: Session = Depends(get_db),
 ):
-    """Get all messages for a specific agent in a chat"""
-    messages = (
-        db.query(Message)
-        .filter(Message.chat_id == chat_id, Message.agent_id == agent_id)
-        .order_by(Message.created_at)
-        .all()
+    # Start with a base query from Message table
+    query = db.query(Message).select_from(Message)
+
+    # Add join conditions explicitly
+    query = query.join(Chat, Message.chat_id == Chat.id).join(
+        Agent, Chat.agent_id == Agent.id
     )
+
+    # Add filter conditions
+    query = query.filter(Message.chat_id == chat_id, Agent.id == agent_id)
+
+    if repository:
+        query = query.filter(Message.repository == repository)
+
+    # Get messages ordered by creation time
+    messages = query.order_by(Message.created_at).all()
+
     return messages
 
 
