@@ -568,13 +568,13 @@
 }
 
 .content-container.with-sidebar {
-  width: calc(100% - clamp(250px, 20%, 300px));
-  margin-left: clamp(250px, 20%, 300px);
+  width: calc(100% - clamp(300px, 30%, 500px));
+  margin-left: clamp(300px, 30%, 500px);
 }
 
 /* Adjust sidebar width */
 .sidebar {
-  width: clamp(250px, 20%, 300px);
+  width: clamp(300px, 30%, 500px);
 }
 
 /* Adjust agent panel width */
