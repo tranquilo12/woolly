@@ -311,6 +311,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		setMessages: setStreamingMessages
 	} = useChat({
 		api: `/api/agents/${agent_id}/documentation`,
+		experimental_throttle: 50,
 		id: chat_id,
 		initialMessages: initialMessages || [],
 		body: {

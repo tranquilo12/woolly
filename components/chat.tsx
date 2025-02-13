@@ -283,12 +283,13 @@ export function Chat({ chatId }: ChatProps) {
     input,
     handleInputChange,
     handleSubmit,
-    append: vercelAppend,
+    append,
     stop,
-    setMessages: setVercelMessages,
     setInput,
+    setMessages,
     isLoading: isChatLoading,
   } = useChat({
+    experimental_throttle: 50,
     api: chatId ? `/api/chat/${chatId}` : "/api/chat",
     id: chatId,
     initialMessages: initialMessages.map(toMessage),
@@ -298,7 +299,7 @@ export function Chat({ chatId }: ChatProps) {
     onToolCall: async (tool) => {
       // console.log('onToolCall', tool);
 
-      setVercelMessages(prevMessages => {
+      setMessages(prevMessages => {
         const lastMessage = prevMessages[prevMessages.length - 1];
         if (!lastMessage) return prevMessages;
 
@@ -350,7 +351,7 @@ export function Chat({ chatId }: ChatProps) {
           }))
         } as MessageWithModel;
 
-        setVercelMessages(prevMessages =>
+        setMessages(prevMessages =>
           prevMessages.map(m =>
             m.id === messageWithModel.id ? messageWithModel : m
           )
@@ -379,36 +380,6 @@ export function Chat({ chatId }: ChatProps) {
       }
     }
   }, [isLoading, messages, scrollToBottom]);
-
-  // Create a wrapped append function that handles MessageWithModel
-  const append = useCallback(async (
-    message: MessageWithModel | CreateMessage,
-    options?: ChatRequestOptions
-  ) => {
-    // Save user message first if it's a user message
-    if (chatId && message.role === 'user') {
-      try {
-        await fetch(`/api/chat/${chatId}/messages/save`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            role: message.role,
-            content: message.content,
-            agentId: undefined,
-            model: currentModel,
-            toolInvocations: message.toolInvocations,
-            messageType: 'chat',
-          }),
-        });
-      } catch (error) {
-        console.error('Failed to save user message:', error);
-      }
-    }
-
-    return vercelAppend(message, options);
-  }, [vercelAppend, chatId, currentModel]);
 
   // Update thinking state when chat loading state changes
   useEffect(() => {
@@ -444,7 +415,7 @@ export function Chat({ chatId }: ChatProps) {
         content: editedMessage.content
       };
 
-      setVercelMessages(messagesToKeep as MessageWithModel[]);
+      setMessages(messagesToKeep as MessageWithModel[]);
 
       const options = {
         body: {
@@ -457,7 +428,7 @@ export function Chat({ chatId }: ChatProps) {
         },
       }
 
-      await vercelAppend(
+      await append(
         {
           id: crypto.randomUUID(),
           role: 'assistant',
@@ -470,7 +441,7 @@ export function Chat({ chatId }: ChatProps) {
       console.error('Failed to restream messages:', error);
       scrollToBottom({ force: true, behavior: 'auto' });
     }
-  }, [chatId, messages, setVercelMessages, vercelAppend, scrollToBottom]);
+  }, [chatId, messages, setMessages, append, scrollToBottom]);
 
   const handleModelChange = useCallback(async (model: string, messageId: string) => {
     // Update the message's model in the database
@@ -488,14 +459,14 @@ export function Chat({ chatId }: ChatProps) {
     }
 
     // Update local state with proper type casting
-    setVercelMessages((prevMessages) =>
+    setMessages((prevMessages) =>
       prevMessages.map(msg =>
         msg.id === messageId
           ? { ...msg, model } as MessageWithModel
           : msg
       )
     );
-  }, [chatId, setVercelMessages]);
+  }, [chatId, setMessages]);
 
 
   useEffect(() => {
@@ -530,7 +501,7 @@ export function Chat({ chatId }: ChatProps) {
         method: 'DELETE',
       });
       // Update local messages state after successful deletion
-      setVercelMessages(prevMessages =>
+      setMessages(prevMessages =>
         prevMessages.filter(m => m.id !== messageId)
       );
       toast.success('Message deleted');
@@ -538,7 +509,7 @@ export function Chat({ chatId }: ChatProps) {
       console.error('Failed to delete message:', error);
       toast.error('Failed to delete message');
     }
-  }, [chatId, setVercelMessages]);
+  }, [chatId, setMessages]);
 
   const renderMessage = useCallback((message: MessageWithModel, isOrphaned?: boolean) => {
     // Skip rendering empty assistant messages only if they have no tool invocations
@@ -653,7 +624,7 @@ export function Chat({ chatId }: ChatProps) {
             isLoading={isChatLoading}
             stop={stop}
             messages={messages}
-            setMessages={setVercelMessages as Dispatch<SetStateAction<Message[]>>}
+            setMessages={setMessages as Dispatch<SetStateAction<Message[]>>}
             append={append}
             handleSubmit={handleSubmit}
             searchRepository={searchRepository}

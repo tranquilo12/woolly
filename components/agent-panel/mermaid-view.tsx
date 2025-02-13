@@ -92,6 +92,7 @@ export function MermaidView({ className, currentChatId, selectedRepo, agentId }:
 		stop
 	} = useChat({
 		api: `/api/agents/${agentId}/mermaid`,
+		experimental_throttle: 50,
 		id: currentChatId,
 		initialMessages,
 		onFinish: (message) => {
