@@ -32,6 +32,7 @@ from ..utils.models import (
 )
 from ..utils.tools import execute_python_code
 from ..documentation.strategies import strategy_registry
+from ..utils.openai_client import get_openai_client
 
 # region Router Setup
 router = APIRouter()
@@ -354,9 +355,7 @@ class DocumentationRequest(BaseModel):
 # region Agent Configuration
 gpt_4o_mini = OpenAIModel(
     model_name="gpt-4o-mini",
-    openai_client=AsyncOpenAI(
-        api_key=os.getenv("OPENAI_API_KEY"),
-    ),
+    openai_client=get_openai_client(async_client=True),
 )
 
 docs_agent = PydanticAgent(

@@ -6,7 +6,6 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from openai import OpenAI
 from .utils.prompt import (
     Attachment,
     ClientMessage,
@@ -26,6 +25,7 @@ from sqlalchemy.orm import Session
 from .utils.database import get_db
 from datetime import datetime, timezone, timedelta
 from .routers import agents, strategies
+from .utils.openai_client import get_openai_client
 
 
 load_dotenv(".env.local")
@@ -34,9 +34,7 @@ app = FastAPI()
 app.include_router(agents.router, prefix="/api")
 app.include_router(strategies.router)
 
-client = OpenAI(
-    api_key=os.environ.get("OPENAI_API_KEY"),
-)
+client = get_openai_client(async_client=False)
 
 
 class ToolInvocation(BaseModel):
