@@ -434,6 +434,8 @@ async def create_message(
     chat_id: uuid.UUID, message: MessageCreate, db: Session = Depends(get_db)
 ):
     try:
+        print("[DEBUG] create_message called with:", message.model_dump())
+
         # Ensure no agent fields are present for regular chat messages
         db_message = Message(
             id=uuid.uuid4(),

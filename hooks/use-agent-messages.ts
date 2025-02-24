@@ -13,6 +13,12 @@ interface SaveMessageParams {
 
 export function useAgentMessages(chatId: string, agentId: string, repository: string, messageType: 'documentation' | 'mermaid') {
 	const queryClient = useQueryClient();
+	console.log("[DEBUG] useAgentMessages fetch called", {
+		api: `/api/chat/${chatId}/agent/messages`,
+		agentId,
+		messageType,
+		repository,
+	});
 
 	const { data, isError, isLoading, refetch } = useQuery({
 		queryKey: ['messages', chatId, agentId, repository, messageType] as const,
