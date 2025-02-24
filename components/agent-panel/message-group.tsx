@@ -30,9 +30,9 @@ export function AgentMessageGroup({ group, currentStep, onStepClick }: AgentMess
 			exit={{ opacity: 0, y: -20 }}
 			className="space-y-4"
 		>
-			<div className="mb-6 border rounded-lg overflow-hidden">
-				<div className="bg-muted p-2 flex justify-between items-center">
-					<div className="flex items-center gap-2">
+			<div className="mb-6 border rounded-lg overflow-hidden mt-6">
+				<div className="bg-muted p-4 flex justify-between items-center border-b">
+					<div className="flex items-center gap-3">
 						<h3 className="text-sm font-medium">
 							Step {group.step_index !== undefined ? group.step_index + 1 : 1}
 						</h3>
@@ -47,16 +47,19 @@ export function AgentMessageGroup({ group, currentStep, onStepClick }: AgentMess
 					</Badge>
 				</div>
 
-				<div className="p-4 space-y-4">
+				<div className="p-6 space-y-4">
 					{group.messages.map((message) => {
+						const toolInvocations = message.tool_invocations || message.toolInvocations;
+
 						// Skip empty or invalid messages
-						if (!message.content && !message.tool_invocations?.length) {
+						if (!message.content && !toolInvocations?.length) {
 							return null;
 						}
 
 						const messageWithModel: MessageWithModel = {
 							...message,
-							toolInvocations: message.tool_invocations || message.toolInvocations,
+							tool_invocations: toolInvocations,
+							toolInvocations: toolInvocations,
 							model: message.model || 'gpt-4o-mini',
 							data: { dbId: message.id },
 							role: message.role as "assistant" | "user" | "system"

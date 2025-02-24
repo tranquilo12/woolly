@@ -8,8 +8,9 @@ import { ComponentAnalysisRenderer } from "./renderers/ComponentAnalysisRenderer
 import { MaintenanceOpsRenderer } from "./renderers/MaintenanceOpsRenderer";
 import { DevelopmentGuideRenderer } from "./renderers/DevelopmentGuideRenderer";
 import { ToolInvocationDisplay } from "../tool-invocation";
-import { isAPIOverview, isSystemOverview, isComponentAnalysis, isDevelopmentGuide, isMaintenanceOps, isCodeDocumentation } from "@/types/documentation";
 import { CodeDocumentationRenderer } from "./renderers/CodeDocumentationRenderer";
+import { MermaidWrapper } from "./renderers/shared/MermaidWrapper";
+
 interface DocumentationMessageProps {
 	message: MessageWithModel;
 	className?: string;
@@ -28,16 +29,41 @@ export const DocumentationMessage = memo(function DocumentationMessage({
 	);
 
 	// Parse content from tool result or message content
-	let parsedContent = finalResult?.args || message.content;
+	let parsedContent = null;
+	if (!finalResult) {
+		console.warn('No final result found in tool invocations');
+		parsedContent = { ...message.toolInvocations };
+	} else {
+		parsedContent = { ...finalResult.args }; // Create a shallow copy using spread operator
+	}
 
 	// Handle both string and object content
 	if (typeof parsedContent === 'string') {
 		try {
 			parsedContent = JSON.parse(parsedContent);
 		} catch (e) {
+			// If parsing fails, check if it contains a Mermaid diagram
+			if (parsedContent.includes('```mermaid')) {
+				const mermaidContent = parsedContent
+					.split('```mermaid')
+					.pop()
+					?.split('```')[0]
+					?.trim();
+
+				if (mermaidContent) {
+					return (
+						<div className={cn("documentation-message space-y-4", className)}>
+							<MermaidWrapper content={mermaidContent} />
+						</div>
+					);
+				}
+			}
 			console.warn('Failed to parse content:', e);
 			parsedContent = null;
 		}
+	} else if (parsedContent?.args?.architecture_diagram) {
+		// Handle nested content structure
+		parsedContent = parsedContent.args;
 	}
 
 	// Debug logging
@@ -90,7 +116,7 @@ export const DocumentationMessage = memo(function DocumentationMessage({
 	};
 
 	return (
-		<div className={cn("documentation-message space-y-4", className)}>
+		<div className={cn("documentation-message space-y-6 mt-6", className)}>
 			{/* Try to render with specific renderer first */}
 			{renderContent(parsedContent)}
 
@@ -101,19 +127,23 @@ export const DocumentationMessage = memo(function DocumentationMessage({
 				</div>
 			)}
 
-			{/* Show tool invocations only if we're not showing specific documentation content */}
+			{/* Show tool invocations */}
 			{(!parsedContent || !renderContent(parsedContent)) && toolInvocations?.map((tool: any, index: number) => (
-				<ToolInvocationDisplay
+				<div
 					key={`${message.id}-${tool.toolCallId || 'tool'}-${index}`}
-					toolInvocation={{
-						id: tool.toolCallId,
-						toolCallId: tool.toolCallId,
-						toolName: tool.toolName,
-						args: tool.args,
-						state: tool.state,
-						result: 'result' in tool ? tool.result : undefined
-					}}
-				/>
+					className="opacity-0 animate-in fade-in duration-200"
+				>
+					<ToolInvocationDisplay
+						toolInvocation={{
+							id: tool.toolCallId,
+							toolCallId: tool.toolCallId,
+							toolName: tool.toolName,
+							args: tool.args,
+							state: tool.state,
+							result: 'result' in tool ? tool.result : undefined
+						}}
+					/>
+				</div>
 			))}
 		</div>
 	);

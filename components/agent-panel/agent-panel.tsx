@@ -137,12 +137,12 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 							className="flex-1"
 							onValueChange={(value) => setActiveTab(value as 'documentation' | 'mermaid')}
 						>
-							<TabsList className="w-full grid grid-cols-2 h-9">
+							<TabsList className="w-full grid grid-cols-2 h-9 mb-6">
 								<TabsTrigger value="documentation">Documentation</TabsTrigger>
 								<TabsTrigger value="mermaid">Diagrams</TabsTrigger>
 							</TabsList>
 
-							<TabsContent value="documentation" className="flex-1 mt-0 h-[calc(100vh-220px)]">
+							<TabsContent value="documentation" className="flex-1 mt-0 h-[calc(100vh-240px)]">
 								{activeTab === 'documentation' && (
 									<Suspense fallback={<PanelSkeleton />}>
 										{selectedRepo && (
@@ -156,7 +156,7 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 									</Suspense>
 								)}
 							</TabsContent>
-							<TabsContent value="mermaid" className="flex-1 mt-0 h-[calc(100vh-220px)]">
+							<TabsContent value="mermaid" className="flex-1 mt-0 h-[calc(100vh-240px)]">
 								{activeTab === 'mermaid' && (
 									<Suspense fallback={<PanelSkeleton />}>
 										{selectedRepo && (
