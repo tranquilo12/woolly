@@ -48,6 +48,10 @@ interface StepConfig {
 
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
+
+	// Ensure agent_id is always a string
+	const safeAgentId = agent_id ? String(agent_id) : '';
+
 	const {
 		data: initialMessages,
 		isError,
@@ -55,7 +59,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		saveMessage
 	} = useAgentMessages(
 		chat_id,
-		agent_id,
+		safeAgentId,
 		repo_name,
 		'documentation'
 	);
@@ -148,7 +152,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		stop,
 		setMessages: setStreamingMessages
 	} = useChat({
-		api: `/api/agents/${agent_id}/documentation`,
+		api: `/api/agents/${safeAgentId}/documentation`,
 		experimental_throttle: 50,
 		id: chat_id,
 		initialMessages: initialMessages || [],
@@ -156,7 +160,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			id: chat_id,
 			messages: initialMessages || [],
 			model: "gpt-4o-mini",
-			agent_id: agent_id,
+			agent_id: safeAgentId,
 			repo_name: repo_name,
 			file_paths: file_paths,
 			chat_id: chat_id,
@@ -264,7 +268,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 				// Only save valid messages to DB
 				await saveMessage({
-					agentId: agent_id,
+					agentId: safeAgentId,
 					chatId: chat_id,
 					repository: repo_name,
 					messageType: 'documentation',
@@ -374,7 +378,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					id: chat_id,
 					messages: initialMessages || [],
 					model: "gpt-4o-mini",
-					agent_id: agent_id,
+					agent_id: safeAgentId,
 					repo_name: repo_name,
 					file_paths: file_paths,
 					chat_id: chat_id,
@@ -392,7 +396,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			console.error("Failed to generate documentation:", error);
 			setIsStepComplete(false);
 		}
-	}, [append, state.currentStep, state.context, isLoading, chat_id, agent_id,
+	}, [append, state.currentStep, state.context, isLoading, chat_id, safeAgentId,
 		repo_name, file_paths, initialMessages, stop, strategyDetails, selectedStrategy]);
 
 	// Update useEffect to handle strategy loading safely
@@ -740,7 +744,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	}, [repo_name, isAgentReady]);
 
 	// Only render content when agent is ready
-	if (!isAgentReady && !agent_id) {
+	if (!isAgentReady && !safeAgentId) {
 		return <Skeleton className="w-full h-full" />;
 	}
 

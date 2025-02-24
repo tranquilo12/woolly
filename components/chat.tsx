@@ -46,6 +46,7 @@ export interface MessageWithModel extends Message {
   };
   tool_invocations?: ExtendedToolCall[];
   messageType?: string;
+  agentId?: string;
 }
 
 export function toMessage(messageWithModel: MessageWithModel): Message {
@@ -278,7 +279,9 @@ export function Chat({ chatId }: ChatProps) {
         if (!response.ok) throw new Error('Failed to fetch messages');
         const messages = await response.json();
         if (mounted) {
-          setInitialMessages(messages);
+          // Filter out any messages that might have agent_id (shouldn't happen, but just in case)
+          const nonAgentMessages = messages.filter((msg: MessageWithModel) => !msg.agentId && !msg.messageType);
+          setInitialMessages(nonAgentMessages);
         }
       } catch (error) {
         toast.error('Failed to load chat history');
@@ -367,6 +370,10 @@ export function Chat({ chatId }: ChatProps) {
             state: tool.state || 'result'
           }))
         } as MessageWithModel;
+
+        // Remove any agent-related fields
+        delete messageWithModel.agentId;
+        delete messageWithModel.messageType;
 
         setMessages(prevMessages =>
           prevMessages.map(m =>
@@ -565,10 +572,11 @@ export function Chat({ chatId }: ChatProps) {
     );
   }, [chatId, handleEditComplete, handleModelChange, messages, onDelete]);
 
+  // Filter out any agent messages from the grouped messages
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
-    // Skip messages that belong to specific agents
-    const messageType = (message as MessageWithModel).messageType;
-    if (messageType === 'documentation' || messageType === 'mermaid') {
+    // Skip messages that belong to agents
+    const typedMessage = message as MessageWithModel;
+    if (typedMessage.agentId || typedMessage.messageType) {
       return groups;
     }
 

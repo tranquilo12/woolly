@@ -540,6 +540,14 @@ async def save_agent_message(
 ) -> Message:
     """Unified function to save any type of agent message"""
     try:
+        # Convert agent_id to string for consistency
+        agent_id_str = str(agent_id)
+
+        # Verify agent exists
+        agent = db.query(Agent).filter(Agent.id == agent_id_str).first()
+        if not agent:
+            raise Exception(f"Agent {agent_id_str} not found")
+
         # Convert tool_invocations to list of dicts if it's a string
         if isinstance(tool_invocations, str):
             try:
@@ -555,7 +563,7 @@ async def save_agent_message(
             model=model,
             created_at=datetime.now(timezone.utc),
             tool_invocations=tool_invocations or [],
-            agent_id=agent_id,
+            agent_id=agent_id_str,  # Use string version
             repository=repository,
             message_type=message_type,
         )
@@ -569,7 +577,7 @@ async def save_agent_message(
             db.query(Message)
             .filter(
                 Message.id == message.id,
-                Message.agent_id == agent_id,
+                Message.agent_id == agent_id_str,  # Use string version
                 Message.repository == repository,
                 Message.message_type == message_type,
             )
@@ -796,10 +804,16 @@ async def generate_documentation(
 ):
     """Generate documentation with streaming response"""
     try:
+        # Convert agent_id to string for consistency
+        agent_id_str = str(agent_id)
+
         # Verify agent exists
-        agent = db.query(Agent).filter(Agent.id == str(agent_id)).first()
+        agent = db.query(Agent).filter(Agent.id == agent_id_str).first()
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Update request with string agent_id
+        request.agent_id = agent_id_str
 
         # Return streaming response
         return StreamingResponse(
@@ -825,7 +839,7 @@ class MermaidRequest(BaseModel):
     repository: str
     content: Optional[str] = None
     messages: Optional[List[dict]] = []
-    agent_id: Optional[UUID] = None
+    agent_id: Optional[str] = None  # Change to string type
 
 
 mermaid_agent = PydanticAgent(
@@ -931,9 +945,16 @@ async def generate_mermaid(
     db: Session = Depends(get_db),
 ):
     try:
-        agent = db.query(Agent).filter(Agent.id == str(agent_id)).first()
+        # Convert agent_id to string for consistency
+        agent_id_str = str(agent_id)
+
+        # Verify agent exists
+        agent = db.query(Agent).filter(Agent.id == agent_id_str).first()
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Update request with string agent_id
+        request.agent_id = agent_id_str
 
         # Return streaming response
         response = StreamingResponse(
@@ -963,47 +984,6 @@ class MessageCreate(BaseModel):
     tool_invocations: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
 
 
-@router.post("/agents/{agent_id}/messages")
-async def save_message(
-    agent_id: UUID,
-    message: MessageCreate,
-    db: Session = Depends(get_db),
-):
-    """Save a message for an agent"""
-    try:
-        # Standardize tool invocations to match index.py format
-        tool_invocations = standardize_tool_invocations(message.tool_invocations or [])
-
-        # Create a new message with proper ID and tool invocations
-        db_message = Message(
-            id=uuid.uuid4(),  # Add explicit ID
-            chat_id=message.chat_id,
-            agent_id=str(agent_id),  # Convert UUID to string
-            repository=message.repository,
-            message_type=message.message_type,
-            role=message.role,
-            content=message.content,
-            tool_invocations=tool_invocations,  # Now properly standardized
-            created_at=datetime.now(timezone.utc),
-        )
-        db.add(db_message)
-        db.commit()
-        db.refresh(db_message)
-
-        # Verify the message was saved
-        saved_message = db.query(Message).filter(Message.id == db_message.id).first()
-
-        if not saved_message:
-            raise HTTPException(status_code=500, detail="Message failed to save")
-
-        return {"status": "success", "message_id": str(db_message.id)}
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Failed to save message: {e}")
-        print(f"Failed to save message: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/agents/{agent_id}/messages")
 async def get_messages(
     agent_id: UUID,
@@ -1013,26 +993,34 @@ async def get_messages(
     db: Session = Depends(get_db),
 ):
     try:
-        # Convert string chat_id to UUID
+        # Convert UUIDs to strings for consistency
+        agent_id_str = str(agent_id)
         chat_id_uuid = UUID(chat_id)
 
         logging.info(
-            f"Fetching messages with params: agent_id={agent_id}, chat_id={chat_id}, repository={repository}, message_type={message_type}"
+            f"Fetching agent messages with params: agent_id={agent_id_str}, chat_id={chat_id}, repository={repository}, message_type={message_type}"
         )
 
+        # Verify agent exists
+        agent = db.query(Agent).filter(Agent.id == agent_id_str).first()
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Ensure we only get messages for this specific agent and message type
         messages = (
             db.query(Message)
             .filter(
-                Message.agent_id == str(agent_id),
+                Message.agent_id == agent_id_str,  # Use string version
                 Message.chat_id == chat_id_uuid,  # Use UUID
                 Message.repository == repository,
                 Message.message_type == message_type,
+                Message.agent_id.isnot(None),  # Ensure we only get agent messages
             )
             .order_by(Message.created_at.asc())
             .all()
         )
 
-        logging.info(f"Found {len(messages)} messages")
+        logging.info(f"Found {len(messages)} agent messages")
 
         # Standardize tool invocations for each message
         for message in messages:
@@ -1048,7 +1036,71 @@ async def get_messages(
         logging.error(f"Invalid UUID format for chat_id: {chat_id}")
         raise HTTPException(status_code=400, detail=f"Invalid chat_id format: {str(e)}")
     except Exception as e:
-        logging.error(f"Error fetching messages: {str(e)}")
+        logging.error(f"Error fetching agent messages: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/agents/{agent_id}/messages")
+async def save_message(
+    agent_id: UUID,
+    message: MessageCreate,
+    db: Session = Depends(get_db),
+):
+    """Save a message for an agent"""
+    try:
+        # Convert agent_id to string for consistency
+        agent_id_str = str(agent_id)
+
+        # Verify agent exists
+        agent = db.query(Agent).filter(Agent.id == agent_id_str).first()
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Verify this is an agent message
+        if not message.message_type or not message.agent_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid agent message: missing message_type or agent_id",
+            )
+
+        # Standardize tool invocations to match index.py format
+        tool_invocations = standardize_tool_invocations(message.tool_invocations or [])
+
+        # Create a new message with proper ID and tool invocations
+        db_message = Message(
+            id=uuid.uuid4(),  # Add explicit ID
+            chat_id=message.chat_id,
+            agent_id=agent_id_str,  # Use string version
+            repository=message.repository,
+            message_type=message.message_type,
+            role=message.role,
+            content=message.content,
+            tool_invocations=tool_invocations,  # Now properly standardized
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(db_message)
+        db.commit()
+        db.refresh(db_message)
+
+        # Verify the message was saved
+        saved_message = (
+            db.query(Message)
+            .filter(
+                Message.id == db_message.id,
+                Message.agent_id == agent_id_str,
+                Message.message_type == message.message_type,
+            )
+            .first()
+        )
+
+        if not saved_message:
+            raise HTTPException(status_code=500, detail="Message failed to save")
+
+        return {"status": "success", "message_id": str(db_message.id)}
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Failed to save agent message: {e}")
+        print(f"Failed to save agent message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

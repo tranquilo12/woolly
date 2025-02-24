@@ -43,8 +43,9 @@ export function MermaidView({ className, currentChatId, selectedRepo, agentId }:
 				if (getResponse.ok) {
 					const agents = await getResponse.json();
 					if (agents.length > 0) {
-						// Use existing agent
-						localStorage.setItem(`mermaid_agent_${selectedRepo}`, agents[0].id);
+						// Use existing agent - ensure string storage
+						const agentIdString = String(agents[0].id);
+						localStorage.setItem(`mermaid_agent_${selectedRepo}`, agentIdString);
 						setIsAgentReady(true);
 						return;
 					}
@@ -66,7 +67,9 @@ export function MermaidView({ className, currentChatId, selectedRepo, agentId }:
 
 				if (createResponse.ok) {
 					const data = await createResponse.json();
-					localStorage.setItem(`mermaid_agent_${selectedRepo}`, data.id);
+					// Ensure string storage of agent ID
+					const newAgentIdString = String(data.id);
+					localStorage.setItem(`mermaid_agent_${selectedRepo}`, newAgentIdString);
 					setIsAgentReady(true);
 				} else {
 					console.error('Failed to setup mermaid agent:', await createResponse.text());
@@ -81,10 +84,12 @@ export function MermaidView({ className, currentChatId, selectedRepo, agentId }:
 		setupMermaidAgent();
 	}, [selectedRepo, isAgentReady]);
 
+	// Ensure agentId is always a string when passed to useAgentMessages
+	const safeAgentId = agentId ? String(agentId) : '';
 
 	const { data: initialMessages = [], isError, isLoading: isLoadingInitial, saveMessage } = useAgentMessages(
 		currentChatId,
-		agentId,
+		safeAgentId,
 		selectedRepo,
 		'mermaid'
 	);
@@ -95,13 +100,13 @@ export function MermaidView({ className, currentChatId, selectedRepo, agentId }:
 		isLoading,
 		stop
 	} = useChat({
-		api: `/api/agents/${agentId}/mermaid`,
+		api: `/api/agents/${safeAgentId}/mermaid`,
 		experimental_throttle: 50,
 		id: currentChatId,
 		initialMessages,
 		onFinish: (message) => {
 			saveMessage({
-				agentId: agentId,
+				agentId: safeAgentId,
 				chatId: currentChatId,
 				repository: selectedRepo,
 				messageType: 'mermaid',

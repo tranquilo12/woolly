@@ -26,6 +26,7 @@ from .utils.database import get_db
 from datetime import datetime, timezone, timedelta
 from .routers import agents, strategies
 from .utils.openai_client import get_openai_client
+import logging
 
 
 load_dotenv(".env.local")
@@ -404,48 +405,54 @@ async def update_chat_title(
 @app.get("/api/chat/{chat_id}/messages")
 async def get_chat_messages(chat_id: uuid.UUID, db: Session = Depends(get_db)):
     """Get all messages for a chat, excluding agent messages"""
-    messages = (
-        db.query(Message)
-        .filter(
-            Message.chat_id == chat_id,
-            Message.agent_id.is_(None),  # Only get non-agent messages
+    try:
+        messages = (
+            db.query(Message)
+            .filter(
+                Message.chat_id == chat_id,
+                Message.agent_id.is_(None),  # Explicitly exclude agent messages
+                Message.message_type.is_(
+                    None
+                ),  # Ensure no message type (agent messages have types)
+            )
+            .order_by(Message.created_at)
+            .all()
         )
-        .order_by(Message.created_at)
-        .all()
-    )
-    return messages
+
+        # Log the message retrieval for debugging
+        logging.info(f"Retrieved {len(messages)} non-agent messages for chat {chat_id}")
+
+        return messages
+    except Exception as e:
+        logging.error(f"Error retrieving chat messages: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/chat/{chat_id}/messages/save")
-async def save_chat_message(
+@app.post("/api/chat/{chat_id}/messages")
+async def create_message(
     chat_id: uuid.UUID, message: MessageCreate, db: Session = Depends(get_db)
 ):
     try:
-        tool_invocations = None
-        if message.toolInvocations:
-            tool_invocations = [
-                t if isinstance(t, dict) else t.dict() for t in message.toolInvocations
-            ]
-
+        # Ensure no agent fields are present for regular chat messages
         db_message = Message(
+            id=uuid.uuid4(),
             chat_id=chat_id,
             role=message.role,
             content=message.content,
-            tool_invocations=tool_invocations,
-            created_at=datetime.now(timezone.utc),
+            tool_invocations=message.toolInvocations,
             prompt_tokens=message.prompt_tokens,
             completion_tokens=message.completion_tokens,
             total_tokens=message.total_tokens,
+            # Explicitly set agent fields to None
+            agent_id=None,
+            message_type=None,
         )
-
         db.add(db_message)
         db.commit()
-        db.refresh(db_message)
-
-        return {"success": True, "message_id": str(db_message.id)}
+        return db_message
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to save message: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Chat Interaction Endpoints

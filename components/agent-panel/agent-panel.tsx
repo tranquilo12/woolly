@@ -34,22 +34,37 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 
 	useEffect(() => {
 		if (selectedRepo) {
-			// Initialize or retrieve documentation agent
+			// Initialize or retrieve documentation agent with string handling
 			const storedDocId = localStorage.getItem(`doc_agent_${selectedRepo}`);
 			if (storedDocId) {
-				setDocAgentId(storedDocId);
+				try {
+					// Ensure we're storing a valid string
+					setDocAgentId(String(storedDocId));
+				} catch (error) {
+					console.error('Invalid doc agent ID in localStorage:', error);
+					localStorage.removeItem(`doc_agent_${selectedRepo}`);
+				}
 			}
 
-			// Initialize or retrieve mermaid agent
+			// Initialize or retrieve mermaid agent with string handling
 			const storedMermaidId = localStorage.getItem(`mermaid_agent_${selectedRepo}`);
 			if (storedMermaidId) {
-				setMermaidAgentId(storedMermaidId);
+				try {
+					// Ensure we're storing a valid string
+					setMermaidAgentId(String(storedMermaidId));
+				} catch (error) {
+					console.error('Invalid mermaid agent ID in localStorage:', error);
+					localStorage.removeItem(`mermaid_agent_${selectedRepo}`);
+				}
 			}
 		}
 	}, [selectedRepo]);
 
 	// If we have direct props, render the content directly
 	if (props.repo_name && props.agent_id) {
+		// Ensure agent_id is a string
+		const safeAgentId = String(props.agent_id);
+
 		return (
 			<div className={cn(
 				"agent-panel w-full h-full border-l bg-background",
@@ -59,7 +74,7 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 					{activeView === 'documentation' ? (
 						<DocumentationView
 							repo_name={props.repo_name}
-							agent_id={props.agent_id}
+							agent_id={safeAgentId}
 							file_paths={props.file_paths || []}
 							chat_id={props.chat_id || ''}
 						/>
@@ -68,7 +83,7 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 							className="h-full"
 							currentChatId={props.chat_id || ''}
 							selectedRepo={props.repo_name}
-							agentId={props.agent_id}
+							agentId={safeAgentId}
 						/>
 					)}
 				</Suspense>
