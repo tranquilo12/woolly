@@ -22,6 +22,7 @@ import { StrategySelector } from './strategy-selector';
 import { Skeleton } from '../ui/skeleton';
 import { toast } from 'sonner';
 import { AgentMessageGroup } from './message-group';
+import { DocumentationMessage } from '@/components/documentation/DocumentationMessage';
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -54,7 +55,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	const safeAgentId = agent_id ? String(agent_id) : '';
 
 	const {
-		data: initialMessages,
+		data: initialMessages = [],
 		isError,
 		isLoading: isLoadingInitial,
 		saveMessage,
@@ -426,22 +427,20 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		}
 	}, [isStepComplete, state.currentStep, isLoading, handleGenerateDoc, strategyDetails]);
 
-	// Update the message reduction to handle undefined initialMessages
-	const allMessages = useMemo(() => {
-		return [...(initialMessages || []), ...streamingMessages].reduce((acc: MessageWithModel[], message: Message) => {
-			// If message exists in initialMessages (DB), use that version
-			const existingDbMessage = initialMessages?.find((m: MessageWithModel) => m.id === message.id);
-			if (existingDbMessage) {
-				if (!acc.some(m => m.id === existingDbMessage.id)) {
-					acc.push(existingDbMessage);
-				}
-				return acc;
-			}
-
-			// Only add streaming message if it's not already in DB
-			if (!acc.some(m => m.id === message.id)) {
-				const messageWithModel = toMessageWithModel(message, null);
-				acc.push(messageWithModel);
+	// Add message processing logic
+	const processedMessages = useMemo(() => {
+		const messages = [...(initialMessages || []), ...(streamingMessages || [])];
+		return messages.reduce((acc: MessageWithModel[], message: Message) => {
+			// Avoid duplicates
+			const exists = acc.find((m) => m.id === message.id);
+			if (!exists) {
+				// Convert to MessageWithModel format
+				acc.push({
+					...message,
+					toolInvocations: (message as any).tool_invocations || [],
+					model: (message as any).model || 'gpt-4o-mini',
+					data: { dbId: message.id },
+				} as MessageWithModel);
 			}
 			return acc;
 		}, [] as MessageWithModel[]);
@@ -835,12 +834,46 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						{groupedMessages.map((group) => (
 							<AgentMessageGroup
 								key={group.iteration_index}
-								group={group}
+								group={{
+									...group,
+									messages: group.messages.map(msg => ({
+										...msg,
+										// @ts-ignore
+										toolInvocations: msg.tool_invocations || msg.toolInvocations || [],
+										// @ts-ignore
+										model: msg.model || 'gpt-4o-mini'
+									}))
+								}}
 								currentStep={state.currentStep}
 								onStepClick={handleStepClick}
 							/>
 						))}
 					</AnimatePresence>
+
+					{/* Show streaming messages that aren't yet saved */}
+					{streamingMessages.length > 0 && (
+						<motion.div
+							initial={{ opacity: 0, y: 20 }}
+							animate={{ opacity: 1, y: 0 }}
+							className="space-y-4"
+						>
+							{streamingMessages.map((message) => (
+								<DocumentationMessage
+									key={message.id}
+									message={{
+										...message,
+										toolInvocations: [],
+										model: 'gpt-4o-mini',
+										data: { dbId: message.id }
+									}}
+									className={cn(
+										"p-4 rounded-lg",
+										message.role === "assistant" ? "bg-muted" : "bg-background"
+									)}
+								/>
+							))}
+						</motion.div>
+					)}
 
 					{isLoading && (
 						<motion.div

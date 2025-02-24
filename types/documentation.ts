@@ -8,31 +8,38 @@ export interface SystemOverview {
 }
 
 export interface ComponentAnalysis {
-	name: string;
-	purpose: string;
+	component_name: string;
+	description: string;
 	dependencies: string[];
-	relationships_diagram: string;
-	technical_details: Record<string, any>;
-	integration_points: string[];
 }
 
 export interface CodeDocumentation {
-	modules: Array<Record<string, any>>;
-	patterns: string[];
+	code_module: string;
+	description: string;
 	usage_examples: string[];
-	api_specs?: Record<string, any>;
 }
 
 export interface DevelopmentGuide {
-	setup: string;
-	workflow: string;
-	guidelines: string[];
+	setup_instructions: string;
+	workflow_documentation: string;
 }
 
 export interface MaintenanceOps {
-	procedures: string[];
-	troubleshooting: Record<string, string>;
-	operations: string;
+	maintenance_procedures: string;
+	troubleshooting_guide: string;
+}
+
+// API-focused Documentation Types
+export interface APIOverview {
+	title: string;
+	version: string;
+	description: string;
+	base_url: string;
+	authentication_methods: string[];
+	architecture_diagram: string;
+	core_technologies: string[];
+	global_headers?: Record<string, string>;
+	rate_limits?: Record<string, string>;
 }
 
 // Combined documentation result type
@@ -64,31 +71,34 @@ export function isSystemOverview(obj: any): obj is SystemOverview {
 
 export function isComponentAnalysis(obj: any): obj is ComponentAnalysis {
 	return obj &&
-		typeof obj.name === 'string' &&
-		typeof obj.purpose === 'string' &&
-		Array.isArray(obj.dependencies) &&
-		typeof obj.relationships_diagram === 'string' &&
-		typeof obj.technical_details === 'object' &&
-		Array.isArray(obj.integration_points);
+		typeof obj.component_name === 'string' &&
+		typeof obj.description === 'string' &&
+		Array.isArray(obj.dependencies);
 }
 
 export function isCodeDocumentation(obj: any): obj is CodeDocumentation {
 	return obj &&
-		Array.isArray(obj.modules) &&
-		Array.isArray(obj.patterns) &&
+		typeof obj.code_module === 'string' &&
+		typeof obj.description === 'string' &&
 		Array.isArray(obj.usage_examples);
 }
 
 export function isDevelopmentGuide(obj: any): obj is DevelopmentGuide {
 	return obj &&
-		typeof obj.setup === 'string' &&
-		typeof obj.workflow === 'string' &&
-		Array.isArray(obj.guidelines);
+		typeof obj.setup_instructions === 'string' &&
+		typeof obj.workflow_documentation === 'string';
 }
 
 export function isMaintenanceOps(obj: any): obj is MaintenanceOps {
 	return obj &&
-		Array.isArray(obj.procedures) &&
-		typeof obj.troubleshooting === 'object' &&
-		typeof obj.operations === 'string';
-} 
+		typeof obj.maintenance_procedures === 'string' &&
+		typeof obj.troubleshooting_guide === 'string';
+}
+
+// Type Guards
+export const isAPIOverview = (content: any): content is APIOverview => {
+	return content &&
+		'authentication_methods' in content &&
+		'architecture_diagram' in content &&
+		'core_technologies' in content;
+}; 
