@@ -8,8 +8,8 @@ import { ComponentAnalysisRenderer } from "./renderers/ComponentAnalysisRenderer
 import { MaintenanceOpsRenderer } from "./renderers/MaintenanceOpsRenderer";
 import { DevelopmentGuideRenderer } from "./renderers/DevelopmentGuideRenderer";
 import { ToolInvocationDisplay } from "../tool-invocation";
-import { isAPIOverview, isSystemOverview, isComponentAnalysis, isDevelopmentGuide, isMaintenanceOps } from "@/types/documentation";
-
+import { isAPIOverview, isSystemOverview, isComponentAnalysis, isDevelopmentGuide, isMaintenanceOps, isCodeDocumentation } from "@/types/documentation";
+import { CodeDocumentationRenderer } from "./renderers/CodeDocumentationRenderer";
 interface DocumentationMessageProps {
 	message: MessageWithModel;
 	className?: string;
@@ -19,33 +19,44 @@ export const DocumentationMessage = memo(function DocumentationMessage({
 	message,
 	className
 }: DocumentationMessageProps) {
-	// Only look for final_result tool invocations
-	const finalResult = message.toolInvocations?.find(tool =>
+	// Standardize tool invocations handling
+	const toolInvocations = message.tool_invocations || message.toolInvocations;
+
+	// Get the final result tool invocation
+	const finalResult = toolInvocations?.find(tool =>
 		tool.toolName === 'final_result' && tool.state === 'result'
 	);
 
 	// Parse content from tool result or message content
-	let parsedContent = finalResult?.args || message.content;
+	let parsedContent = finalResult?.args;
 	if (typeof parsedContent === 'string') {
 		try {
 			parsedContent = JSON.parse(parsedContent);
 		} catch (e) {
+			console.warn('Failed to parse content:', e);
 			parsedContent = null;
 		}
 	}
 
+	// Debug logging
+	console.log('Rendering message:', {
+		id: message.id,
+		content: parsedContent,
+		toolInvocations
+	});
+
 	return (
 		<div className={cn("documentation-message space-y-4", className)}>
-			{parsedContent && typeof parsedContent === 'object' && (
+			{parsedContent && (
 				<>
-					{isAPIOverview(parsedContent) && (
-						<APIOverviewRenderer content={parsedContent} />
-					)}
 					{isSystemOverview(parsedContent) && (
 						<SystemOverviewRenderer content={parsedContent} />
 					)}
 					{isComponentAnalysis(parsedContent) && (
 						<ComponentAnalysisRenderer content={parsedContent} />
+					)}
+					{isCodeDocumentation(parsedContent) && (
+						<CodeDocumentationRenderer content={parsedContent} />
 					)}
 					{isDevelopmentGuide(parsedContent) && (
 						<DevelopmentGuideRenderer content={parsedContent} />
@@ -57,14 +68,14 @@ export const DocumentationMessage = memo(function DocumentationMessage({
 			)}
 
 			{/* Only show raw content if no documentation content was found */}
-			{(!parsedContent || typeof parsedContent !== 'object') && (
+			{(!parsedContent || typeof parsedContent !== 'object') && message.content && (
 				<div className="prose dark:prose-invert">
 					<Markdown>{message.content}</Markdown>
 				</div>
 			)}
 
 			{/* Only show tool invocations if we're not showing documentation content */}
-			{(!parsedContent || typeof parsedContent !== 'object') && message.toolInvocations?.map((tool: any, index: number) => (
+			{(!parsedContent || typeof parsedContent !== 'object') && toolInvocations?.map((tool: any, index: number) => (
 				<ToolInvocationDisplay
 					key={`${message.id}-${tool.toolCallId || 'tool'}-${index}`}
 					toolInvocation={{

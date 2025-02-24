@@ -12,6 +12,16 @@ interface AgentMessageGroupProps {
 }
 
 export function AgentMessageGroup({ group, currentStep, onStepClick }: AgentMessageGroupProps) {
+	if (!group?.messages?.length) {
+		return null;
+	}
+
+	console.log("[DEBUG] Rendering message group:", {
+		iterationIndex: group.iteration_index,
+		messageCount: group.messages.length,
+		completed: group.completed
+	});
+
 	return (
 		<motion.div
 			layout
@@ -22,29 +32,35 @@ export function AgentMessageGroup({ group, currentStep, onStepClick }: AgentMess
 		>
 			<div className="mb-6 border rounded-lg overflow-hidden">
 				<div className="bg-muted p-2 flex justify-between items-center">
-					<h3 className="text-sm font-medium">
-						Iteration {group?.iteration_index !== undefined ? group.iteration_index + 1 : 1}
-					</h3>
-					<Badge variant={group?.completed ? "secondary" : "default"}>
-						{group?.completed ? "Completed" : "In Progress"}
+					<div className="flex items-center gap-2">
+						<h3 className="text-sm font-medium">
+							Step {group.step_index !== undefined ? group.step_index + 1 : 1}
+						</h3>
+						{group.step_title && (
+							<span className="text-sm text-muted-foreground">
+								- {group.step_title}
+							</span>
+						)}
+					</div>
+					<Badge variant={group.completed ? "secondary" : "default"}>
+						{group.completed ? "Completed" : "In Progress"}
 					</Badge>
 				</div>
 
 				<div className="p-4 space-y-4">
-					{group?.messages?.map((message) => {
-						// Ensure message has required properties
+					{group.messages.map((message) => {
+						// Skip empty or invalid messages
+						if (!message.content && !message.tool_invocations?.length) {
+							return null;
+						}
+
 						const messageWithModel: MessageWithModel = {
 							...message,
-							// @ts-ignore
-							toolInvocations: message.tool_invocations || message.toolInvocations || [],
-							// @ts-ignore
+							toolInvocations: message.tool_invocations || message.toolInvocations,
 							model: message.model || 'gpt-4o-mini',
 							data: { dbId: message.id },
-							// Parse the content if it's a JSON string
-							content: typeof message.content === 'string' && message.content.trim().startsWith('{')
-								? JSON.parse(message.content)
-								: message.content
-						} as MessageWithModel;
+							role: message.role as "assistant" | "user" | "system"
+						};
 
 						return (
 							<DocumentationMessage

@@ -60,22 +60,37 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 	}, [data, isError, isLoading, chatId, agentId, repository, messageType]);
 
 	const groupMessages = (messages: AgentMessage[]): MessageGroup[] => {
-		return messages.reduce((groups: MessageGroup[], message) => {
-			console.log("[DEBUG] groupMessages", {
-				message,
-				groups
-			});
+		// Sort messages by step_index and created_at instead of iteration_index
+		const sortedMessages = [...messages].sort((a, b) => {
+			if (!a.step_index && !b.step_index) {
+				return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+			}
+			return (a.step_index ?? 0) - (b.step_index ?? 0);
+		});
 
-			const iterationIndex = message.iteration_index ?? 0;
+		console.log("[DEBUG] Sorted messages:", sortedMessages);
 
-			let group = groups.find(g => g.iteration_index === iterationIndex);
+		return sortedMessages.reduce((groups: MessageGroup[], message, index) => {
+			// Use index as group identifier if no step_index
+			const stepIndex = message.step_index ?? index;
+
+			let group = groups.find(g => g.step_index === stepIndex);
 			if (!group) {
 				group = {
-					iteration_index: iterationIndex,
+					iteration_index: message.iteration_index ?? 0,
 					messages: [],
-					completed: false
+					completed: false,
+					step_index: stepIndex,
+					step_title: message.step_title ?? `Step ${stepIndex + 1}`
 				};
 				groups.push(group);
+			}
+
+			// Check if this message completes the group
+			if (message.tool_invocations?.some(tool =>
+				tool.toolName === 'final_result' && tool.state === 'result'
+			)) {
+				group.completed = true;
 			}
 
 			group.messages.push(message);
