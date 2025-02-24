@@ -44,171 +44,6 @@ interface StepConfig {
 	requiresConfirmation: boolean;
 }
 
-const formatToolResult = (result: DocumentationResult, step: number): string => {
-	try {
-		// Parse result if it's a string
-		const parsedResult = typeof result === 'string' ? JSON.parse(result) : result;
-
-		switch (step) {
-			case 0: {
-				if (isSystemOverview(parsedResult)) {
-					return [
-						"# System Overview\n",
-						"## Architecture Diagram",
-						"```mermaid",
-						parsedResult.architecture_diagram,
-						"```\n",
-						"## Core Technologies",
-						parsedResult.core_technologies.map((tech: string) => `- ${tech}`).join('\n'),
-						"\n## Design Patterns",
-						parsedResult.design_patterns.map((pattern: string) => `- ${pattern}`).join('\n'),
-						"\n## System Requirements",
-						parsedResult.system_requirements.map((req: string) => `- ${req}`).join('\n'),
-						"\n## Project Structure",
-						"```",
-						parsedResult.project_structure,
-						"```"
-					].join('\n');
-				}
-				break;
-			}
-			case 1: {
-				if (isComponentAnalysis(parsedResult)) {
-					return [
-						`# Component: ${parsedResult.name}\n`,
-						`## Purpose\n${parsedResult.purpose}\n`,
-						"## Dependencies",
-						parsedResult.dependencies.map(dep => `- ${dep}`).join('\n'),
-						"\n## Relationships Diagram",
-						"```mermaid",
-						parsedResult.relationships_diagram,
-						"```\n",
-						"## Technical Details",
-						Object.entries(parsedResult.technical_details)
-							.map(([key, value]) => `### ${key}\n${value}`)
-							.join('\n\n'),
-						"\n## Integration Points",
-						parsedResult.integration_points.map(point => `- ${point}`).join('\n')
-					].join('\n');
-				}
-				break;
-			}
-			case 2: {
-				if (isCodeDocumentation(parsedResult)) {
-					return [
-						"# Code Documentation\n",
-						"## Modules",
-						parsedResult.modules.map(module =>
-							`### ${module.name}\n${module.purpose}\n\nDependencies:\n${module.dependencies.map((dep: string) => `- ${dep}`).join('\n')
-							}\n\nUsage Examples:\n${module.usage_examples.map((ex: string) => `\`\`\`\n${ex}\n\`\`\``).join('\n')
-							}`
-						).join('\n\n'),
-						"\n## Patterns",
-						parsedResult.patterns.map(pattern => `- ${pattern}`).join('\n'),
-						"\n## Usage Examples",
-						parsedResult.usage_examples.map(ex => `\`\`\`\n${ex}\n\`\`\``).join('\n'),
-						parsedResult.api_specs ? [
-							"\n## API Specifications",
-							"### Endpoints",
-							parsedResult.api_specs.endpoints.map((ep: string) => `- ${ep}`).join('\n'),
-							"\n### Authentication",
-							parsedResult.api_specs.authentication,
-							"\n### Error Handling",
-							parsedResult.api_specs.error_handling
-						].join('\n') : ''
-					].join('\n');
-				}
-				break;
-			}
-			case 3: {
-				if (isDevelopmentGuide(parsedResult)) {
-					return [
-						"# Development Guide\n",
-						"## Setup",
-						parsedResult.setup,
-						"\n## Workflow",
-						parsedResult.workflow,
-						"\n## Guidelines",
-						parsedResult.guidelines.map((guideline: string) => `- ${guideline}`).join('\n')
-					].join('\n');
-				}
-				break;
-			}
-			case 4: {
-				if (isMaintenanceOps(parsedResult)) {
-					return [
-						"# Maintenance & Operations\n",
-						"## Procedures",
-						parsedResult.procedures.map((proc: string) => `- ${proc}`).join('\n'),
-						"\n## Troubleshooting",
-						Object.entries(parsedResult.troubleshooting)
-							.map(([key, value]) => `### ${key}\n${value}`)
-							.join('\n\n'),
-						"\n## Operations",
-						parsedResult.operations
-					].join('\n');
-				}
-				break;
-			}
-		}
-
-		// Fallback for unhandled cases
-		return JSON.stringify(parsedResult, null, 2);
-	} catch (error) {
-		console.error('Error formatting tool result:', error);
-		return String(result);
-	}
-};
-
-// Update the validation helper to handle both parts and toolInvocations
-const isValidDocumentationResponse = (message: Message): boolean => {
-	// First check parts array (new format)
-	// @ts-ignore
-	if (message.parts?.length) {
-		// @ts-ignore
-		const hasValidToolResult = message.parts.some(part => {
-			if (part.type !== 'tool-invocation') return false;
-			const toolInvocation = (part as ToolInvocation);
-			return (
-				toolInvocation.toolName === 'final_result' &&
-				toolInvocation.state === 'result' &&
-				toolInvocation.args &&
-				Object.keys(toolInvocation.args).length > 0
-			);
-		});
-		if (hasValidToolResult) return true;
-	}
-
-	// Then check toolInvocations array (fallback format)
-	if (message.toolInvocations?.length) {
-		const hasValidToolResult = message.toolInvocations.some(tool => {
-			return (
-				tool.toolName === 'final_result' &&
-				tool.state === 'result' &&
-				tool.args &&
-				Object.keys(tool.args).length > 0
-			);
-		});
-		if (hasValidToolResult) return true;
-	}
-
-	// Finally check content for JSON format
-	if (message.content?.trim()) {
-		try {
-			const parsedContent = JSON.parse(message.content);
-			return Boolean(
-				parsedContent.finishReason === "step_complete" &&
-				parsedContent.context &&
-				Object.keys(parsedContent.context).length > 0
-			);
-		} catch {
-			return false;
-		}
-	}
-
-	return false;
-};
-
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
 	const {
@@ -583,23 +418,191 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	}, [isStepComplete, state.currentStep, isLoading, handleGenerateDoc, strategyDetails]);
 
 	// Update the message reduction to handle undefined initialMessages
-	const allMessages = [...(initialMessages || []), ...streamingMessages].reduce((acc: MessageWithModel[], message: Message) => {
-		// If message exists in initialMessages (DB), use that version
-		const existingDbMessage = initialMessages?.find((m: MessageWithModel) => m.id === message.id);
-		if (existingDbMessage) {
-			if (!acc.some(m => m.id === existingDbMessage.id)) {
-				acc.push(existingDbMessage);
+	const allMessages = useMemo(() => {
+		return [...(initialMessages || []), ...streamingMessages].reduce((acc: MessageWithModel[], message: Message) => {
+			// If message exists in initialMessages (DB), use that version
+			const existingDbMessage = initialMessages?.find((m: MessageWithModel) => m.id === message.id);
+			if (existingDbMessage) {
+				if (!acc.some(m => m.id === existingDbMessage.id)) {
+					acc.push(existingDbMessage);
+				}
+				return acc;
+			}
+
+			// Only add streaming message if it's not already in DB
+			if (!acc.some(m => m.id === message.id)) {
+				const messageWithModel = toMessageWithModel(message, null);
+				acc.push(messageWithModel);
 			}
 			return acc;
+		}, [] as MessageWithModel[]);
+	}, [initialMessages, streamingMessages]);
+
+	// Move formatToolResult inside the component and memoize it
+	const formatToolResult = useCallback((result: DocumentationResult, step: number): string => {
+		try {
+			// Parse result if it's a string
+			const parsedResult = typeof result === 'string' ? JSON.parse(result) : result;
+
+			switch (step) {
+				case 0: {
+					if (isSystemOverview(parsedResult)) {
+						return [
+							"# System Overview\n",
+							"## Architecture Diagram",
+							"```mermaid",
+							parsedResult.architecture_diagram,
+							"```\n",
+							"## Core Technologies",
+							parsedResult.core_technologies.map((tech: string) => `- ${tech}`).join('\n'),
+							"\n## Design Patterns",
+							parsedResult.design_patterns.map((pattern: string) => `- ${pattern}`).join('\n'),
+							"\n## System Requirements",
+							parsedResult.system_requirements.map((req: string) => `- ${req}`).join('\n'),
+							"\n## Project Structure",
+							"```",
+							parsedResult.project_structure,
+							"```"
+						].join('\n');
+					}
+					break;
+				}
+				case 1: {
+					if (isComponentAnalysis(parsedResult)) {
+						return [
+							`# Component: ${parsedResult.name}\n`,
+							`## Purpose\n${parsedResult.purpose}\n`,
+							"## Dependencies",
+							parsedResult.dependencies.map(dep => `- ${dep}`).join('\n'),
+							"\n## Relationships Diagram",
+							"```mermaid",
+							parsedResult.relationships_diagram,
+							"```\n",
+							"## Technical Details",
+							Object.entries(parsedResult.technical_details)
+								.map(([key, value]) => `### ${key}\n${value}`)
+								.join('\n\n'),
+							"\n## Integration Points",
+							parsedResult.integration_points.map(point => `- ${point}`).join('\n')
+						].join('\n');
+					}
+					break;
+				}
+				case 2: {
+					if (isCodeDocumentation(parsedResult)) {
+						return [
+							"# Code Documentation\n",
+							"## Modules",
+							parsedResult.modules.map(module =>
+								`### ${module.name}\n${module.purpose}\n\nDependencies:\n${module.dependencies.map((dep: string) => `- ${dep}`).join('\n')
+								}\n\nUsage Examples:\n${module.usage_examples.map((ex: string) => `\`\`\`\n${ex}\n\`\`\``).join('\n')
+								}`
+							).join('\n\n'),
+							"\n## Patterns",
+							parsedResult.patterns.map(pattern => `- ${pattern}`).join('\n'),
+							"\n## Usage Examples",
+							parsedResult.usage_examples.map(ex => `\`\`\`\n${ex}\n\`\`\``).join('\n'),
+							parsedResult.api_specs ? [
+								"\n## API Specifications",
+								"### Endpoints",
+								parsedResult.api_specs.endpoints.map((ep: string) => `- ${ep}`).join('\n'),
+								"\n### Authentication",
+								parsedResult.api_specs.authentication,
+								"\n### Error Handling",
+								parsedResult.api_specs.error_handling
+							].join('\n') : ''
+						].join('\n');
+					}
+					break;
+				}
+				case 3: {
+					if (isDevelopmentGuide(parsedResult)) {
+						return [
+							"# Development Guide\n",
+							"## Setup",
+							parsedResult.setup,
+							"\n## Workflow",
+							parsedResult.workflow,
+							"\n## Guidelines",
+							parsedResult.guidelines.map((guideline: string) => `- ${guideline}`).join('\n')
+						].join('\n');
+					}
+					break;
+				}
+				case 4: {
+					if (isMaintenanceOps(parsedResult)) {
+						return [
+							"# Maintenance & Operations\n",
+							"## Procedures",
+							parsedResult.procedures.map((proc: string) => `- ${proc}`).join('\n'),
+							"\n## Troubleshooting",
+							Object.entries(parsedResult.troubleshooting)
+								.map(([key, value]) => `### ${key}\n${value}`)
+								.join('\n\n'),
+							"\n## Operations",
+							parsedResult.operations
+						].join('\n');
+					}
+					break;
+				}
+			}
+
+			// Fallback for unhandled cases
+			return JSON.stringify(parsedResult, null, 2);
+		} catch (error) {
+			console.error('Error formatting tool result:', error);
+			return String(result);
+		}
+	}, []); // Empty dependency array since it doesn't depend on any props or state
+
+	// Update the validation helper to handle both parts and toolInvocations
+	const isValidDocumentationResponse = (message: Message): boolean => {
+		// First check parts array (new format)
+		// @ts-ignore
+		if (message.parts?.length) {
+			// @ts-ignore
+			const hasValidToolResult = message.parts.some(part => {
+				if (part.type !== 'tool-invocation') return false;
+				const toolInvocation = (part as ToolInvocation);
+				return (
+					toolInvocation.toolName === 'final_result' &&
+					toolInvocation.state === 'result' &&
+					toolInvocation.args &&
+					Object.keys(toolInvocation.args).length > 0
+				);
+			});
+			if (hasValidToolResult) return true;
 		}
 
-		// Only add streaming message if it's not already in DB
-		if (!acc.some(m => m.id === message.id)) {
-			const messageWithModel = toMessageWithModel(message, null);
-			acc.push(messageWithModel);
+		// Then check toolInvocations array (fallback format)
+		if (message.toolInvocations?.length) {
+			const hasValidToolResult = message.toolInvocations.some(tool => {
+				return (
+					tool.toolName === 'final_result' &&
+					tool.state === 'result' &&
+					tool.args &&
+					Object.keys(tool.args).length > 0
+				);
+			});
+			if (hasValidToolResult) return true;
 		}
-		return acc;
-	}, [] as MessageWithModel[]);
+
+		// Finally check content for JSON format
+		if (message.content?.trim()) {
+			try {
+				const parsedContent = JSON.parse(message.content);
+				return Boolean(
+					parsedContent.finishReason === "step_complete" &&
+					parsedContent.context &&
+					Object.keys(parsedContent.context).length > 0
+				);
+			} catch {
+				return false;
+			}
+		}
+
+		return false;
+	};
 
 	const renderMessage = (message: MessageWithModel) => {
 		return (

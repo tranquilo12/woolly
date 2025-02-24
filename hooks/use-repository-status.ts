@@ -157,7 +157,7 @@ export function useRepositoryStatus() {
 		}
 	}, []); // Added empty dependencies array as second argument
 
-	// Add memoization for callback functions and optimize state updates
+	// Add memoization for state updates and optimize SSE connections
 	const debouncedSetRepositories = useMemo(
 		() => debounce((updateFn: (prev: Repository[]) => Repository[]) => {
 			setRepositories(updateFn);
@@ -176,11 +176,11 @@ export function useRepositoryStatus() {
 		);
 	}, []);
 
-	// Use the memoized update function in the event handler
+	// Optimize event handler creation
 	const createEventHandler = useCallback((repoName: string) => (event: MessageEvent) => {
 		const data = JSON.parse(event.data);
 
-		// Batch all updates into a single state update
+		// Use requestAnimationFrame to batch updates
 		requestAnimationFrame(() => {
 			updateRepository(repoName, {
 				indexing_status: data.status,
