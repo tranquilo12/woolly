@@ -28,7 +28,9 @@ export const DocumentationMessage = memo(function DocumentationMessage({
 	);
 
 	// Parse content from tool result or message content
-	let parsedContent = finalResult?.args;
+	let parsedContent = finalResult?.args || message.content;
+
+	// Handle both string and object content
 	if (typeof parsedContent === 'string') {
 		try {
 			parsedContent = JSON.parse(parsedContent);
@@ -42,40 +44,65 @@ export const DocumentationMessage = memo(function DocumentationMessage({
 	console.log('Rendering message:', {
 		id: message.id,
 		content: parsedContent,
-		toolInvocations
+		toolInvocations,
+		messageContent: message.content
 	});
+
+	// Helper function to check if content matches a specific type
+	const matchesContentType = (content: any, properties: string[]): boolean => {
+		return properties.every(prop => prop in content);
+	};
+
+	// Determine the content type and render appropriate component
+	const renderContent = (content: any) => {
+		if (!content) return null;
+
+		// Code documentation check
+		if (matchesContentType(content, ['code_module', 'description', 'usage_examples'])) {
+			return <CodeDocumentationRenderer content={content} />;
+		}
+
+		// System overview check
+		if (matchesContentType(content, ['architecture_diagram', 'core_technologies'])) {
+			if ('authentication_methods' in content) {
+				return <APIOverviewRenderer content={content} />;
+			}
+			return <SystemOverviewRenderer content={content} />;
+		}
+
+		// Component analysis check
+		if (matchesContentType(content, ['component_name', 'description'])) {
+			return <ComponentAnalysisRenderer content={content} />;
+		}
+
+		// Development guide check
+		if (matchesContentType(content, ['workflow_documentation'])) {
+			return <DevelopmentGuideRenderer content={content} />;
+		}
+
+		// Maintenance ops check
+		if (matchesContentType(content, ['maintenance_procedures', 'troubleshooting_guide'])) {
+			return <MaintenanceOpsRenderer content={content} />;
+		}
+
+		// If no specific type matches, return null to fall through to default rendering
+		return null;
+	};
 
 	return (
 		<div className={cn("documentation-message space-y-4", className)}>
-			{parsedContent && (
-				<>
-					{isSystemOverview(parsedContent) && (
-						<SystemOverviewRenderer content={parsedContent} />
-					)}
-					{isComponentAnalysis(parsedContent) && (
-						<ComponentAnalysisRenderer content={parsedContent} />
-					)}
-					{isCodeDocumentation(parsedContent) && (
-						<CodeDocumentationRenderer content={parsedContent} />
-					)}
-					{isDevelopmentGuide(parsedContent) && (
-						<DevelopmentGuideRenderer content={parsedContent} />
-					)}
-					{isMaintenanceOps(parsedContent) && (
-						<MaintenanceOpsRenderer content={parsedContent} />
-					)}
-				</>
-			)}
+			{/* Try to render with specific renderer first */}
+			{renderContent(parsedContent)}
 
-			{/* Only show raw content if no documentation content was found */}
-			{(!parsedContent || typeof parsedContent !== 'object') && message.content && (
+			{/* Fallback to raw content display if no specific renderer matched */}
+			{(!parsedContent || !renderContent(parsedContent)) && message.content && (
 				<div className="prose dark:prose-invert">
 					<Markdown>{message.content}</Markdown>
 				</div>
 			)}
 
-			{/* Only show tool invocations if we're not showing documentation content */}
-			{(!parsedContent || typeof parsedContent !== 'object') && toolInvocations?.map((tool: any, index: number) => (
+			{/* Show tool invocations only if we're not showing specific documentation content */}
+			{(!parsedContent || !renderContent(parsedContent)) && toolInvocations?.map((tool: any, index: number) => (
 				<ToolInvocationDisplay
 					key={`${message.id}-${tool.toolCallId || 'tool'}-${index}`}
 					toolInvocation={{
