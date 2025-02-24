@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
+import { AgentMessage, MessageGroup } from '@/types/agent-messages';
 
 interface SaveMessageParams {
 	agentId: string;
@@ -58,8 +59,31 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 		});
 	}, [data, isError, isLoading, chatId, agentId, repository, messageType]);
 
+	const groupMessages = (messages: AgentMessage[]): MessageGroup[] => {
+		return messages.reduce((groups: MessageGroup[], message) => {
+			const iterationIndex = message.iteration_index ?? 0;
+
+			let group = groups.find(g => g.iteration_index === iterationIndex);
+			if (!group) {
+				group = {
+					iteration_index: iterationIndex,
+					messages: [],
+					completed: false
+				};
+				groups.push(group);
+			}
+
+			group.messages.push(message);
+			return groups;
+		}, []);
+	};
+
 	const { mutate: saveMessage } = useMutation({
-		mutationFn: async (params: SaveMessageParams) => {
+		mutationFn: async (params: SaveMessageParams & {
+			iteration_index?: number;
+			step_index?: number;
+			step_title?: string;
+		}) => {
 			const messageData = {
 				chat_id: params.chatId,
 				agent_id: params.agentId,
@@ -68,7 +92,10 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 				role: params.role,
 				content: params.content,
 				tool_invocations: params.toolInvocations,
-				model: 'gpt-4o-mini' // Add default model since it's required by the backend
+				model: 'gpt-4o-mini', // Add default model since it's required by the backend
+				iteration_index: params.iteration_index,
+				step_index: params.step_index,
+				step_title: params.step_title,
 			};
 
 			// Update to use the correct endpoint
@@ -100,5 +127,6 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 		isError,
 		isLoading,
 		saveMessage,
+		groupedMessages: data ? groupMessages(data) : [],
 	};
 } 

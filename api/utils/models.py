@@ -175,6 +175,11 @@ class Message(Base):
     repository = Column(String, nullable=True)
     message_type = Column(String, nullable=True)
 
+    # New fields for agent message grouping
+    iteration_index: Optional[int] = Column(Integer)
+    step_index: Optional[int] = Column(Integer)
+    step_title: Optional[str] = Column(String)
+
     chat = relationship("Chat", back_populates="messages")
 
     def update_tool_invocations(self, tool_invocation: Dict[str, Any]) -> None:

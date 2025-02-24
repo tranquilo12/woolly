@@ -21,6 +21,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { StrategySelector } from './strategy-selector';
 import { Skeleton } from '../ui/skeleton';
 import { toast } from 'sonner';
+import { AgentMessageGroup } from './message-group';
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -56,7 +57,8 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		data: initialMessages,
 		isError,
 		isLoading: isLoadingInitial,
-		saveMessage
+		saveMessage,
+		groupedMessages
 	} = useAgentMessages(
 		chat_id,
 		safeAgentId,
@@ -830,7 +832,14 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			<ScrollArea className="flex-1 w-full h-[calc(100%-180px)]">
 				<div ref={containerRef} className="p-4 space-y-4">
 					<AnimatePresence mode="popLayout">
-						{allMessages.map(renderMessage)}
+						{groupedMessages.map((group) => (
+							<AgentMessageGroup
+								key={group.iteration_index}
+								group={group}
+								currentStep={state.currentStep}
+								onStepClick={handleStepClick}
+							/>
+						))}
 					</AnimatePresence>
 
 					{isLoading && (
