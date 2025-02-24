@@ -10,7 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Message } from "ai";
 import { useChat } from 'ai/react';
 import { AnimatePresence, motion } from "framer-motion";
-import { Bot, CheckCircle, FileText, Play, Square } from "lucide-react";
+import { Bot, CheckCircle, ChevronLeft, ChevronRight, FileText, Play, Square } from "lucide-react";
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { DocumentationResult, isCodeDocumentation, isComponentAnalysis, isDevelopmentGuide, isMaintenanceOps, isSystemOverview } from '../../types/documentation';
 import { MessageWithModel, toMessageWithModel } from "../chat";
@@ -475,76 +475,61 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					}
 					break;
 				}
+
 				case 1: {
 					if (isComponentAnalysis(parsedResult)) {
 						return [
-							`# Component: ${parsedResult.name}\n`,
-							`## Purpose\n${parsedResult.purpose}\n`,
+							`# Component: ${parsedResult.component_name}\n`,
+							`## Description\n${parsedResult.description}\n`,
 							"## Dependencies",
 							parsedResult.dependencies.map(dep => `- ${dep}`).join('\n'),
-							"\n## Relationships Diagram",
-							"```mermaid",
-							parsedResult.relationships_diagram,
-							"```\n",
-							"## Technical Details",
-							Object.entries(parsedResult.technical_details)
+							"## Dependencies Details",
+							Object.entries(parsedResult.dependencies)
 								.map(([key, value]) => `### ${key}\n${value}`)
 								.join('\n\n'),
-							"\n## Integration Points",
-							parsedResult.integration_points.map(point => `- ${point}`).join('\n')
 						].join('\n');
 					}
 					break;
 				}
+
 				case 2: {
 					if (isCodeDocumentation(parsedResult)) {
 						return [
 							"# Code Documentation\n",
 							"## Modules",
-							parsedResult.modules.map(module =>
+							parsedResult.code_module.map(module =>
 								`### ${module.name}\n${module.purpose}\n\nDependencies:\n${module.dependencies.map((dep: string) => `- ${dep}`).join('\n')
 								}\n\nUsage Examples:\n${module.usage_examples.map((ex: string) => `\`\`\`\n${ex}\n\`\`\``).join('\n')
 								}`
-							).join('\n\n'),
-							"\n## Patterns",
-							parsedResult.patterns.map(pattern => `- ${pattern}`).join('\n'),
-							"\n## Usage Examples",
-							parsedResult.usage_examples.map(ex => `\`\`\`\n${ex}\n\`\`\``).join('\n'),
-							parsedResult.api_specs ? [
-								"\n## API Specifications",
-								"### Endpoints",
-								parsedResult.api_specs.endpoints.map((ep: string) => `- ${ep}`).join('\n'),
-								"\n### Authentication",
-								parsedResult.api_specs.authentication,
-								"\n### Error Handling",
-								parsedResult.api_specs.error_handling
-							].join('\n') : ''
+							).join('\n\n')
 						].join('\n');
 					}
 					break;
 				}
+
 				case 3: {
 					if (isDevelopmentGuide(parsedResult)) {
 						return [
 							"# Development Guide\n",
 							"## Setup",
-							parsedResult.setup,
+							parsedResult.setup_instructions,
 							"\n## Workflow",
-							parsedResult.workflow,
+							parsedResult.workflow_documentation,
 							"\n## Guidelines",
 							parsedResult.guidelines.map((guideline: string) => `- ${guideline}`).join('\n')
 						].join('\n');
 					}
 					break;
 				}
+
 				case 4: {
 					if (isMaintenanceOps(parsedResult)) {
 						return [
 							"# Maintenance & Operations\n",
 							"## Procedures",
-							parsedResult.procedures.map((proc: string) => `- ${proc}`).join('\n'),
+							parsedResult.maintenance_procedures.map((proc: string) => `- ${proc}`).join('\n'),
 							"\n## Troubleshooting",
-							Object.entries(parsedResult.troubleshooting)
+							Object.entries(parsedResult.troubleshooting_guide)
 								.map(([key, value]) => `### ${key}\n${value}`)
 								.join('\n\n'),
 							"\n## Operations",
@@ -557,6 +542,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 			// Fallback for unhandled cases
 			return JSON.stringify(parsedResult, null, 2);
+
 		} catch (error) {
 			console.error('Error formatting tool result:', error);
 			return String(result);
@@ -626,39 +612,10 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						: "mb-8 hover:bg-primary/5 rounded-lg"
 				)}
 			>
-				<div className="flex items-start gap-4 px-4 py-4">
-					<div className={cn(
-						"min-w-[30px] text-sm font-medium",
-						message.role === "user"
-							? "text-muted-foreground"
-							: "text-primary"
-					)}>
-						{message.role === "user" ? "You" : "AI"}
-					</div>
-					<div className="prose prose-neutral dark:prose-invert flex-1">
-						<Markdown>{message.content}</Markdown>
-
-						{/* Handle both toolInvocations and tool_invocations */}
-						{(message.toolInvocations || (message as any).tool_invocations)?.map((tool: any, index: number) => {
-							// Create a unique key that's stable across renders
-							const uniqueKey = `${message.id}-${tool.toolCallId || 'tool'}-${index}`;
-
-							return (
-								<ToolInvocationDisplay
-									key={uniqueKey}
-									toolInvocation={{
-										id: tool.toolCallId,
-										toolCallId: tool.toolCallId,
-										toolName: tool.toolName,
-										args: tool.args,
-										state: tool.state,
-										result: 'result' in tool ? tool.result : undefined
-									}}
-								/>
-							);
-						})}
-					</div>
-				</div>
+				<DocumentationMessage
+					message={message}
+					className="p-4"
+				/>
 			</motion.div>
 		);
 	};
@@ -750,146 +707,45 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	}
 
 	return (
-		<div className="flex flex-col h-full overflow-hidden">
-			<div className="flex-none p-6 border-b">
-				<div className="flex flex-col space-y-4">
-					{/* Title Section */}
-					<div>
-						<h2 className="text-xl font-semibold">Documentation Generator</h2>
-						<p className="text-sm text-muted-foreground mt-1">
-							Generating comprehensive documentation
-						</p>
-					</div>
-
-					{/* Controls Section */}
-					<div className="flex items-center justify-start gap-4">
-						<StrategySelector
-							value={selectedStrategy}
-							onChange={handleStrategyChange}
-							strategies={strategies || []}
-						/>
-						<Button
-							size="lg"
-							className={cn(
-								"gap-2 transition-all min-w-[200px]",
-								isLoading ? "bg-destructive hover:bg-destructive/90" : "bg-primary hover:bg-primary/90"
-							)}
-							onClick={isLoading ? stop : handleGenerateDoc}
-							disabled={!strategyDetails || state.currentStep >= strategyDetails.steps.length}
-						>
-							{isLoading ? (
-								<>
-									<Square className="h-4 w-4" />
-									Stop Generation
-								</>
-							) : strategyDetails && state.currentStep >= strategyDetails.steps.length ? (
-								<>
-									<FileText className="h-4 w-4" />
-									Documentation Complete
-								</>
-							) : (
-								<>
-									<Play className="h-4 w-4" />
-									{state.currentStep === 0 ? 'Generate Documentation' : 'Continue Generation'}
-								</>
-							)}
+		<div className="flex flex-col h-full">
+			<div className="flex-1 overflow-y-auto">
+				<AgentMessageGroup
+					group={groupedMessages[state.currentStep]}
+					currentStep={state.currentStep}
+					onStepClick={handleStepClick}
+				/>
+			</div>
+			<div className="flex-none p-4">
+				<div className="flex items-center justify-between">
+					<div className="flex items-center gap-2">
+						<Button variant="outline" size="icon" onClick={() => {
+							if (state.currentStep > 0) {
+								setState(prev => ({
+									...prev,
+									currentStep: prev.currentStep - 1,
+								}));
+							}
+						}}>
+							<ChevronLeft className="w-4 h-4" />
 						</Button>
+						<Button variant="outline" size="icon" onClick={() => {
+							if (state.currentStep < (strategyDetails?.steps.length || 0) - 1) {
+								setState(prev => ({
+									...prev,
+									currentStep: prev.currentStep + 1,
+								}));
+							}
+						}}>
+							<ChevronRight className="w-4 h-4" />
+						</Button>
+					</div>
+					<div className="flex items-center gap-2">
+						<span className="text-sm text-muted-foreground">
+							{state.currentStep + 1} / {strategyDetails?.steps.length}
+						</span>
 					</div>
 				</div>
 			</div>
-
-			{strategyDetails && (
-				<div className="flex-none p-4 space-y-4 border-b">
-					<div className="flex items-center justify-between mb-4">
-						<h3 className="text-sm font-medium">
-							{currentStep?.title}
-						</h3>
-					</div>
-					<div className="flex items-center gap-4">
-						{strategyDetails.steps.map((step, index) => (
-							<Button
-								key={step.id}
-								variant={getStepVariant(index)}
-								size="sm"
-								className={cn(
-									"relative",
-									state.currentStep === index && "animate-pulse"
-								)}
-								onClick={() => handleStepClick(index)}
-								disabled={!state.completedSteps.includes(index) && index !== state.currentStep}
-							>
-								{step.title}
-								{state.completedSteps.includes(index) && (
-									<CheckCircle className="ml-2 h-4 w-4" />
-								)}
-							</Button>
-						))}
-					</div>
-				</div>
-			)}
-
-			<ScrollArea className="flex-1 w-full h-[calc(100%-180px)]">
-				<div ref={containerRef} className="p-4 space-y-4">
-					<AnimatePresence mode="popLayout">
-						{groupedMessages.map((group) => (
-							<AgentMessageGroup
-								key={group.iteration_index}
-								group={{
-									...group,
-									messages: group.messages.map(msg => ({
-										...msg,
-										// @ts-ignore
-										toolInvocations: msg.tool_invocations || msg.toolInvocations || [],
-										// @ts-ignore
-										model: msg.model || 'gpt-4o-mini'
-									}))
-								}}
-								currentStep={state.currentStep}
-								onStepClick={handleStepClick}
-							/>
-						))}
-					</AnimatePresence>
-
-					{/* Show streaming messages that aren't yet saved */}
-					{streamingMessages.length > 0 && (
-						<motion.div
-							initial={{ opacity: 0, y: 20 }}
-							animate={{ opacity: 1, y: 0 }}
-							className="space-y-4"
-						>
-							{streamingMessages.map((message) => (
-								<DocumentationMessage
-									key={message.id}
-									message={{
-										...message,
-										toolInvocations: [],
-										model: 'gpt-4o-mini',
-										data: { dbId: message.id }
-									}}
-									className={cn(
-										"p-4 rounded-lg",
-										message.role === "assistant" ? "bg-muted" : "bg-background"
-									)}
-								/>
-							))}
-						</motion.div>
-					)}
-
-					{isLoading && (
-						<motion.div
-							initial={{ opacity: 0 }}
-							animate={{ opacity: 1 }}
-							className="flex items-center gap-2 text-muted-foreground"
-						>
-							<Bot className="h-4 w-4" />
-							<span className="text-sm">
-								{currentStep ? `Generating ${currentStep.title}...` : 'Loading...'}
-							</span>
-						</motion.div>
-					)}
-					<div ref={endRef} />
-				</div>
-			</ScrollArea>
 		</div>
 	);
 }

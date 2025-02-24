@@ -1,3 +1,4 @@
+
 // Base types for documentation sections
 export interface SystemOverview {
 	architecture_diagram: string;
@@ -14,19 +15,24 @@ export interface ComponentAnalysis {
 }
 
 export interface CodeDocumentation {
-	code_module: string;
-	description: string;
-	usage_examples: string[];
+	code_module: {
+		name: string;
+		purpose: string;
+		dependencies: string[];
+		usage_examples: string[];
+	}[];
 }
 
 export interface DevelopmentGuide {
 	setup_instructions: string;
 	workflow_documentation: string;
+	guidelines: string[];
 }
 
 export interface MaintenanceOps {
-	maintenance_procedures: string;
-	troubleshooting_guide: string;
+	maintenance_procedures: string[];
+	troubleshooting_guide: Record<string, string>;
+	operations: string;
 }
 
 // API-focused Documentation Types
@@ -62,43 +68,43 @@ export type StepResult =
 // Add type guards to existing types file
 export function isSystemOverview(obj: any): obj is SystemOverview {
 	return obj &&
-		typeof obj.architecture_diagram === 'string' &&
-		Array.isArray(obj.core_technologies) &&
-		Array.isArray(obj.design_patterns) &&
-		Array.isArray(obj.system_requirements) &&
-		typeof obj.project_structure === 'string';
+		'architecture_diagram' in obj &&
+		'core_technologies' in obj &&
+		'design_patterns' in obj &&
+		'system_requirements' in obj &&
+		'project_structure' in obj;
 }
 
 export function isComponentAnalysis(obj: any): obj is ComponentAnalysis {
 	return obj &&
-		typeof obj.component_name === 'string' &&
-		typeof obj.description === 'string' &&
-		Array.isArray(obj.dependencies);
+		'component_name' in obj &&
+		'description' in obj &&
+		'dependencies' in obj;
 }
 
 export function isCodeDocumentation(obj: any): obj is CodeDocumentation {
 	return obj &&
-		typeof obj.code_module === 'string' &&
-		typeof obj.description === 'string' &&
-		Array.isArray(obj.usage_examples);
+		'code_module' in obj &&
+		'description' in obj &&
+		'usage_examples' in obj;
 }
 
 export function isDevelopmentGuide(obj: any): obj is DevelopmentGuide {
 	return obj &&
-		typeof obj.setup_instructions === 'string' &&
-		typeof obj.workflow_documentation === 'string';
+		'setup_instructions' in obj &&
+		'workflow_documentation' in obj;
 }
 
 export function isMaintenanceOps(obj: any): obj is MaintenanceOps {
 	return obj &&
-		typeof obj.maintenance_procedures === 'string' &&
-		typeof obj.troubleshooting_guide === 'string';
+		'maintenance_procedures' in obj &&
+		'troubleshooting_guide' in obj;
 }
 
 // Type Guards
 export const isAPIOverview = (content: any): content is APIOverview => {
 	return content &&
-		'authentication_methods' in content &&
-		'architecture_diagram' in content &&
-		'core_technologies' in content;
+		'title' in content &&
+		'version' in content &&
+		'authentication_methods' in content;
 }; 

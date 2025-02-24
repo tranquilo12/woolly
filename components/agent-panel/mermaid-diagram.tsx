@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -32,7 +32,10 @@ export function MermaidDiagram({ content, className }: MermaidDiagramProps) {
 				setError(null);
 
 				// Clean and prepare the content
-				const cleanContent = content.trim().replace(/\\n/g, '\n');
+				const cleanContent = content
+					.replace(/```mermaid/g, '') // Remove ```mermaid
+					.replace(/```/g, '') // Remove remaining backticks
+					.trim(); // Remove extra whitespace
 
 				const { svg } = await mermaid.render('mermaid-diagram', cleanContent);
 				setSvg(svg);

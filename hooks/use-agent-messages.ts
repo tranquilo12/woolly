@@ -61,6 +61,11 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 
 	const groupMessages = (messages: AgentMessage[]): MessageGroup[] => {
 		return messages.reduce((groups: MessageGroup[], message) => {
+			console.log("[DEBUG] groupMessages", {
+				message,
+				groups
+			});
+
 			const iterationIndex = message.iteration_index ?? 0;
 
 			let group = groups.find(g => g.iteration_index === iterationIndex);

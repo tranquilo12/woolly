@@ -19,18 +19,18 @@ export const DocumentationMessage = memo(function DocumentationMessage({
 	message,
 	className
 }: DocumentationMessageProps) {
-	// Extract content from tool invocations if available
-	const content = message.toolInvocations?.find(tool =>
+	// Only look for final_result tool invocations
+	const finalResult = message.toolInvocations?.find(tool =>
 		tool.toolName === 'final_result' && tool.state === 'result'
-	)?.args || message.content;
+	);
 
-	// Try to parse content if it's a string
-	let parsedContent = content;
-	if (typeof content === 'string') {
+	// Parse content from tool result or message content
+	let parsedContent = finalResult?.args || message.content;
+	if (typeof parsedContent === 'string') {
 		try {
-			parsedContent = JSON.parse(content);
+			parsedContent = JSON.parse(parsedContent);
 		} catch (e) {
-			parsedContent = content;
+			parsedContent = null;
 		}
 	}
 
@@ -56,10 +56,10 @@ export const DocumentationMessage = memo(function DocumentationMessage({
 				</>
 			)}
 
-			{/* Fallback for non-documentation content */}
+			{/* Only show raw content if no documentation content was found */}
 			{(!parsedContent || typeof parsedContent !== 'object') && (
 				<div className="prose dark:prose-invert">
-					<Markdown>{content}</Markdown>
+					<Markdown>{message.content}</Markdown>
 				</div>
 			)}
 

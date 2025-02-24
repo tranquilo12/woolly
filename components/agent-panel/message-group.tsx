@@ -23,15 +23,15 @@ export function AgentMessageGroup({ group, currentStep, onStepClick }: AgentMess
 			<div className="mb-6 border rounded-lg overflow-hidden">
 				<div className="bg-muted p-2 flex justify-between items-center">
 					<h3 className="text-sm font-medium">
-						Iteration {group.iteration_index + 1}
+						Iteration {group?.iteration_index !== undefined ? group.iteration_index + 1 : 1}
 					</h3>
-					<Badge variant={group.completed ? "secondary" : "default"}>
-						{group.completed ? "Completed" : "In Progress"}
+					<Badge variant={group?.completed ? "secondary" : "default"}>
+						{group?.completed ? "Completed" : "In Progress"}
 					</Badge>
 				</div>
 
 				<div className="p-4 space-y-4">
-					{group.messages.map((message) => {
+					{group?.messages?.map((message) => {
 						// Ensure message has required properties
 						const messageWithModel: MessageWithModel = {
 							...message,
