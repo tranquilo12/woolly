@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { INDEXER_BASE_URL, AVAILABLE_REPOSITORIES, AvailableRepository } from '@/lib/constants';
 import { debounce } from 'lodash';
@@ -153,9 +153,53 @@ export function useRepositoryStatus() {
 		}
 	}, []); // Added empty dependencies array as second argument
 
-	const debouncedSetRepositories = debounce((updateFn: (prev: Repository[]) => Repository[]) => {
-		setRepositories(updateFn);
-	}, 100);
+	// Add memoization for callback functions and optimize state updates
+	const debouncedSetRepositories = useMemo(
+		() => debounce((updateFn: (prev: Repository[]) => Repository[]) => {
+			setRepositories(updateFn);
+		}, 100),
+		[] // Empty deps since this should be stable
+	);
+
+	// Memoize the event handler creation
+	const createEventHandler = useCallback((repoName: string) => (event: MessageEvent) => {
+		const data = JSON.parse(event.data);
+
+		// Batch all state updates together
+		requestAnimationFrame(() => {
+			debouncedSetRepositories(prev =>
+				prev.map(repo =>
+					repo.name === repoName
+						? {
+							...repo,
+							indexing_status: data.status,
+							current_file: data.current_file,
+							total_files: data.total_files,
+							processed_count: data.processed_count,
+							progress: data.total_files
+								? (data.processed_count / data.total_files) * 100
+								: 0,
+							file_stats: data.file_stats,
+							message: data.message,
+							watch_enabled: true
+						}
+						: repo
+				)
+			);
+
+			setIndexingProgress(prev => ({
+				...prev,
+				[repoName]: data.total_files
+					? (data.processed_count / data.total_files) * 100
+					: 0
+			}));
+
+			setCurrentStatus(prev => ({
+				...prev,
+				[repoName]: data.status
+			}));
+		});
+	}, [debouncedSetRepositories]);
 
 	// Subscribe to SSE for a given repository
 	const subscribeToStatus = useCallback(
@@ -168,48 +212,7 @@ export function useRepositoryStatus() {
 				`${INDEXER_BASE_URL}/indexer/sse?repo=${repoName}`
 			);
 
-			eventSource.addEventListener("indexing_status", (event) => {
-				const data = JSON.parse(event.data);
-
-				// Batch all state updates together
-				const updates = {
-					repositories: (prev: Repository[]) =>
-						prev.map((repo) =>
-							repo.name === repoName
-								? {
-									...repo,
-									indexing_status: data.status,
-									current_file: data.current_file,
-									total_files: data.total_files,
-									processed_count: data.processed_count,
-									progress: data.total_files
-										? (data.processed_count / data.total_files) * 100
-										: 0,
-									file_stats: data.file_stats,
-									message: data.message,
-									watch_enabled: true
-								}
-								: repo
-						),
-					progress: data.total_files
-						? (data.processed_count / data.total_files) * 100
-						: 0,
-					status: data.status
-				};
-
-				// Use a single RAF call to batch updates
-				requestAnimationFrame(() => {
-					debouncedSetRepositories(updates.repositories);
-					setIndexingProgress((prev) => ({
-						...prev,
-						[repoName]: updates.progress
-					}));
-					setCurrentStatus((prev) => ({
-						...prev,
-						[repoName]: updates.status
-					}));
-				});
-			});
+			eventSource.addEventListener("indexing_status", createEventHandler(repoName));
 
 			eventSource.onerror = () => {
 				eventSource.close();
@@ -225,7 +228,7 @@ export function useRepositoryStatus() {
 				[repoName]: eventSource
 			}));
 		},
-		[activeSSEConnections, debouncedSetRepositories]
+		[activeSSEConnections, createEventHandler]
 	);
 
 	// Start indexing for a given repository and automatically subscribe to SSE
@@ -280,8 +283,13 @@ export function useRepositoryStatus() {
 
 	// Cleanup SSE on unmount
 	useEffect(() => {
+		const connections = activeSSEConnections;
+
 		return () => {
-			Object.values(activeSSEConnections).forEach((es) => es.close());
+			Object.entries(connections).forEach(([repoName, eventSource]) => {
+				console.log(`Cleaning up SSE connection for ${repoName}`);
+				eventSource.close();
+			});
 		};
 	}, [activeSSEConnections]);
 
