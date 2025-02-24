@@ -62,7 +62,7 @@ export function SplitLayout({ sidebar, content, agentPanel }: SplitLayoutProps) 
 		>
 			<div className={cn(
 				"h-full overflow-hidden transition-all duration-200",
-				!isSidebarOpen && "w-0 p-0"
+				isSidebarOpen ? "min-w-[200px]" : "w-0"
 			)}>
 				{sidebar}
 			</div>
@@ -71,7 +71,7 @@ export function SplitLayout({ sidebar, content, agentPanel }: SplitLayoutProps) 
 			</div>
 			<div className={cn(
 				"h-full overflow-hidden transition-all duration-200",
-				!isAgentOpen && "w-0 p-0"
+				isAgentOpen ? "min-w-[200px]" : "w-0"
 			)}>
 				{agentPanel}
 			</div>

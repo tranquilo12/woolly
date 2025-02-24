@@ -188,24 +188,14 @@ export function Sidebar() {
 				"h-full w-full",
 				"border-r border-border/50",
 				"bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
-				"overflow-y-auto sidebar-scroll transition-all duration-200"
+				"overflow-y-auto sidebar-scroll transition-all duration-200",
+				!isOpen && "opacity-0"  // Add opacity transition to the main container
 			)}
 		>
 			<div className={cn(
 				"flex flex-col w-full h-full p-4 gap-4",
-				!isOpen && "opacity-0" // Use opacity instead of invisible
+				!isOpen && "pointer-events-none" // Disable interactions when closed
 			)}>
-				<button
-					title="Toggle Sidebar"
-					onClick={handleToggleClick}
-					className={cn(
-						"h-8 w-8 flex items-center justify-center",
-						"rounded-md border bg-background shadow-sm",
-						"hover:bg-accent/50 transition-colors duration-200"
-					)}
-				>
-					<MenuIcon className="h-4 w-4" />
-				</button>
 
 				<div className="w-full flex-1 flex flex-col items-center gap-4">
 					<h2 className="text-lg font-semibold text-foreground">Chat History</h2>
