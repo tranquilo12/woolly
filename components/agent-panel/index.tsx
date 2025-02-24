@@ -1,5 +1,5 @@
 import dynamic from 'next/dynamic';
-import { Suspense } from 'react';
+import { Suspense, memo } from 'react';
 import { Skeleton } from '../ui/skeleton';
 import { AvailableRepository } from '@/lib/constants';
 import { useAgentPanel } from './agent-provider';
@@ -11,57 +11,68 @@ interface AgentPanelProps {
 	chat_id: string;
 }
 
-// Dynamically import heavy components
+// Memoize the loading skeleton for consistent reuse
+const PanelSkeleton = memo(() => (
+	<Skeleton className="w-full h-full min-h-[200px] rounded-none" />
+));
+PanelSkeleton.displayName = 'PanelSkeleton';
+
+// Dynamically import views with better loading states
 const DocumentationView = dynamic(
 	() => import('./documentation-view').then(mod => mod.DocumentationView),
 	{
-		loading: () => <Skeleton className="w-full h-4" />,
-		ssr: false
+		loading: () => <PanelSkeleton />,
+		ssr: false // Documentation view is client-only
 	}
 );
 
 const MermaidView = dynamic(
 	() => import('./mermaid-view').then(mod => mod.MermaidView),
 	{
-		loading: () => <Skeleton className="w-full h-4" />,
-		ssr: false
+		loading: () => <PanelSkeleton />,
+		ssr: false // Mermaid rendering is client-only
 	}
 );
 
+// Memoize the panel content to prevent unnecessary rerenders
+const PanelContent = memo(({
+	activeView,
+	props
+}: {
+	activeView: string;
+	props: AgentPanelProps
+}) => {
+	if (activeView === 'documentation') {
+		return <DocumentationView {...props} />;
+	}
+	if (activeView === 'mermaid') {
+		return (
+			<MermaidView
+				className="h-full"
+				currentChatId={props.chat_id}
+				selectedRepo={props.repo_name}
+				agentId={props.agent_id}
+			/>
+		);
+	}
+	return null;
+});
+PanelContent.displayName = 'PanelContent';
+
 // Main AgentPanel component with proper props
-export function AgentPanel({ repo_name, agent_id, file_paths, chat_id }: AgentPanelProps) {
-	const {
-		isOpen,
-		isPinned,
-		activeView,
-		setActiveView
-	} = useAgentPanel();
+export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
+	const { isOpen, activeView } = useAgentPanel();
 
 	if (!isOpen) return null;
 
 	return (
 		<div className="agent-panel w-full h-full border-l bg-background">
-			<Suspense fallback={<Skeleton className="w-full h-4" />}>
-				{activeView === 'documentation' && (
-					<DocumentationView
-						repo_name={repo_name}
-						agent_id={agent_id}
-						file_paths={file_paths}
-						chat_id={chat_id}
-					/>
-				)}
-				{activeView === 'mermaid' && (
-					<MermaidView
-						className="h-full"
-						currentChatId={chat_id}
-						selectedRepo={repo_name}
-						agentId={agent_id}
-					/>
-				)}
+			<Suspense fallback={<PanelSkeleton />}>
+				<PanelContent activeView={activeView || 'documentation'} props={props} />
 			</Suspense>
 		</div>
 	);
-}
+});
 
 // Add display name for better debugging
 AgentPanel.displayName = 'AgentPanel';
