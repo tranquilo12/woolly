@@ -599,10 +599,10 @@ export function Chat({ chatId }: ChatProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Message container */}
+      {/* Message container - will grow to fill available space */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto message-container"
+        className="flex-1 overflow-y-auto message-container min-h-0"
       >
         <div className="flex flex-col w-full gap-4 px-4 md:px-8 py-4">
           {groupedMessages.map((group, i) => (
@@ -627,8 +627,8 @@ export function Chat({ chatId }: ChatProps) {
         </div>
       </div>
 
-      {/* Input container - fixed at bottom */}
-      <div className="sticky bottom-0 w-full bg-background border-t">
+      {/* Input container - will stay at bottom */}
+      <div className="flex-shrink-0 w-full bg-background border-t">
         <MultimodalInput
           chatId={chatId || ''}
           input={input}

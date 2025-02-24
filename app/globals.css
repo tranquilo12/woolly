@@ -152,13 +152,11 @@
 /* Sidebar animations */
 .sidebar-content-enter {
   opacity: 0;
-  transform: translateY(20px);
 }
 
 .sidebar-content-enter-active {
   opacity: 1;
-  transform: translateY(0);
-  transition: opacity 300ms ease-in, transform 300ms ease-out;
+  transition: opacity 150ms ease-out;
 }
 
 .sidebar-content-exit {
@@ -167,7 +165,7 @@
 
 .sidebar-content-exit-active {
   opacity: 0;
-  transition: opacity 200ms ease-in;
+  transition: opacity 150ms ease-out;
 }
 
 /* Update scrollbar styles for sidebar */
@@ -175,6 +173,7 @@
   scrollbar-width: none;
   -ms-overflow-style: none;
   scroll-behavior: smooth;
+  transition: opacity 150ms ease-out;
 }
 
 [data-sidebar]::-webkit-scrollbar {
@@ -565,7 +564,6 @@
 }
 
 .split > div {
-  transition: all 200ms ease-out;
   flex-shrink: 0;
 }
 
@@ -573,7 +571,6 @@
   background-color: hsl(var(--border));
   background-repeat: no-repeat;
   background-position: 50%;
-  transition: all 0.2s ease;
 }
 
 .gutter.gutter-horizontal {
@@ -680,16 +677,13 @@
 }
 
 .split > div {
-  transition: all 200ms ease-out;
   flex-shrink: 0;
 }
 
-/* Update gutter styles */
 .gutter {
   background-color: hsl(var(--border));
   background-repeat: no-repeat;
   background-position: 50%;
-  transition: all 0.2s ease;
 }
 
 .gutter.gutter-horizontal {
@@ -699,6 +693,6 @@
 
 /* Add smooth transitions for sidebar */
 [data-sidebar] {
-  transition: opacity 200ms ease-out;
+  transition: opacity 150ms ease-out;
   will-change: opacity, width;
 }

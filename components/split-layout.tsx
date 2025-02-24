@@ -15,38 +15,35 @@ interface SplitLayoutProps {
 export function SplitLayout({ sidebar, content, agentPanel }: SplitLayoutProps) {
 	const { isOpen: isSidebarOpen, setIsOpen: setSidebarOpen } = useSidebar();
 	const { isOpen: isAgentOpen, setIsOpen: setAgentOpen } = useAgentPanel();
-	const [sizes, setSizes] = useState([30, 40, 30]);
+	const [sizes, setSizes] = useState([15, 70, 15]);
 
-	// Handle panel visibility changes
+	// Handle panel visibility changes with smaller percentages
 	useEffect(() => {
 		if (!isSidebarOpen && !isAgentOpen) {
 			setSizes([0, 100, 0]);
 		} else if (!isSidebarOpen && isAgentOpen) {
-			setSizes([0, 65, 35]);
+			setSizes([0, 60, 40]);
 		} else if (isSidebarOpen && !isAgentOpen) {
-			setSizes([30, 70, 0]);
+			setSizes([20, 80, 0]);
 		} else {
-			setSizes([25, 50, 25]);
+			setSizes([20, 60, 20]);
 		}
 	}, [isSidebarOpen, isAgentOpen]);
 
-	// Handle resize to update panel visibility
 	const handleDragEnd = (newSizes: number[]) => {
-		// Only update sizes if they're significantly different
 		if (JSON.stringify(sizes) !== JSON.stringify(newSizes)) {
 			setSizes(newSizes);
 		}
 
-		// Update panel visibility based on size
-		if (newSizes[0] < 5 && isSidebarOpen) {
+		if (newSizes[0] < 3 && isSidebarOpen) {
 			setSidebarOpen(false);
-		} else if (newSizes[0] > 5 && !isSidebarOpen) {
+		} else if (newSizes[0] > 3 && !isSidebarOpen) {
 			setSidebarOpen(true);
 		}
 
-		if (newSizes[2] < 5 && isAgentOpen) {
+		if (newSizes[2] < 3 && isAgentOpen) {
 			setAgentOpen(false);
-		} else if (newSizes[2] > 5 && !isAgentOpen) {
+		} else if (newSizes[2] > 3 && !isAgentOpen) {
 			setAgentOpen(true);
 		}
 	};
@@ -58,22 +55,34 @@ export function SplitLayout({ sidebar, content, agentPanel }: SplitLayoutProps) 
 			gutterSize={2}
 			className="split h-[calc(100vh-var(--navbar-height))]"
 			onDragEnd={handleDragEnd}
-			snapOffset={30}
+			snapOffset={20}
 		>
 			<div className={cn(
-				"h-full overflow-hidden transition-all duration-200",
-				isSidebarOpen ? "min-w-[200px]" : "w-0"
+				"h-full",
+				isSidebarOpen ? "min-w-[250px]" : "w-0"
 			)}>
-				{sidebar}
+				<div className={cn(
+					"h-full w-full",
+					"transition-all duration-150",
+					isSidebarOpen ? "opacity-100 visible" : "opacity-0 invisible"
+				)}>
+					{sidebar}
+				</div>
 			</div>
 			<div className="h-full min-w-[400px]">
 				{content}
 			</div>
 			<div className={cn(
-				"h-full overflow-hidden transition-all duration-200",
-				isAgentOpen ? "min-w-[200px]" : "w-0"
+				"h-full",
+				isAgentOpen ? "min-w-[250px]" : "w-0"
 			)}>
-				{agentPanel}
+				<div className={cn(
+					"h-full w-full",
+					"transition-all duration-150",
+					isAgentOpen ? "opacity-100 visible" : "opacity-0 invisible"
+				)}>
+					{agentPanel}
+				</div>
 			</div>
 		</Split>
 	);

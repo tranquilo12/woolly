@@ -188,13 +188,13 @@ export function Sidebar() {
 				"h-full w-full",
 				"border-r border-border/50",
 				"bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
-				"overflow-y-auto sidebar-scroll transition-all duration-200",
-				!isOpen && "opacity-0"  // Add opacity transition to the main container
+				"overflow-y-auto sidebar-scroll",
+				!isOpen && "opacity-0"
 			)}
 		>
 			<div className={cn(
 				"flex flex-col w-full h-full p-4 gap-4",
-				!isOpen && "pointer-events-none" // Disable interactions when closed
+				!isOpen && "pointer-events-none"
 			)}>
 
 				<div className="w-full flex-1 flex flex-col items-center gap-4">
