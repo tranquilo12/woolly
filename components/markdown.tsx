@@ -46,52 +46,84 @@ type CodeBlockProps = {
   children?: React.ReactNode;
 } & React.ComponentProps<'code'>;
 
+// Extract markdown components to module scope
+const MarkdownPre = memo(function MarkdownPre(props: React.ComponentProps<'pre'>) {
+  return <pre {...props} />;
+});
+MarkdownPre.displayName = 'MarkdownPre';
+
+const MarkdownCode = memo(function MarkdownCode({ node, inline, className, children, ...props }: CodeBlockProps) {
+  const match = /language-(\w+)/.exec(className || '');
+  return !inline && match ? (
+    <CollapsibleCodeBlock
+      language={match[1]}
+      value={String(children).replace(/\n$/, '')}
+      initiallyExpanded={true}
+    />
+  ) : (
+    <code className={className} {...props}>{children}</code>
+  );
+});
+MarkdownCode.displayName = 'MarkdownCode';
+
+const MarkdownParagraph = memo((props: React.ComponentProps<'p'>) => (
+  <p className="mb-4 last:mb-0 leading-7" {...props} />
+));
+MarkdownParagraph.displayName = 'MarkdownParagraph';
+
+const MarkdownList = memo((props: React.ComponentProps<'ul'>) => (
+  <ul className="mb-4 list-disc pl-8 space-y-2" {...props} />
+));
+MarkdownList.displayName = 'MarkdownList';
+
+const MarkdownOrderedList = memo((props: React.ComponentProps<'ol'>) => (
+  <ol className="mb-4 list-decimal pl-8 space-y-2" {...props} />
+));
+MarkdownOrderedList.displayName = 'MarkdownOrderedList';
+
+const MarkdownListItem = memo((props: React.ComponentProps<'li'>) => (
+  <li className="leading-7" {...props} />
+));
+MarkdownListItem.displayName = 'MarkdownListItem';
+
+const MarkdownStrong = memo((props: React.ComponentProps<'strong'>) => (
+  <strong className="font-semibold" {...props} />
+));
+MarkdownStrong.displayName = 'MarkdownStrong';
+
+const MarkdownLink = memo((props: React.ComponentProps<'a'>) => (
+  <Link
+    href={props.href || ''}
+    className="font-medium underline underline-offset-4 hover:text-primary"
+    target="_blank"
+    rel="noreferrer"
+    {...props}
+  />
+));
+MarkdownLink.displayName = 'MarkdownLink';
+
+const MarkdownBlockquote = memo((props: React.ComponentProps<'blockquote'>) => (
+  <blockquote className="mt-6 border-l-2 pl-6 italic" {...props} />
+));
+MarkdownBlockquote.displayName = 'MarkdownBlockquote';
+
 // Optimize component configuration
 export const Markdown = memo(
   ({ children, isToolCallLoading }: MarkdownProps) => {
     const blocks = useMarkdownBlocks(children);
 
-    // Extract component configuration
+    // Now using pre-memoized components
     const components = useMemo(() => ({
-      pre: Object.assign(
-        React.memo(function MarkdownPre(props: React.ComponentProps<'pre'>) {
-          return <pre {...props} />;
-        }),
-        { displayName: 'MarkdownPre' }
-      ),
-      code: Object.assign(
-        React.memo(function MarkdownCode({ node, inline, className, children, ...props }: CodeBlockProps) {
-          const match = /language-(\w+)/.exec(className || '');
-          return !inline && match ? (
-            <CollapsibleCodeBlock
-              language={match[1]}
-              value={String(children).replace(/\n$/, '')}
-              initiallyExpanded={true}
-            />
-          ) : (
-            <code className={className} {...props}>{children}</code>
-          );
-        }),
-        { displayName: 'MarkdownCode' }
-      ),
-      p: (props: React.ComponentProps<'p'>) => <p className="mb-4 last:mb-0 leading-7" {...props} />,
-      ul: (props: React.ComponentProps<'ul'>) => <ul className="mb-4 list-disc pl-8 space-y-2" {...props} />,
-      ol: (props: React.ComponentProps<'ol'>) => <ol className="mb-4 list-decimal pl-8 space-y-2" {...props} />,
-      li: (props: React.ComponentProps<'li'>) => <li className="leading-7" {...props} />,
-      strong: (props: React.ComponentProps<'strong'>) => <strong className="font-semibold" {...props} />,
-      a: (props: React.ComponentProps<'a'>) => (
-        <Link
-          href={props.href || ''}
-          className="font-medium underline underline-offset-4 hover:text-primary"
-          target="_blank"
-          rel="noreferrer"
-          {...props}
-        />
-      ),
-      blockquote: (props: React.ComponentProps<'blockquote'>) => (
-        <blockquote className="mt-6 border-l-2 pl-6 italic" {...props} />
-      ),
-    }), []); // Empty dependency array since these don't depend on props
+      pre: MarkdownPre,
+      code: MarkdownCode,
+      p: MarkdownParagraph,
+      ul: MarkdownList,
+      ol: MarkdownOrderedList,
+      li: MarkdownListItem,
+      strong: MarkdownStrong,
+      a: MarkdownLink,
+      blockquote: MarkdownBlockquote,
+    }), []); // Empty dependency array since components are static
 
     // Optimize key generation
     const getBlockKey = useCallback((block: string, index: number) => {
