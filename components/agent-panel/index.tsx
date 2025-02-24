@@ -3,6 +3,7 @@ import { Suspense, memo } from 'react';
 import { Skeleton } from '../ui/skeleton';
 import { AvailableRepository } from '@/lib/constants';
 import { useAgentPanel } from './agent-provider';
+import { cn } from '@/lib/utils';
 
 interface AgentPanelProps {
 	repo_name: AvailableRepository;
@@ -63,10 +64,11 @@ PanelContent.displayName = 'PanelContent';
 export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 	const { isOpen, activeView } = useAgentPanel();
 
-	if (!isOpen) return null;
-
 	return (
-		<div className="agent-panel w-full h-full border-l bg-background">
+		<div className={cn(
+			"agent-panel w-full h-full border-l bg-background",
+			!isOpen && "invisible w-0"
+		)}>
 			<Suspense fallback={<PanelSkeleton />}>
 				<PanelContent activeView={activeView || 'documentation'} props={props} />
 			</Suspense>

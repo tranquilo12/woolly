@@ -598,11 +598,7 @@ export function Chat({ chatId }: ChatProps) {
   }, [messages]);
 
   return (
-    <div className={cn(
-      "flex flex-col h-[calc(100vh-4rem)]",
-      "transition-all duration-300 ease-in-out",
-      isAgentOpen && "transform -translate-x-[clamp(100px,10%,200px)]"
-    )}>
+    <div className="flex flex-col h-full">
       {/* Message container */}
       <div
         ref={containerRef}
@@ -633,23 +629,21 @@ export function Chat({ chatId }: ChatProps) {
 
       {/* Input container - fixed at bottom */}
       <div className="sticky bottom-0 w-full bg-background border-t">
-        <div className="max-w-3xl mx-auto">
-          <MultimodalInput
-            chatId={chatId || ''}
-            input={input}
-            setInput={setInput}
-            isLoading={isChatLoading}
-            stop={stop}
-            messages={messages}
-            setMessages={setMessages as Dispatch<SetStateAction<Message[]>>}
-            append={append}
-            handleSubmit={handleSubmit}
-            searchRepository={searchRepository}
-            currentModel={currentModel}
-            onModelChange={setCurrentModel}
-            onCopyConversation={copyConversationToClipboard}
-          />
-        </div>
+        <MultimodalInput
+          chatId={chatId || ''}
+          input={input}
+          setInput={setInput}
+          isLoading={isChatLoading}
+          stop={stop}
+          messages={messages}
+          setMessages={setMessages as Dispatch<SetStateAction<Message[]>>}
+          append={append}
+          handleSubmit={handleSubmit}
+          searchRepository={searchRepository}
+          currentModel={currentModel}
+          onModelChange={setCurrentModel}
+          onCopyConversation={copyConversationToClipboard}
+        />
       </div>
     </div>
   );

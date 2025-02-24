@@ -6,6 +6,7 @@ import { Navbar } from "@/components/navbar";
 import { Sidebar } from "@/components/sidebar";
 import { Providers } from "@/components/providers";
 import { AgentPanel } from "@/components/agent-panel/agent-panel";
+import { SplitLayout } from "@/components/split-layout";
 
 export const metadata = {
   title: "AI SDK Python Streaming Preview",
@@ -45,12 +46,12 @@ export default function RootLayout({
         <Providers>
           <div className="flex flex-col min-h-screen">
             <Navbar />
-            <div className="flex-1 relative flex items-center justify-center">
-              <main className="w-full max-w-5xl mx-auto px-4">
-                {children}
-              </main>
-              <Sidebar />
-              <AgentPanel />
+            <div className="flex-1">
+              <SplitLayout
+                sidebar={<Sidebar />}
+                content={<main className="w-full h-full">{children}</main>}
+                agentPanel={<AgentPanel />}
+              />
             </div>
           </div>
         </Providers>

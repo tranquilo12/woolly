@@ -1,22 +1,19 @@
 'use client';
 
-import { motion } from "framer-motion";
-import { useSidebar } from "./sidebar-provider";
-import { useAgentPanel } from "./agent-panel/agent-provider";
+import { Sidebar } from './sidebar';
+import { AgentPanel } from './agent-panel/agent-panel';
+import { SplitLayout } from './split-layout';
 
 interface ChatLayoutProps {
 	children: React.ReactNode;
 }
 
 export function ChatLayout({ children }: ChatLayoutProps) {
-	const { isOpen: isSidebarOpen } = useSidebar();
-	const { isOpen: isAgentOpen } = useAgentPanel();
-
 	return (
-		<motion.div
-			className="relative flex-1 w-full"
-		>
-			{children}
-		</motion.div>
+		<SplitLayout
+			sidebar={<Sidebar />}
+			content={children}
+			agentPanel={<AgentPanel />}
+		/>
 	);
 } 
