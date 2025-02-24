@@ -3,12 +3,16 @@
 import { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 
+type ViewType = 'documentation' | 'mermaid' | null;
+
 interface AgentPanelContextType {
 	isOpen: boolean;
 	toggle: () => void;
 	setIsOpen: (value: boolean) => void;
 	isPinned: boolean;
 	setIsPinned: (value: boolean) => void;
+	activeView: ViewType;
+	setActiveView: (view: ViewType) => void;
 }
 
 const AgentPanelContext = createContext<AgentPanelContextType | undefined>(undefined);
@@ -16,6 +20,7 @@ const AgentPanelContext = createContext<AgentPanelContextType | undefined>(undef
 export function AgentPanelProvider({ children }: { children: ReactNode }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [isPinned, setIsPinned] = useLocalStorage('agent-panel-pinned', false);
+	const [activeView, setActiveView] = useState<ViewType>('documentation');
 	const [isMounted, setIsMounted] = useState(false);
 
 	useEffect(() => {
@@ -36,7 +41,9 @@ export function AgentPanelProvider({ children }: { children: ReactNode }) {
 		toggle,
 		setIsOpen,
 		isPinned: isMounted ? isPinned : false,
-		setIsPinned
+		setIsPinned,
+		activeView,
+		setActiveView
 	};
 
 	return (

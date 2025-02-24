@@ -8,18 +8,19 @@ import { useState, useEffect, memo, useCallback, SetStateAction, Dispatch } from
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { ToolInvocationDisplay } from "./tool-invocation";
 import { Markdown } from "./markdown";
 import { EditMessageInput } from "./edit-message-input";
 import { EditIndicator } from "./edit-indicator";
 import { useChatTitle } from "./chat-title-context";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
-import { TokenCount } from "./token-count";
 import { MessageGroup } from "./message-group";
 import { Button } from "@/components/ui/button";
 import { PencilIcon, TrashIcon } from "lucide-react";
 import { ExtendedToolCall } from "@/types/tool-calls";
 import { useAgentPanel } from "./agent-panel/agent-provider";
+import dynamic from 'next/dynamic';
+import { Suspense } from 'react';
+import { Skeleton } from './ui/skeleton';
 
 interface ChatProps {
   chatId?: string;
@@ -71,6 +72,23 @@ export function toMessageWithModel(
     messageType: (message as MessageWithModel).messageType
   };
 }
+
+// Dynamically import heavy components
+const ToolInvocationDisplay = dynamic(
+  () => import('./tool-invocation').then(mod => mod.ToolInvocationDisplay),
+  {
+    loading: () => <Skeleton className="w-full h-4" />,
+    ssr: true // Keep SSR for this as it's part of the main content
+  }
+);
+
+const TokenCount = dynamic(
+  () => import('./token-count').then(mod => mod.TokenCount),
+  {
+    loading: () => null, // Token count can appear with a delay
+    ssr: false
+  }
+);
 
 // Memoized Message component to prevent unnecessary re-renders
 const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFirstUserMessage, isOrphaned, onDelete }: ChatMessageProps) => {
@@ -164,13 +182,10 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
             <Markdown>{message.content}</Markdown>
           </div>
 
-          {message.toolInvocations?.map((tool, index) => {
-            // Create a truly unique key by combining message id, tool id, and index
-            const uniqueKey = `${message.id}-${tool.toolCallId || 'tool'}-${index}`;
-
-            return (
+          <Suspense fallback={<Skeleton className="w-full h-4" />}>
+            {message.toolInvocations?.map((tool, index) => (
               <ToolInvocationDisplay
-                key={uniqueKey}
+                key={`${message.id}-${tool.toolCallId || 'tool'}-${index}`}
                 toolInvocation={{
                   id: tool.toolCallId,
                   toolCallId: tool.toolCallId,
@@ -180,14 +195,16 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
                   result: 'result' in tool ? tool.result : undefined
                 }}
               />
-            );
-          })}
+            ))}
+          </Suspense>
 
-          <TokenCount
-            prompt_tokens={message.prompt_tokens}
-            completion_tokens={message.completion_tokens}
-            total_tokens={message.total_tokens}
-          />
+          <Suspense fallback={null}>
+            <TokenCount
+              prompt_tokens={message.prompt_tokens}
+              completion_tokens={message.completion_tokens}
+              total_tokens={message.total_tokens}
+            />
+          </Suspense>
         </motion.div>
 
         {message.role === "user" && (
