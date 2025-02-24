@@ -139,9 +139,40 @@
   scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent !important;
 }
 
+/* Message container styles */
 .message-container {
   overflow-anchor: auto;
   scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+
+.message-container::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.message-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.message-container::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 3px;
+  opacity: 0;
+}
+
+.message-container:hover::-webkit-scrollbar-thumb {
+  opacity: 1;
+}
+
+/* For Firefox */
+.message-container {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
 }
 
 .message-content {

@@ -598,32 +598,34 @@ export function Chat({ chatId }: ChatProps) {
   }, [messages]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="h-[calc(100vh-var(--navbar-height))] flex flex-col">
       {/* Message container - will grow to fill available space */}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-y-auto message-container min-h-0"
-      >
-        <div className="flex flex-col w-full gap-4 px-4 md:px-8 py-4">
-          {groupedMessages.map((group, i) => (
-            <MessageGroup
-              key={group[0].id}
-              messages={group}
-              renderMessage={renderMessage}
-            />
-          ))}
-          {isThinking && (
-            <div className="flex justify-center py-4 transform-gpu">
-              <span className="text-sm text-muted-foreground loading-pulse">
-                {messages[messages.length - 1]?.toolInvocations?.some(
-                  tool => tool.state === 'partial-call' || tool.state === 'call'
-                )
-                  ? "Running tools..."
-                  : "Loading chat..."}
-              </span>
-            </div>
-          )}
-          <div ref={endRef} className="h-px w-full" />
+      <div className="flex-1 min-h-0">
+        <div
+          ref={containerRef}
+          className="h-full overflow-y-auto message-container"
+        >
+          <div className="flex flex-col w-full gap-4 px-4 md:px-8 py-4">
+            {groupedMessages.map((group, i) => (
+              <MessageGroup
+                key={group[0].id}
+                messages={group}
+                renderMessage={renderMessage}
+              />
+            ))}
+            {isThinking && (
+              <div className="flex justify-center py-4 transform-gpu">
+                <span className="text-sm text-muted-foreground loading-pulse">
+                  {messages[messages.length - 1]?.toolInvocations?.some(
+                    tool => tool.state === 'partial-call' || tool.state === 'call'
+                  )
+                    ? "Running tools..."
+                    : "Loading chat..."}
+                </span>
+              </div>
+            )}
+            <div ref={endRef} className="h-px w-full" />
+          </div>
         </div>
       </div>
 
