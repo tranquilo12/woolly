@@ -2,38 +2,73 @@
 
 import { useAgentPanel } from "./agent-provider";
 import { Bot } from "lucide-react";
-import { useRef, useState } from "react";
+import { Suspense, memo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { AgentContent } from "./agent-content";
 import { usePathname } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { MermaidView } from "./mermaid-view";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
 import { useSystemPrompt } from "@/hooks/use-system-prompt";
 import { AvailableRepository } from "@/lib/constants";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { DocumentationView, MermaidView, PanelSkeleton } from "./views";
 
-export function AgentPanel() {
-	const { isOpen } = useAgentPanel();
+export interface AgentPanelProps {
+	repo_name?: AvailableRepository;
+	agent_id?: string;
+	file_paths?: string[];
+	chat_id?: string;
+}
+
+// Main AgentPanel component that handles both direct props and repository selection
+export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
+	const { isOpen, activeView } = useAgentPanel();
 	const { repositories } = useRepositoryStatus();
 	const { data: systemPrompt } = useSystemPrompt();
-	const [selectedRepo, setSelectedRepo] = useState<AvailableRepository | null>(null);
-	const [activeTab, setActiveTab] = useState<'documentation' | 'mermaid'>('documentation');
-	const [docAgentId, setDocAgentId] = useState<string | null>(null);
+	const [selectedRepo, setSelectedRepo] = useState<AvailableRepository | null>(props.repo_name || null);
+	const [activeTab, setActiveTab] = useState<'documentation' | 'mermaid'>(activeView || 'documentation');
+	const [docAgentId, setDocAgentId] = useState<string | null>(props.agent_id || null);
 	const [mermaidAgentId, setMermaidAgentId] = useState<string | null>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
 	const pathname = usePathname();
-	const chatId = pathname?.split('/').pop() || '';
+	const chatId = props.chat_id || pathname?.split('/').pop() || '';
 
-	if (!isOpen) return null;
+	// If we have direct props, render the content directly
+	if (props.repo_name && props.agent_id) {
+		return (
+			<div className={cn(
+				"agent-panel w-full h-full border-l bg-background",
+				!isOpen && "invisible w-0"
+			)}>
+				<Suspense fallback={<PanelSkeleton />}>
+					{activeView === 'documentation' ? (
+						<DocumentationView
+							repo_name={props.repo_name}
+							agent_id={props.agent_id}
+							file_paths={props.file_paths || []}
+							chat_id={props.chat_id || ''}
+						/>
+					) : (
+						<MermaidView
+							className="h-full"
+							currentChatId={props.chat_id || ''}
+							selectedRepo={props.repo_name}
+							agentId={props.agent_id}
+						/>
+					)}
+				</Suspense>
+			</div>
+		);
+	}
 
+	// Otherwise, render the full panel with repository selection
 	return (
 		<div
 			ref={panelRef}
 			className={cn(
 				"h-full w-full",
 				"border-l border-border/50",
-				"bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+				"bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
+				!isOpen && "invisible w-0"
 			)}
 		>
 			<div className="flex flex-col w-full h-full">
@@ -67,7 +102,7 @@ export function AgentPanel() {
 
 					{selectedRepo && (
 						<Tabs
-							defaultValue="documentation"
+							defaultValue={activeTab}
 							className="flex-1"
 							onValueChange={(value) => setActiveTab(value as 'documentation' | 'mermaid')}
 						>
@@ -78,19 +113,19 @@ export function AgentPanel() {
 
 							<TabsContent value="documentation" className="flex-1 mt-0 h-[calc(100vh-220px)]">
 								{activeTab === 'documentation' && docAgentId && (
-									<AgentContent
-										className="h-full"
-										currentChatId={chatId}
-										selectedRepo={selectedRepo}
-										agentId={docAgentId}
+									<DocumentationView
+										repo_name={selectedRepo}
+										agent_id={docAgentId}
+										file_paths={[]}
+										chat_id={chatId}
 									/>
 								)}
 							</TabsContent>
 							<TabsContent value="mermaid" className="flex-1 mt-0 h-[calc(100vh-220px)]">
 								{activeTab === 'mermaid' && mermaidAgentId && (
 									<MermaidView
-										currentChatId={chatId}
 										className="h-full"
+										currentChatId={chatId}
 										selectedRepo={selectedRepo}
 										agentId={mermaidAgentId}
 									/>
@@ -109,4 +144,6 @@ export function AgentPanel() {
 			</div>
 		</div>
 	);
-} 
+});
+
+AgentPanel.displayName = 'AgentPanel'; 

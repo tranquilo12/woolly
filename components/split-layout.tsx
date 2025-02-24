@@ -5,6 +5,7 @@ import { useSidebar } from './sidebar-provider';
 import { useAgentPanel } from './agent-panel/agent-provider';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useWindowSize } from 'usehooks-ts';
 
 interface SplitLayoutProps {
 	sidebar: React.ReactNode;
@@ -15,35 +16,52 @@ interface SplitLayoutProps {
 export function SplitLayout({ sidebar, content, agentPanel }: SplitLayoutProps) {
 	const { isOpen: isSidebarOpen, setIsOpen: setSidebarOpen } = useSidebar();
 	const { isOpen: isAgentOpen, setIsOpen: setAgentOpen } = useAgentPanel();
+	const { width } = useWindowSize();
 	const [sizes, setSizes] = useState([15, 70, 15]);
+	const [isResizing, setIsResizing] = useState(false);
 
-	// Handle panel visibility changes with smaller percentages
+	// Handle panel visibility changes and responsive behavior
 	useEffect(() => {
-		if (!isSidebarOpen && !isAgentOpen) {
+		if (width < 768) {
+			// On mobile, close both panels
+			if (isSidebarOpen) setSidebarOpen(false);
+			if (isAgentOpen) setAgentOpen(false);
 			setSizes([0, 100, 0]);
-		} else if (!isSidebarOpen && isAgentOpen) {
-			setSizes([0, 60, 40]);
-		} else if (isSidebarOpen && !isAgentOpen) {
-			setSizes([20, 80, 0]);
 		} else {
-			setSizes([20, 60, 20]);
+			// On desktop, set appropriate sizes based on panel states
+			if (!isSidebarOpen && !isAgentOpen) {
+				setSizes([0, 100, 0]);
+			} else if (!isSidebarOpen && isAgentOpen) {
+				setSizes([0, 70, 30]);
+			} else if (isSidebarOpen && !isAgentOpen) {
+				setSizes([30, 70, 0]);
+			} else {
+				setSizes([25, 50, 25]);
+			}
 		}
-	}, [isSidebarOpen, isAgentOpen]);
+	}, [isSidebarOpen, isAgentOpen, width, setSidebarOpen, setAgentOpen]);
+
+	const handleDragStart = () => {
+		setIsResizing(true);
+	};
 
 	const handleDragEnd = (newSizes: number[]) => {
+		setIsResizing(false);
+
 		if (JSON.stringify(sizes) !== JSON.stringify(newSizes)) {
 			setSizes(newSizes);
 		}
 
-		if (newSizes[0] < 3 && isSidebarOpen) {
+		// Update panel states based on size thresholds
+		if (newSizes[0] < 5 && isSidebarOpen) {
 			setSidebarOpen(false);
-		} else if (newSizes[0] > 3 && !isSidebarOpen) {
+		} else if (newSizes[0] >= 5 && !isSidebarOpen) {
 			setSidebarOpen(true);
 		}
 
-		if (newSizes[2] < 3 && isAgentOpen) {
+		if (newSizes[2] < 5 && isAgentOpen) {
 			setAgentOpen(false);
-		} else if (newSizes[2] > 3 && !isAgentOpen) {
+		} else if (newSizes[2] >= 5 && !isAgentOpen) {
 			setAgentOpen(true);
 		}
 	};
@@ -53,36 +71,28 @@ export function SplitLayout({ sidebar, content, agentPanel }: SplitLayoutProps) 
 			sizes={sizes}
 			minSize={[0, 400, 0]}
 			gutterSize={2}
-			className="split h-[calc(100vh-var(--navbar-height))]"
+			className={cn(
+				"split h-[calc(100vh-var(--navbar-height))]",
+				isResizing && "select-none"
+			)}
+			onDragStart={handleDragStart}
 			onDragEnd={handleDragEnd}
 			snapOffset={20}
 		>
 			<div className={cn(
-				"h-full",
+				"h-full overflow-hidden transition-[width] duration-200",
 				isSidebarOpen ? "min-w-[250px]" : "w-0"
 			)}>
-				<div className={cn(
-					"h-full w-full",
-					"transition-all duration-150",
-					isSidebarOpen ? "opacity-100 visible" : "opacity-0 invisible"
-				)}>
-					{sidebar}
-				</div>
+				{sidebar}
 			</div>
 			<div className="h-full min-w-[400px]">
 				{content}
 			</div>
 			<div className={cn(
-				"h-full",
+				"h-full overflow-hidden transition-[width] duration-200",
 				isAgentOpen ? "min-w-[250px]" : "w-0"
 			)}>
-				<div className={cn(
-					"h-full w-full",
-					"transition-all duration-150",
-					isAgentOpen ? "opacity-100 visible" : "opacity-0 invisible"
-				)}>
-					{agentPanel}
-				</div>
+				{agentPanel}
 			</div>
 		</Split>
 	);
