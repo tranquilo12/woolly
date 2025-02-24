@@ -2,7 +2,7 @@
 
 import { useAgentPanel } from "./agent-provider";
 import { Bot } from "lucide-react";
-import { Suspense, memo, useRef, useState } from "react";
+import { Suspense, memo, useRef, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { usePathname } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
@@ -31,6 +31,22 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 	const panelRef = useRef<HTMLDivElement>(null);
 	const pathname = usePathname();
 	const chatId = props.chat_id || pathname?.split('/').pop() || '';
+
+	useEffect(() => {
+		if (selectedRepo) {
+			// Initialize or retrieve documentation agent
+			const storedDocId = localStorage.getItem(`doc_agent_${selectedRepo}`);
+			if (storedDocId) {
+				setDocAgentId(storedDocId);
+			}
+
+			// Initialize or retrieve mermaid agent
+			const storedMermaidId = localStorage.getItem(`mermaid_agent_${selectedRepo}`);
+			if (storedMermaidId) {
+				setMermaidAgentId(storedMermaidId);
+			}
+		}
+	}, [selectedRepo]);
 
 	// If we have direct props, render the content directly
 	if (props.repo_name && props.agent_id) {
@@ -112,23 +128,31 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 							</TabsList>
 
 							<TabsContent value="documentation" className="flex-1 mt-0 h-[calc(100vh-220px)]">
-								{activeTab === 'documentation' && docAgentId && (
-									<DocumentationView
-										repo_name={selectedRepo}
-										agent_id={docAgentId}
-										file_paths={[]}
-										chat_id={chatId}
-									/>
+								{activeTab === 'documentation' && (
+									<Suspense fallback={<PanelSkeleton />}>
+										{selectedRepo && (
+											<DocumentationView
+												repo_name={selectedRepo}
+												agent_id={docAgentId || ''}
+												file_paths={[]}
+												chat_id={chatId}
+											/>
+										)}
+									</Suspense>
 								)}
 							</TabsContent>
 							<TabsContent value="mermaid" className="flex-1 mt-0 h-[calc(100vh-220px)]">
-								{activeTab === 'mermaid' && mermaidAgentId && (
-									<MermaidView
-										className="h-full"
-										currentChatId={chatId}
-										selectedRepo={selectedRepo}
-										agentId={mermaidAgentId}
-									/>
+								{activeTab === 'mermaid' && (
+									<Suspense fallback={<PanelSkeleton />}>
+										{selectedRepo && (
+											<MermaidView
+												className="h-full"
+												currentChatId={chatId}
+												selectedRepo={selectedRepo}
+												agentId={mermaidAgentId || ''}
+											/>
+										)}
+									</Suspense>
 								)}
 							</TabsContent>
 						</Tabs>

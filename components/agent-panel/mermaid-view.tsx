@@ -12,6 +12,8 @@ import { useState, useEffect } from 'react';
 import { AvailableRepository } from '@/lib/constants';
 import { Loader2, Bot } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { Skeleton } from '../ui/skeleton';
+import { toast } from 'sonner';
 
 interface AgentResponse {
 	id: string;
@@ -31,52 +33,54 @@ export function MermaidView({ className, currentChatId, selectedRepo, agentId }:
 	const [isAgentReady, setIsAgentReady] = useState(false);
 
 	useEffect(() => {
-		const createMermaidAgent = async () => {
-			if (agentId || !systemPrompt || !selectedRepo) return;
+		const setupMermaidAgent = async () => {
+			if (!selectedRepo || isAgentReady) return;
 
 			try {
-				const uniqueName = `Mermaid Agent ${currentChatId}_${selectedRepo}_${Date.now()}`;
+				// First try to get existing agent
+				const getResponse = await fetch(`/api/agents?repository=${selectedRepo}&type=mermaid`);
 
-				const response = await fetch('/api/agents', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-					},
-					body: JSON.stringify({
-						name: uniqueName,
-						description: 'Mermaid diagram generation agent',
-						system_prompt: systemPrompt,
-						tools: ['generate_mermaid'],
-						repository: selectedRepo
-					}),
-				});
-
-				if (!response.ok) {
-					if (response.status === 409) {
-						const agents = await fetch('/api/agents').then(r => r.json());
-						const existingAgent = agents.find((a: AgentResponse) =>
-							a.name.startsWith(`Mermaid Agent ${currentChatId}_${selectedRepo}`)
-						);
-
-						if (existingAgent) {
-							localStorage.setItem(`mermaid_agent_${currentChatId}_${selectedRepo}`, existingAgent.id);
-							setIsAgentReady(true);
-							return;
-						}
+				if (getResponse.ok) {
+					const agents = await getResponse.json();
+					if (agents.length > 0) {
+						// Use existing agent
+						localStorage.setItem(`mermaid_agent_${selectedRepo}`, agents[0].id);
+						setIsAgentReady(true);
+						return;
 					}
-					throw new Error('Failed to create/retrieve agent');
 				}
 
-				const data: AgentResponse = await response.json();
-				localStorage.setItem(`mermaid_agent_${currentChatId}_${selectedRepo}`, data.id);
-				setIsAgentReady(true);
+				// If no existing agent, create new one
+				const createResponse = await fetch('/api/agents', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						name: `Mermaid Agent ${selectedRepo}`,
+						description: 'Mermaid diagram generation agent',
+						repository: selectedRepo,
+						system_prompt: "You are a diagram expert focused on analyzing codebases and generating Mermaid diagrams to visualize component relationships.",
+						tools: ['mermaid', 'code_search', 'final_result'],
+						type: 'mermaid'
+					})
+				});
+
+				if (createResponse.ok) {
+					const data = await createResponse.json();
+					localStorage.setItem(`mermaid_agent_${selectedRepo}`, data.id);
+					setIsAgentReady(true);
+				} else {
+					console.error('Failed to setup mermaid agent:', await createResponse.text());
+					toast.error('Failed to setup diagram agent');
+				}
 			} catch (error) {
-				console.error('Failed to create mermaid agent:', error);
+				console.error('Failed to setup mermaid agent:', error);
+				toast.error('Failed to setup diagram agent');
 			}
 		};
 
-		createMermaidAgent();
-	}, [currentChatId, agentId, systemPrompt, selectedRepo]);
+		setupMermaidAgent();
+	}, [selectedRepo, isAgentReady]);
+
 
 	const { data: initialMessages = [], isError, isLoading: isLoadingInitial, saveMessage } = useAgentMessages(
 		currentChatId,
@@ -131,6 +135,10 @@ export function MermaidView({ className, currentChatId, selectedRepo, agentId }:
 			console.error("Failed to generate diagram:", error);
 		}
 	};
+
+	if (!isAgentReady && !agentId) {
+		return <Skeleton className="w-full h-full" />;
+	}
 
 	return (
 		<div className={cn("flex flex-col h-full overflow-hidden", className)}>

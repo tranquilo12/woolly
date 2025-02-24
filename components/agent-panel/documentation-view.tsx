@@ -19,6 +19,8 @@ import { ToolInvocationDisplay } from "../tool-invocation";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { StrategySelector } from './strategy-selector';
+import { Skeleton } from '../ui/skeleton';
+import { toast } from 'sonner';
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -69,6 +71,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	const [currentStepContent, setCurrentStepContent] = useState<string>('');
 	const [isStepComplete, setIsStepComplete] = useState<boolean>(false);
 	const [selectedStrategy, setSelectedStrategy] = useState<string>("basic");
+	const [isAgentReady, setIsAgentReady] = useState(false);
 
 	// Fetch strategy details
 	const { data: strategyDetails, isLoading: isLoadingStrategy } = useQuery({
@@ -686,6 +689,60 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			}));
 		}
 	};
+
+	useEffect(() => {
+		const setupDocumentationAgent = async () => {
+			if (!repo_name || isAgentReady) return;
+
+			try {
+				// First try to get existing agent
+				const getResponse = await fetch(`/api/agents?repository=${repo_name}&type=documentation`);
+
+				if (getResponse.ok) {
+					const agents = await getResponse.json();
+					if (agents.length > 0) {
+						// Use existing agent
+						localStorage.setItem(`doc_agent_${repo_name}`, agents[0].id);
+						setIsAgentReady(true);
+						return;
+					}
+				}
+
+				// If no existing agent, create new one
+				const createResponse = await fetch('/api/agents', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						name: `Documentation Agent ${repo_name}`,
+						description: 'Documentation generation agent',
+						repository: repo_name,
+						system_prompt: "You are a documentation expert focused on analyzing codebases and generating comprehensive documentation.",
+						tools: ['documentation', 'code_search', 'final_result'],
+						type: 'documentation'
+					})
+				});
+
+				if (createResponse.ok) {
+					const data = await createResponse.json();
+					localStorage.setItem(`doc_agent_${repo_name}`, data.id);
+					setIsAgentReady(true);
+				} else {
+					console.error('Failed to setup documentation agent:', await createResponse.text());
+					toast.error('Failed to setup documentation agent');
+				}
+			} catch (error) {
+				console.error('Failed to setup documentation agent:', error);
+				toast.error('Failed to setup documentation agent');
+			}
+		};
+
+		setupDocumentationAgent();
+	}, [repo_name, isAgentReady]);
+
+	// Only render content when agent is ready
+	if (!isAgentReady && !agent_id) {
+		return <Skeleton className="w-full h-full" />;
+	}
 
 	return (
 		<div className="flex flex-col h-full overflow-hidden">

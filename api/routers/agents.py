@@ -139,6 +139,29 @@ async def create_agent(
     agent: AgentCreate,
     db: Session = Depends(get_db),
 ):
+    # Check for existing agent with same name
+    existing_agent = db.query(Agent).filter(
+        Agent.name == agent.name,
+        Agent.repository == agent.repository
+    ).first()
+    
+    if existing_agent:
+        # If agent exists and matches repository, return it
+        if existing_agent.repository == agent.repository:
+            return AgentResponse(
+                id=str(existing_agent.id),
+                name=existing_agent.name,
+                description=existing_agent.description,
+                system_prompt=existing_agent.system_prompt,
+                tools=existing_agent.tools if isinstance(existing_agent.tools, list) 
+                      else json.loads(existing_agent.tools) if existing_agent.tools else [],
+                created_at=existing_agent.created_at,
+                is_active=existing_agent.is_active,
+                repository=existing_agent.repository,
+            )
+        # If name conflict with different repository, append repository name
+        agent.name = f"{agent.name}_{agent.repository}"
+
     # Convert tools list to JSON string for database storage
     tools_json = json.dumps(agent.tools)
 
@@ -154,15 +177,12 @@ async def create_agent(
     db.commit()
     db.refresh(db_agent)
 
-    # Parse the JSON string back to a list for the response
-    tools_list = json.loads(db_agent.tools)
-
     return AgentResponse(
         id=str(db_agent.id),
         name=db_agent.name,
         description=db_agent.description,
         system_prompt=db_agent.system_prompt,
-        tools=tools_list,  # Pass the parsed list instead of JSON string
+        tools=agent.tools,  # Use original tools list
         created_at=db_agent.created_at,
         is_active=db_agent.is_active,
         repository=db_agent.repository,
@@ -170,17 +190,27 @@ async def create_agent(
 
 
 @router.get("/agents", response_model=List[AgentResponse])
-async def list_agents(db: Session = Depends(get_db)):
-    agents = db.query(Agent).filter(Agent.is_active == True).all()
-
-    # Convert each agent's tools from JSON string to list
+async def list_agents(
+    repository: Optional[str] = None,
+    type: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """List all agents, optionally filtered by repository"""
+    query = db.query(Agent)
+    
+    if repository:
+        query = query.filter(Agent.repository == repository)
+    
+    agents = query.all()
+    
     return [
         AgentResponse(
             id=str(agent.id),
             name=agent.name,
             description=agent.description,
             system_prompt=agent.system_prompt,
-            tools=json.loads(agent.tools),
+            # Handle tools that might already be deserialized
+            tools=agent.tools if isinstance(agent.tools, list) else json.loads(agent.tools) if agent.tools else [],
             created_at=agent.created_at,
             is_active=agent.is_active,
             repository=agent.repository,
