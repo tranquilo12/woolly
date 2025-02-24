@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "./ui/button";
-import { PlusIcon, TrashIcon, PenIcon, Pin, PinOff, MenuIcon } from "lucide-react";
+import { PlusIcon, TrashIcon, PenIcon, MenuIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, useRef, useCallback, RefObject } from "react";
 import { toast } from "sonner";
@@ -26,7 +26,7 @@ export function Sidebar() {
 	const [chats, setChats] = useState<Chat[]>([]);
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editingTitle, setEditingTitle] = useState("");
-	const { isOpen, toggle, setIsOpen, isPinned, setIsPinned } = useSidebar();
+	const { isOpen, setIsOpen } = useSidebar();
 	const sidebarRef = useRef<HTMLDivElement>(null);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const { refreshChats } = useChatList();
@@ -85,7 +85,7 @@ export function Sidebar() {
 	};
 
 	useClickOutside(sidebarRef as RefObject<HTMLElement>, () => {
-		if (isOpen && !isPinned) {
+		if (isOpen) {
 			setIsOpen(false);
 		}
 	});
@@ -93,12 +93,12 @@ export function Sidebar() {
 	const handleToggleClick = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
-		if (isOpen && !isPinned) {
+		if (isOpen) {
 			setIsOpen(false);
-		} else if (!isPinned) {
-			toggle();
+		} else {
+			setIsOpen(!isOpen);
 		}
-	}, [toggle, isOpen, isPinned, setIsOpen]);
+	}, [isOpen, setIsOpen]);
 
 	useEffect(() => {
 		const sidebarElement = sidebarRef.current;
@@ -229,21 +229,14 @@ export function Sidebar() {
 								<Button
 									variant="ghost"
 									size="sm"
-									onClick={() => setIsPinned(!isPinned)}
 									className={cn(
 										"h-8 w-8 p-0 rounded-full",
 										"border border-border/50",
 										"bg-background/95 backdrop-blur",
 										"hover:bg-muted/50 transition-colors",
 										"shadow-sm hover:shadow-md",
-										isPinned && "text-primary bg-muted/50"
 									)}
 								>
-									{isPinned ? (
-										<PinOff className="h-4 w-4" />
-									) : (
-										<Pin className="h-4 w-4" />
-									)}
 								</Button>
 							</div>
 

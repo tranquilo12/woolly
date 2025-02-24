@@ -257,7 +257,7 @@ export function Chat({ chatId }: ChatProps) {
   const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
   const [currentModel, setCurrentModel] = useState("gpt-4o");
-  const { isOpen: isAgentOpen, isPinned: isAgentPinned } = useAgentPanel();
+  const { isOpen: isAgentOpen } = useAgentPanel();
 
   // Memoize repository status hooks
   const {
@@ -601,7 +601,7 @@ export function Chat({ chatId }: ChatProps) {
     <div className={cn(
       "flex flex-col h-[calc(100vh-4rem)]",
       "transition-all duration-300 ease-in-out",
-      isAgentOpen && isAgentPinned && "transform -translate-x-[clamp(100px,10%,200px)]"
+      isAgentOpen && "transform -translate-x-[clamp(100px,10%,200px)]"
     )}>
       {/* Message container */}
       <div

@@ -8,46 +8,41 @@ interface SidebarContextType {
 	isOpen: boolean;
 	toggle: () => void;
 	setIsOpen: (value: boolean) => void;
-	isPinned: boolean;
-	setIsPinned: (value: boolean) => void;
 }
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
 	const [isOpen, setIsOpen] = useState(false);
-	const [isPinned, setIsPinned] = useLocalStorage('sidebar-pinned', false);
 	const { width } = useWindowSize();
 
 	useEffect(() => {
-		if (!isPinned) {
+		if (width < 768) {
 			setIsOpen(false);
 		}
-	}, [width, isPinned]);
-
-	useEffect(() => {
-		if (isPinned) {
-			setIsOpen(true);
-		}
-	}, [isPinned]);
+	}, [width]);
 
 	const toggle = useCallback(() => {
-		if (!isPinned) {
-			setIsOpen(current => !current);
-		}
-	}, [isPinned]);
+		setIsOpen(current => !current);
+	}, []);
+
+	const value = {
+		isOpen,
+		toggle,
+		setIsOpen
+	};
 
 	return (
-		<SidebarContext.Provider value={{ isOpen, toggle, setIsOpen, isPinned, setIsPinned }}>
+		<SidebarContext.Provider value={value}>
 			{children}
 		</SidebarContext.Provider>
 	);
 }
 
-export function useSidebar() {
+export const useSidebar = () => {
 	const context = useContext(SidebarContext);
 	if (context === undefined) {
 		throw new Error('useSidebar must be used within a SidebarProvider');
 	}
 	return context;
-} 
+}; 

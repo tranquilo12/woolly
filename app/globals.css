@@ -555,21 +555,9 @@
 
 /* Update the content container styles */
 .content-container {
-  transition: all 0.3s ease-in-out;
   width: 100%;
   margin: 0 auto;
   max-width: 100%;
-}
-
-/* Add styles for when panels are open */
-.content-container.with-agent {
-  width: calc(100% - clamp(400px, 35%, 800px));
-  margin-right: clamp(400px, 35%, 800px);
-}
-
-.content-container.with-sidebar {
-  width: calc(100% - clamp(300px, 30%, 500px));
-  margin-left: clamp(300px, 30%, 500px);
 }
 
 /* Adjust sidebar width */
@@ -635,8 +623,6 @@
   contain: content;
 }
 
-
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -644,4 +630,25 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Add styles for react-split */
+.split {
+  display: flex;
+  flex-direction: row;
+}
+
+.gutter {
+  background-color: var(--border);
+  background-repeat: no-repeat;
+  background-position: 50%;
+}
+
+.gutter:hover {
+  background-color: var(--primary);
+}
+
+.gutter.gutter-horizontal {
+  background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAeCAYAAADkftS9AAAAIklEQVQoU2M4c+bMfxAGAgYYmwGrIIiDjrELjpo5aiZeMwF+yNnOs5KSvgAAAABJRU5ErkJggg==");
+  cursor: col-resize;
 }

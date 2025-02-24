@@ -2,9 +2,9 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useAgentPanel } from "./agent-provider";
-import { Pin, PinOff, Bot } from "lucide-react";
+import { Bot } from "lucide-react";
 import { Button } from "../ui/button";
-import { useRef, RefObject, useEffect, useState } from "react";
+import { useRef, RefObject, useState } from "react";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { cn } from "@/lib/utils";
 import { AgentContent } from "./agent-content";
@@ -28,7 +28,7 @@ interface AgentResponse {
 }
 
 export function AgentPanel() {
-	const { isOpen, toggle, setIsOpen, isPinned, setIsPinned } = useAgentPanel();
+	const { isOpen, toggle, setIsOpen } = useAgentPanel();
 	const { repositories } = useRepositoryStatus();
 	const { data: systemPrompt } = useSystemPrompt();
 	const [selectedRepo, setSelectedRepo] = useState<AvailableRepository | null>(null);
@@ -38,91 +38,12 @@ export function AgentPanel() {
 	const panelRef = useRef<HTMLDivElement>(null);
 	const pathname = usePathname();
 	const chatId = pathname?.split('/').pop() || '';
-	const [isMounted, setIsMounted] = useState(false);
-
-	// Create or get agents when repository or tab changes
-	useEffect(() => {
-		const createAgent = async (type: 'documentation' | 'mermaid') => {
-			if (!selectedRepo || !systemPrompt) return;
-
-			const storageKey = `${type}_agent_${chatId}_${selectedRepo}`;
-			const existingAgentId = localStorage.getItem(storageKey);
-			if (existingAgentId) {
-				type === 'documentation' ? setDocAgentId(existingAgentId) : setMermaidAgentId(existingAgentId);
-				return;
-			}
-
-			try {
-				const uniqueName = `${type === 'documentation' ? 'Documentation' : 'Mermaid'} Agent ${chatId}_${selectedRepo}_${Date.now()}`;
-				const tools = type === 'documentation' ? ['fetch_repo_content'] : ['generate_mermaid'];
-
-				const response = await fetch('/api/agents', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({
-						name: uniqueName,
-						description: `${type} generation agent`,
-						system_prompt: systemPrompt,
-						tools,
-						repository: selectedRepo
-					}),
-				});
-
-				if (!response.ok) {
-					if (response.status === 409) {
-						const agents = await fetch('/api/agents').then(r => r.json());
-						const existingAgent = agents.find((a: AgentResponse) =>
-							a.name.startsWith(`${type === 'documentation' ? 'Documentation' : 'Mermaid'} Agent ${chatId}_${selectedRepo}`)
-						);
-
-						if (existingAgent) {
-							localStorage.setItem(storageKey, existingAgent.id);
-							type === 'documentation' ? setDocAgentId(existingAgent.id) : setMermaidAgentId(existingAgent.id);
-							return;
-						}
-					}
-					throw new Error('Failed to create/retrieve agent');
-				}
-
-				const data: AgentResponse = await response.json();
-				localStorage.setItem(storageKey, data.id);
-				type === 'documentation' ? setDocAgentId(data.id) : setMermaidAgentId(data.id);
-			} catch (error) {
-				console.error(`Failed to create ${type} agent:`, error);
-			}
-		};
-
-		if (selectedRepo) {
-			createAgent('documentation');
-			createAgent('mermaid');
-		}
-	}, [selectedRepo, systemPrompt, chatId]);
-
-	useEffect(() => {
-		if (selectedRepo && docAgentId && activeTab === 'documentation') {
-			// Comment out or remove the auto-start code
-			// const documentationView = document.querySelector('[data-documentation-view]');
-			// if (documentationView) {
-			//     const event = new CustomEvent('startDocumentation');
-			//     documentationView.dispatchEvent(event);
-			// }
-		}
-	}, [selectedRepo, docAgentId, activeTab]);
 
 	useClickOutside(panelRef as RefObject<HTMLElement>, () => {
-		if (isOpen && !isPinned) {
+		if (isOpen) {
 			setIsOpen(false);
 		}
 	});
-
-	useEffect(() => {
-		setIsMounted(true);
-	}, []);
-
-	// Skip rendering until mounted to prevent hydration mismatch
-	if (!isMounted) {
-		return null;
-	}
 
 	const containerVariants = {
 		hidden: { opacity: 0 },
@@ -168,28 +89,6 @@ export function AgentPanel() {
 							initial="hidden"
 							animate="visible"
 						>
-							<div className="absolute left-0 top-1/2 -translate-x-1/2 transform">
-								<Button
-									variant="ghost"
-									size="sm"
-									onClick={() => setIsPinned(!isPinned)}
-									className={cn(
-										"h-8 w-8 p-0 rounded-full",
-										"border border-border/50",
-										"bg-background/95 backdrop-blur",
-										"hover:bg-muted/50 transition-colors",
-										"shadow-sm hover:shadow-md",
-										isPinned && "text-primary bg-muted/50"
-									)}
-								>
-									{isPinned ? (
-										<PinOff className="h-4 w-4" />
-									) : (
-										<Pin className="h-4 w-4" />
-									)}
-								</Button>
-							</div>
-
 							<div className="flex flex-col space-y-4 p-4 border-b border-border/50">
 								<div className="flex items-center justify-between gap-4">
 									<div className="flex items-center gap-2">
