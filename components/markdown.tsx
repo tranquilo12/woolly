@@ -9,33 +9,47 @@ type MarkdownProps = {
   isToolCallLoading?: boolean;
 };
 
-// Memoize individual markdown blocks
-const MemoizedMarkdownBlock = memo(({ content, components }: {
-  content: string;
-  components: Partial<Components>;
-}) => (
-  <ReactMarkdown
-    remarkPlugins={[remarkGfm]}
-    components={components}
-    className="prose dark:prose-invert max-w-none break-words"
-  >
-    {content}
-  </ReactMarkdown>
-));
+// Add block caching mechanism
+const blockCache = new Map<string, string[]>();
 
-MemoizedMarkdownBlock.displayName = 'MemoizedMarkdownBlock';
-
-// Add efficient block parsing with better memoization
+// Improve block parsing efficiency
 const useMarkdownBlocks = (content: string) => {
   return useMemo(() => {
+    // Check cache first
+    const cacheKey = content;
+    if (blockCache.has(cacheKey)) {
+      return blockCache.get(cacheKey)!;
+    }
+
     // Only split and process if content exists
     if (!content) return [];
-    // More efficient splitting using regex to handle various newline formats
-    return content
-      .split(/\n{2,}/)
+
+    // More efficient splitting using positive lookahead
+    const blocks = content
+      .split(/(?=\n{2,})|(?=#{1,6}\s)|(?=```)/g)
       .map(block => block.trim())
       .filter(Boolean);
+
+    // Cache the result
+    blockCache.set(cacheKey, blocks);
+
+    // Prevent cache from growing too large
+    if (blockCache.size > 1000) {
+      const firstKey = blockCache.keys().next().value;
+      if (firstKey) {
+        blockCache.delete(firstKey as string);
+      }
+    }
+
+    return blocks;
   }, [content]);
+};
+
+// Add block type detection for better rendering
+const getBlockType = (block: string): 'code' | 'heading' | 'paragraph' => {
+  if (block.startsWith('```')) return 'code';
+  if (/^#{1,6}\s/.test(block)) return 'heading';
+  return 'paragraph';
 };
 
 // Add proper typing for code block props
@@ -107,12 +121,44 @@ const MarkdownBlockquote = memo((props: React.ComponentProps<'blockquote'>) => (
 ));
 MarkdownBlockquote.displayName = 'MarkdownBlockquote';
 
-// Optimize component configuration
+// Update MemoizedMarkdownBlock to use block type information
+const MemoizedMarkdownBlock = memo(({ content, components, blockType }: {
+  content: string;
+  components: Partial<Components>;
+  blockType: 'code' | 'heading' | 'paragraph';
+}) => {
+  // Optimize rendering based on block type
+  const className = useMemo(() => {
+    const baseClass = "prose dark:prose-invert max-w-none break-words";
+    switch (blockType) {
+      case 'code':
+        return `${baseClass} my-4`;
+      case 'heading':
+        return `${baseClass} font-semibold`;
+      default:
+        return baseClass;
+    }
+  }, [blockType]);
+
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={components}
+      className={className}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+});
+
+MemoizedMarkdownBlock.displayName = 'MemoizedMarkdownBlock';
+
+// Update the main Markdown component to use the new block type system
 export const Markdown = memo(
   ({ children, isToolCallLoading }: MarkdownProps) => {
     const blocks = useMarkdownBlocks(children);
 
-    // Now using pre-memoized components
+    // Components configuration remains the same
     const components = useMemo(() => ({
       pre: MarkdownPre,
       code: MarkdownCode,
@@ -123,11 +169,11 @@ export const Markdown = memo(
       strong: MarkdownStrong,
       a: MarkdownLink,
       blockquote: MarkdownBlockquote,
-    }), []); // Empty dependency array since components are static
+    }), []);
 
-    // Optimize key generation
     const getBlockKey = useCallback((block: string, index: number) => {
-      return `md-block-${index}-${block.slice(0, 40).replace(/\s+/g, '-')}`;
+      const type = getBlockType(block);
+      return `md-block-${type}-${index}-${block.slice(0, 40).replace(/\s+/g, '-')}`;
     }, []);
 
     if (isToolCallLoading) {
@@ -140,6 +186,7 @@ export const Markdown = memo(
           <MemoizedMarkdownBlock
             key={getBlockKey(block, index)}
             content={block}
+            blockType={getBlockType(block)}
             components={components}
           />
         ))}
