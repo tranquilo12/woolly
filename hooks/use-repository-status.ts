@@ -118,7 +118,11 @@ export function useRepositoryStatus() {
 		try {
 			const summaries = await Promise.all(
 				AVAILABLE_REPOSITORIES.map(async (repoName) => {
-					const response = await fetch(`${INDEXER_BASE_URL}/indexer/status/${repoName}`);
+					const response = await fetch(`${INDEXER_BASE_URL}/indexer/status/${repoName}`, {
+						headers: {
+							'Cache-Control': 'max-age=60', // Cache for 1 minute
+						}
+					});
 					if (!response.ok) throw new Error(`Failed to fetch status for ${repoName}`);
 					const status = await response.json();
 
@@ -161,45 +165,35 @@ export function useRepositoryStatus() {
 		[] // Empty deps since this should be stable
 	);
 
-	// Memoize the event handler creation
+	// Add memoization for state updates
+	const updateRepository = useCallback((repoName: string, updates: Partial<Repository>) => {
+		setRepositories(prev =>
+			prev.map(repo =>
+				repo.name === repoName
+					? { ...repo, ...updates }
+					: repo
+			)
+		);
+	}, []);
+
+	// Use the memoized update function in the event handler
 	const createEventHandler = useCallback((repoName: string) => (event: MessageEvent) => {
 		const data = JSON.parse(event.data);
 
-		// Batch all state updates together
+		// Batch all updates into a single state update
 		requestAnimationFrame(() => {
-			debouncedSetRepositories(prev =>
-				prev.map(repo =>
-					repo.name === repoName
-						? {
-							...repo,
-							indexing_status: data.status,
-							current_file: data.current_file,
-							total_files: data.total_files,
-							processed_count: data.processed_count,
-							progress: data.total_files
-								? (data.processed_count / data.total_files) * 100
-								: 0,
-							file_stats: data.file_stats,
-							message: data.message,
-							watch_enabled: true
-						}
-						: repo
-				)
-			);
-
-			setIndexingProgress(prev => ({
-				...prev,
-				[repoName]: data.total_files
-					? (data.processed_count / data.total_files) * 100
-					: 0
-			}));
-
-			setCurrentStatus(prev => ({
-				...prev,
-				[repoName]: data.status
-			}));
+			updateRepository(repoName, {
+				indexing_status: data.status,
+				current_file: data.current_file,
+				total_files: data.total_files,
+				processed_count: data.processed_count,
+				progress: data.total_files ? (data.processed_count / data.total_files) * 100 : 0,
+				file_stats: data.file_stats,
+				message: data.message,
+				watch_enabled: true
+			});
 		});
-	}, [debouncedSetRepositories]);
+	}, [updateRepository]);
 
 	// Subscribe to SSE for a given repository
 	const subscribeToStatus = useCallback(
