@@ -140,11 +140,12 @@ async def create_agent(
     db: Session = Depends(get_db),
 ):
     # Check for existing agent with same name
-    existing_agent = db.query(Agent).filter(
-        Agent.name == agent.name,
-        Agent.repository == agent.repository
-    ).first()
-    
+    existing_agent = (
+        db.query(Agent)
+        .filter(Agent.name == agent.name, Agent.repository == agent.repository)
+        .first()
+    )
+
     if existing_agent:
         # If agent exists and matches repository, return it
         if existing_agent.repository == agent.repository:
@@ -153,8 +154,13 @@ async def create_agent(
                 name=existing_agent.name,
                 description=existing_agent.description,
                 system_prompt=existing_agent.system_prompt,
-                tools=existing_agent.tools if isinstance(existing_agent.tools, list) 
-                      else json.loads(existing_agent.tools) if existing_agent.tools else [],
+                tools=(
+                    existing_agent.tools
+                    if isinstance(existing_agent.tools, list)
+                    else (
+                        json.loads(existing_agent.tools) if existing_agent.tools else []
+                    )
+                ),
                 created_at=existing_agent.created_at,
                 is_active=existing_agent.is_active,
                 repository=existing_agent.repository,
@@ -197,12 +203,12 @@ async def list_agents(
 ):
     """List all agents, optionally filtered by repository"""
     query = db.query(Agent)
-    
+
     if repository:
         query = query.filter(Agent.repository == repository)
-    
+
     agents = query.all()
-    
+
     return [
         AgentResponse(
             id=str(agent.id),
@@ -210,7 +216,11 @@ async def list_agents(
             description=agent.description,
             system_prompt=agent.system_prompt,
             # Handle tools that might already be deserialized
-            tools=agent.tools if isinstance(agent.tools, list) else json.loads(agent.tools) if agent.tools else [],
+            tools=(
+                agent.tools
+                if isinstance(agent.tools, list)
+                else json.loads(agent.tools) if agent.tools else []
+            ),
             created_at=agent.created_at,
             is_active=agent.is_active,
             repository=agent.repository,
