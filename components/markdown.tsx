@@ -1,8 +1,7 @@
 import Link from "next/link";
-import React, { memo } from "react";
+import React, { memo, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { CodeBlock } from "./code-block";
 import { CollapsibleCodeBlock } from "./collapsible-code-block";
 
 type MarkdownProps = {
@@ -10,82 +9,85 @@ type MarkdownProps = {
   isToolCallLoading?: boolean;
 };
 
-const NonMemoizedMarkdown = ({ children, isToolCallLoading }: MarkdownProps) => {
-  if (isToolCallLoading) {
-    return (
-      <div className="p-2 text-gray-500 font-semibold">
-        Loading tool call...
-      </div>
-    );
-  }
+// Memoize individual markdown blocks
+const MemoizedMarkdownBlock = memo(({ content, components }: {
+  content: string;
+  components: Partial<Components>;
+}) => (
+  <ReactMarkdown
+    remarkPlugins={[remarkGfm]}
+    components={components}
+    className="prose dark:prose-invert max-w-none break-words"
+  >
+    {content}
+  </ReactMarkdown>
+));
 
-  const components: Partial<Components> = {
-    pre: (props) => {
-      return <pre {...props} />;
-    },
-    code: ({ node, inline, className, children, ...props }: any) => {
-      const match = /language-(\w+)/.exec(className || '');
-      const language = match ? match[1] : '';
+MemoizedMarkdownBlock.displayName = 'MemoizedMarkdownBlock';
 
-      if (!inline && language) {
-        return (
-          <CollapsibleCodeBlock
-            language={language}
-            value={String(children).replace(/\n$/, '')}
-            initiallyExpanded={true}
-          />
-        );
-      }
-
-      return (
-        <code className={className} {...props}>
-          {children}
-        </code>
-      );
-    },
-    p: ({ children }) => (
-      <p className="mb-4 last:mb-0 leading-7">{children}</p>
-    ),
-    ul: ({ children }) => (
-      <ul className="mb-4 list-disc pl-8 space-y-2">{children}</ul>
-    ),
-    ol: ({ children }) => (
-      <ol className="mb-4 list-decimal pl-8 space-y-2">{children}</ol>
-    ),
-    li: ({ children }) => (
-      <li className="leading-7">{children}</li>
-    ),
-    strong: ({ children }) => (
-      <strong className="font-semibold">{children}</strong>
-    ),
-    a: ({ href, children }) => (
-      <Link
-        href={href || ''}
-        className="font-medium underline underline-offset-4 hover:text-primary"
-        target="_blank"
-        rel="noreferrer"
-      >
-        {children}
-      </Link>
-    ),
-    blockquote: ({ children }) => (
-      <blockquote className="mt-6 border-l-2 pl-6 italic">{children}</blockquote>
-    ),
-  };
-
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={components}
-      className="prose dark:prose-invert max-w-none break-words"
-    >
-      {children}
-    </ReactMarkdown>
-  );
+// Cache parsed content blocks
+const useMarkdownBlocks = (content: string) => {
+  return useMemo(() => {
+    // Split content into blocks at double newlines
+    return content.split('\n\n').filter(block => block.trim());
+  }, [content]);
 };
 
 export const Markdown = memo(
-  NonMemoizedMarkdown,
-  (prevProps, nextProps) => prevProps.children === nextProps.children &&
+  ({ children, isToolCallLoading }: MarkdownProps) => {
+    const blocks = useMarkdownBlocks(children);
+    // Memoize components configuration
+    const components = useMemo(() => ({
+      pre: (props: React.ComponentProps<'pre'>) => <pre {...props} />,
+      code: ({ node, inline, className, children, ...props }: any) => {
+        const match = /language-(\w+)/.exec(className || '');
+        return !inline && match ? (
+          <CollapsibleCodeBlock
+            language={match[1]}
+            value={String(children).replace(/\n$/, '')}
+            initiallyExpanded={true}
+          />
+        ) : (
+          <code className={className} {...props}>{children}</code>
+        );
+      },
+      p: (props: React.ComponentProps<'p'>) => <p className="mb-4 last:mb-0 leading-7" {...props} />,
+      ul: (props: React.ComponentProps<'ul'>) => <ul className="mb-4 list-disc pl-8 space-y-2" {...props} />,
+      ol: (props: React.ComponentProps<'ol'>) => <ol className="mb-4 list-decimal pl-8 space-y-2" {...props} />,
+      li: (props: React.ComponentProps<'li'>) => <li className="leading-7" {...props} />,
+      strong: (props: React.ComponentProps<'strong'>) => <strong className="font-semibold" {...props} />,
+      a: (props: React.ComponentProps<'a'>) => (
+        <Link
+          href={props.href || ''}
+          className="font-medium underline underline-offset-4 hover:text-primary"
+          target="_blank"
+          rel="noreferrer"
+          {...props}
+        />
+      ),
+      blockquote: (props: React.ComponentProps<'blockquote'>) => (
+        <blockquote className="mt-6 border-l-2 pl-6 italic" {...props} />
+      ),
+    }), []);
+    if (isToolCallLoading) {
+      return <div className="p-2 text-gray-500 font-semibold">Loading tool call...</div>;
+    }
+
+    return (
+      <>
+        {blocks.map((block, index) => (
+          <MemoizedMarkdownBlock
+            key={`${block.slice(0, 40)}-${index}`}
+            content={block}
+            components={components}
+          />
+        ))}
+      </>
+    );
+  },
+  (prevProps, nextProps) =>
+    prevProps.children === nextProps.children &&
     prevProps.isToolCallLoading === nextProps.isToolCallLoading
 );
+
+Markdown.displayName = 'Markdown';
