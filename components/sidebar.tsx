@@ -82,7 +82,6 @@ export function Sidebar() {
 		}
 	};
 
-
 	useEffect(() => {
 		const sidebarElement = sidebarRef.current;
 		if (!sidebarElement) return;
@@ -113,46 +112,6 @@ export function Sidebar() {
 		};
 	}, []);
 
-	const containerVariants = {
-		hidden: {
-			opacity: 0
-		},
-		visible: {
-			opacity: 1,
-			transition: {
-				duration: 0.2, // Controls how long the fade-in takes (in seconds)
-			}
-		},
-		exit: {
-			opacity: 0,
-			transition: {
-				duration: 0.15 // Slightly faster fade-out
-			}
-		}
-	};
-
-	const contentVariants = {
-		hidden: { opacity: 0 },
-		visible: {
-			opacity: 1,
-			transition: {
-				delay: 0.1, // Slight delay before content appears
-				duration: 0.2,
-				staggerChildren: 0.05 // Controls delay between each child animation
-			}
-		}
-	};
-
-	const itemVariants = {
-		hidden: { opacity: 0 },
-		visible: {
-			opacity: 1,
-			transition: {
-				duration: 0.2
-			}
-		}
-	};
-
 	const handleChatClick = useCallback(async (e: React.MouseEvent, chatId: string) => {
 		e.preventDefault();
 		e.stopPropagation();
@@ -180,7 +139,7 @@ export function Sidebar() {
 			className={cn(
 				"h-full w-full",
 				"border-r border-border/50",
-				"bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+				"bg-background/95"
 			)}
 		>
 			<div className="flex flex-col h-full">
@@ -195,7 +154,6 @@ export function Sidebar() {
 									{chats.map((chat) => (
 										<motion.div
 											key={chat.id}
-											variants={itemVariants}
 											className="group relative"
 										>
 											{editingId === chat.id ? (

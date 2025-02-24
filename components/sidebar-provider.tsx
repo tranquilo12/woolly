@@ -13,23 +13,12 @@ interface SidebarContextType {
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
-	const [isOpen, setIsOpen] = useState(false);
+	const [isOpen] = useState(true); // Always open
 	const { width } = useWindowSize();
 
-	useEffect(() => {
-		if (width < 768) {
-			setIsOpen(false);
-		}
-	}, [width]);
-
-	const toggle = useCallback(() => {
-		setIsOpen(current => !current);
-	}, []);
-
 	const value = {
-		isOpen,
-		toggle,
-		setIsOpen
+		isOpen: width >= 768, // Only hide on mobile
+		setIsOpen: () => {}, // No-op since we're removing toggle
 	};
 
 	return (

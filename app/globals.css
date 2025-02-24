@@ -181,78 +181,39 @@
 }
 
 /* Sidebar animations */
-.sidebar-content-enter {
-  opacity: 0;
-}
-
-.sidebar-content-enter-active {
-  opacity: 1;
-  transition: opacity 150ms ease-out;
-}
-
-.sidebar-content-exit {
-  opacity: 1;
-}
-
+.sidebar-content-enter,
+.sidebar-content-enter-active,
+.sidebar-content-exit,
 .sidebar-content-exit-active {
-  opacity: 0;
-  transition: opacity 150ms ease-out;
+  display: none;
 }
 
-/* Update scrollbar styles for sidebar */
+/* Simplify split gutter styles */
+.gutter {
+  background-color: hsl(var(--border));
+  transition: background-color 0.15s ease;
+}
+
+.gutter:hover {
+  background-color: hsl(var(--primary));
+}
+
+.gutter.gutter-horizontal {
+  cursor: col-resize;
+  width: 2px !important;
+}
+
+/* Simplify sidebar styles */
 [data-sidebar] {
-  scrollbar-width: none;
+  scrollbar-width: thin;
   -ms-overflow-style: none;
   scroll-behavior: smooth;
-  transition: opacity 150ms ease-out;
 }
 
-[data-sidebar]::-webkit-scrollbar {
-  display: none;
-}
-
-[data-sidebar].is-scrolling::-webkit-scrollbar {
-  display: block;
-  width: 4px;
-}
-
-[data-sidebar].is-scrolling::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-[data-sidebar].is-scrolling::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.2);
-  border-radius: 2px;
-}
-
-[data-sidebar].is-scrolling::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.4);
-}
-
-/* Hide scrollbar by default but allow scrolling */
-.sidebar-scroll {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  overflow-y: auto;
-}
-
-.sidebar-scroll::-webkit-scrollbar {
-  display: none;
-}
-
-/* Show scrollbar on hover */
-.sidebar-scroll:hover::-webkit-scrollbar {
-  display: block;
-  width: 4px;
-}
-
-.sidebar-scroll:hover::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.2);
-  border-radius: 2px;
-}
-
-.sidebar-scroll:hover::-webkit-scrollbar-track {
-  background: transparent;
+/* Clean up repository section animations */
+.repository-table-container {
+  min-height: 420px;
+  transition: none;
 }
 
 .prose {
@@ -419,11 +380,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.repository-table-container {
-  min-height: 420px; /* Adjust based on your needs */
-  transition: height 0.2s ease-in-out;
 }
 
 /* Code Context Container */
@@ -596,17 +552,6 @@
 
 .split > div {
   flex-shrink: 0;
-}
-
-.gutter {
-  background-color: hsl(var(--border));
-  background-repeat: no-repeat;
-  background-position: 50%;
-}
-
-.gutter.gutter-horizontal {
-  cursor: col-resize;
-  width: 2px !important;
 }
 
 /* Sidebar and Agent Panel base styles */
