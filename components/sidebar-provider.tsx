@@ -6,7 +6,6 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 
 interface SidebarContextType {
 	isOpen: boolean;
-	toggle: () => void;
 	setIsOpen: (value: boolean) => void;
 }
 
@@ -18,7 +17,7 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
 
 	const value = {
 		isOpen: width >= 768, // Only hide on mobile
-		setIsOpen: () => {}, // No-op since we're removing toggle
+		setIsOpen: () => { }, // No-op since we're removing toggle
 	};
 
 	return (
