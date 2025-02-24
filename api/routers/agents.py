@@ -1056,11 +1056,19 @@ async def save_message(
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
 
-        # Verify this is an agent message
-        if not message.message_type or not message.agent_id:
+        # Strict validation for agent messages
+        if not message.message_type or message.message_type not in [
+            "documentation",
+            "mermaid",
+        ]:
             raise HTTPException(
                 status_code=400,
-                detail="Invalid agent message: missing message_type or agent_id",
+                detail="Invalid agent message: message_type must be either 'documentation' or 'mermaid'",
+            )
+
+        if not message.agent_id or message.agent_id != agent_id_str:
+            raise HTTPException(
+                status_code=400, detail="Invalid agent message: agent_id mismatch"
             )
 
         # Standardize tool invocations to match index.py format

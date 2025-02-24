@@ -574,17 +574,18 @@ export function Chat({ chatId }: ChatProps) {
 
   // Filter out any agent messages from the grouped messages
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
-    // Skip messages that belong to agents
+    // Skip messages that belong to agents - strict check for both fields
     const typedMessage = message as MessageWithModel;
-    if (typedMessage.agentId || typedMessage.messageType) {
+    if (typedMessage.agentId !== undefined || typedMessage.messageType !== undefined) {
       return groups;
     }
 
+    // Only include messages that are explicitly not agent messages
     if (message.role === 'user') {
       // Start a new group with user message
       groups.push([message as MessageWithModel]);
-    } else if (groups.length && message.id !== 'edit-indicator') {
-      // Add assistant message to last group
+    } else if (groups.length && message.id !== 'edit-indicator' && message.role === 'assistant') {
+      // Add assistant message to last group, ensuring it's not an agent message
       groups[groups.length - 1].push(message as MessageWithModel);
     }
     return groups;

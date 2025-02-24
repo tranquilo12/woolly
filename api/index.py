@@ -411,9 +411,10 @@ async def get_chat_messages(chat_id: uuid.UUID, db: Session = Depends(get_db)):
             .filter(
                 Message.chat_id == chat_id,
                 Message.agent_id.is_(None),  # Explicitly exclude agent messages
-                Message.message_type.is_(
-                    None
-                ),  # Ensure no message type (agent messages have types)
+                Message.message_type.is_(None),  # Ensure no message type
+                Message.role.in_(
+                    ["user", "assistant"]
+                ),  # Only include user and assistant messages
             )
             .order_by(Message.created_at)
             .all()
@@ -491,6 +492,8 @@ async def chat(
                     content=last_message.content,
                     model=model,
                     created_at=datetime.now(timezone.utc),
+                    agent_id=None,  # Explicitly set to None
+                    message_type=None,  # Explicitly set to None
                 )
                 db.add(user_message)
                 db.flush()
@@ -520,6 +523,8 @@ async def chat(
                 content="",
                 model=model,
                 created_at=datetime.now(timezone.utc),
+                agent_id=None,  # Explicitly set to None
+                message_type=None,  # Explicitly set to None
             )
             db.add(assistant_message)
 
