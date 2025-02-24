@@ -447,6 +447,8 @@ async def create_message(
             # Explicitly set agent fields to None
             agent_id=None,
             message_type=None,
+            repository=None,
+            created_at=datetime.now(timezone.utc),
         )
         db.add(db_message)
         db.commit()
@@ -632,31 +634,41 @@ async def update_message_model(
         )
 
 
-@app.get("/api/chat/{chat_id}/agent/{agent_id}/messages")
+@app.get("/api/chat/{chat_id}/agent/messages")
 async def get_agent_messages(
     chat_id: uuid.UUID,
-    agent_id: uuid.UUID,
-    repository: str = None,
+    agent_id: str = Query(None),
+    repository: str = Query(None),
+    message_type: str = Query(None),
     db: Session = Depends(get_db),
 ):
-    # Start with a base query from Message table
-    query = db.query(Message).select_from(Message)
+    """Get messages for a specific agent in a chat"""
+    try:
+        # Start with a base query
+        query = db.query(Message)
 
-    # Add join conditions explicitly
-    query = query.join(Chat, Message.chat_id == Chat.id).join(
-        Agent, Chat.agent_id == Agent.id
-    )
+        # Add base filter for chat_id
+        query = query.filter(Message.chat_id == chat_id)
 
-    # Add filter conditions
-    query = query.filter(Message.chat_id == chat_id, Agent.id == agent_id)
+        # Add optional filters
+        if agent_id:
+            query = query.filter(Message.agent_id == agent_id)
+        if repository:
+            query = query.filter(Message.repository == repository)
+        if message_type:
+            query = query.filter(Message.message_type == message_type)
 
-    if repository:
-        query = query.filter(Message.repository == repository)
+        # Get messages ordered by creation time
+        messages = query.order_by(Message.created_at).all()
 
-    # Get messages ordered by creation time
-    messages = query.order_by(Message.created_at).all()
+        # Always return a list, even if empty
+        return messages or []
 
-    return messages
+    except Exception as e:
+        logging.error(f"Error retrieving agent messages: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to retrieve messages: {str(e)}"
+        )
 
 
 @app.get("/api/docs_system_prompt.txt")
@@ -691,3 +703,25 @@ async def delete_message(
         raise HTTPException(
             status_code=500, detail=f"Failed to delete message: {str(e)}"
         )
+
+
+@app.post("/api/chat/{chat_id}/agent/messages")
+async def create_agent_message(
+    chat_id: uuid.UUID, message: dict, db: Session = Depends(get_db)
+):
+    """Create a new agent message"""
+    try:
+        return await agents.save_agent_message(
+            chat_id=chat_id,
+            content=message["content"],
+            role=message["role"],
+            model=message["model"],
+            db=db,
+            agent_id=uuid.UUID(message["agent_id"]),
+            repository=message["repository"],
+            message_type=message["message_type"],
+            tool_invocations=message.get("tool_invocations", []),
+        )
+    except Exception as e:
+        logging.error(f"Failed to create agent message: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -15,30 +15,28 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 	const queryClient = useQueryClient();
 
 	const { data, isError, isLoading, refetch } = useQuery({
-		queryKey: ['messages', chatId, agentId, repository, messageType],
+		queryKey: ['messages', chatId, agentId, repository, messageType] as const,
 		queryFn: async () => {
-			console.log('Fetching messages with params:', {
-				chatId,
-				agentId,
-				repository,
-				messageType
+			const params = new URLSearchParams({
+				agent_id: agentId,
+				repository: repository,
+				message_type: messageType
 			});
 
 			const response = await fetch(
-				`/api/agents/${agentId}/messages?chat_id=${chatId}&repository=${repository}&message_type=${messageType}`
+				`/api/chat/${chatId}/agent/messages?${params.toString()}`
 			);
 
 			if (!response.ok) {
-				const error = await response.text();
-				console.error('Failed to fetch messages:', error);
-				throw new Error(`Failed to fetch messages: ${error}`);
+				const errorText = await response.text();
+				throw new Error(`Failed to fetch messages: ${errorText}`);
 			}
 
 			const data = await response.json();
-			console.log('Fetched messages:', data);
-			return data;
+			return data || []; // Ensure we always return an array
 		},
-		enabled: !!chatId && !!agentId && !!repository && !!messageType,
+		retry: 3,
+		retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
 	});
 
 	// Add debug logging for state changes
@@ -63,15 +61,21 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 				message_type: params.messageType,
 				role: params.role,
 				content: params.content,
-				tool_invocations: params.toolInvocations
+				tool_invocations: params.toolInvocations,
+				model: 'gpt-4o-mini' // Add default model since it's required by the backend
 			};
 
-			const response = await fetch(`/api/agents/${params.agentId}/messages`, {
+			// Update to use the correct endpoint
+			const response = await fetch(`/api/chat/${params.chatId}/agent/messages`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(messageData)
 			});
-			if (!response.ok) throw new Error('Failed to save message');
+
+			if (!response.ok) {
+				const errorText = await response.text();
+				throw new Error(`Failed to save message: ${errorText}`);
+			}
 			return response.json();
 		},
 		onSuccess: () => {
