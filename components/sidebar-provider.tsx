@@ -6,48 +6,31 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 
 interface SidebarContextType {
 	isOpen: boolean;
-	toggle: () => void;
 	setIsOpen: (value: boolean) => void;
-	isPinned: boolean;
-	setIsPinned: (value: boolean) => void;
 }
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
-	const [isOpen, setIsOpen] = useState(false);
-	const [isPinned, setIsPinned] = useLocalStorage('sidebar-pinned', false);
+	const [isOpen] = useState(true); // Always open
 	const { width } = useWindowSize();
 
-	useEffect(() => {
-		if (!isPinned) {
-			setIsOpen(false);
-		}
-	}, [width, isPinned]);
-
-	useEffect(() => {
-		if (isPinned) {
-			setIsOpen(true);
-		}
-	}, [isPinned]);
-
-	const toggle = useCallback(() => {
-		if (!isPinned) {
-			setIsOpen(current => !current);
-		}
-	}, [isPinned]);
+	const value = {
+		isOpen: width >= 768, // Only hide on mobile
+		setIsOpen: () => { }, // No-op since we're removing toggle
+	};
 
 	return (
-		<SidebarContext.Provider value={{ isOpen, toggle, setIsOpen, isPinned, setIsPinned }}>
+		<SidebarContext.Provider value={value}>
 			{children}
 		</SidebarContext.Provider>
 	);
 }
 
-export function useSidebar() {
+export const useSidebar = () => {
 	const context = useContext(SidebarContext);
 	if (context === undefined) {
 		throw new Error('useSidebar must be used within a SidebarProvider');
 	}
 	return context;
-} 
+}; 

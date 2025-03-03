@@ -4,21 +4,21 @@ import { useAgentMessages } from '@/hooks/use-agent-messages';
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { documentationApi } from '@/lib/api/documentation';
 import { AvailableRepository } from "@/lib/constants";
-import { cn } from "@/lib/utils";
 import { ToolInvocation } from '@ai-sdk/ui-utils';
 import { useQuery } from '@tanstack/react-query';
 import { Message } from "ai";
 import { useChat } from 'ai/react';
-import { AnimatePresence, motion } from "framer-motion";
-import { Bot, CheckCircle, FileText, Play, Square } from "lucide-react";
+import { CheckCircle, ChevronLeft, ChevronRight, Play } from "lucide-react";
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { DocumentationResult, isCodeDocumentation, isComponentAnalysis, isDevelopmentGuide, isMaintenanceOps, isSystemOverview } from '../../types/documentation';
 import { MessageWithModel, toMessageWithModel } from "../chat";
-import { Markdown } from "../markdown";
-import { ToolInvocationDisplay } from "../tool-invocation";
 import { Button } from "../ui/button";
-import { ScrollArea } from "../ui/scroll-area";
 import { StrategySelector } from './strategy-selector';
+import { Skeleton } from '../ui/skeleton';
+import { toast } from 'sonner';
+import { AgentMessageGroup } from './message-group';
+import { DocumentationGraph } from '../documentation/graph/DocumentationGraph';
+import 'reactflow/dist/style.css';
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -44,181 +44,21 @@ interface StepConfig {
 	requiresConfirmation: boolean;
 }
 
-const formatToolResult = (result: DocumentationResult, step: number): string => {
-	try {
-		// Parse result if it's a string
-		const parsedResult = typeof result === 'string' ? JSON.parse(result) : result;
-
-		switch (step) {
-			case 0: {
-				if (isSystemOverview(parsedResult)) {
-					return [
-						"# System Overview\n",
-						"## Architecture Diagram",
-						"```mermaid",
-						parsedResult.architecture_diagram,
-						"```\n",
-						"## Core Technologies",
-						parsedResult.core_technologies.map((tech: string) => `- ${tech}`).join('\n'),
-						"\n## Design Patterns",
-						parsedResult.design_patterns.map((pattern: string) => `- ${pattern}`).join('\n'),
-						"\n## System Requirements",
-						parsedResult.system_requirements.map((req: string) => `- ${req}`).join('\n'),
-						"\n## Project Structure",
-						"```",
-						parsedResult.project_structure,
-						"```"
-					].join('\n');
-				}
-				break;
-			}
-			case 1: {
-				if (isComponentAnalysis(parsedResult)) {
-					return [
-						`# Component: ${parsedResult.name}\n`,
-						`## Purpose\n${parsedResult.purpose}\n`,
-						"## Dependencies",
-						parsedResult.dependencies.map(dep => `- ${dep}`).join('\n'),
-						"\n## Relationships Diagram",
-						"```mermaid",
-						parsedResult.relationships_diagram,
-						"```\n",
-						"## Technical Details",
-						Object.entries(parsedResult.technical_details)
-							.map(([key, value]) => `### ${key}\n${value}`)
-							.join('\n\n'),
-						"\n## Integration Points",
-						parsedResult.integration_points.map(point => `- ${point}`).join('\n')
-					].join('\n');
-				}
-				break;
-			}
-			case 2: {
-				if (isCodeDocumentation(parsedResult)) {
-					return [
-						"# Code Documentation\n",
-						"## Modules",
-						parsedResult.modules.map(module =>
-							`### ${module.name}\n${module.purpose}\n\nDependencies:\n${module.dependencies.map((dep: string) => `- ${dep}`).join('\n')
-							}\n\nUsage Examples:\n${module.usage_examples.map((ex: string) => `\`\`\`\n${ex}\n\`\`\``).join('\n')
-							}`
-						).join('\n\n'),
-						"\n## Patterns",
-						parsedResult.patterns.map(pattern => `- ${pattern}`).join('\n'),
-						"\n## Usage Examples",
-						parsedResult.usage_examples.map(ex => `\`\`\`\n${ex}\n\`\`\``).join('\n'),
-						parsedResult.api_specs ? [
-							"\n## API Specifications",
-							"### Endpoints",
-							parsedResult.api_specs.endpoints.map((ep: string) => `- ${ep}`).join('\n'),
-							"\n### Authentication",
-							parsedResult.api_specs.authentication,
-							"\n### Error Handling",
-							parsedResult.api_specs.error_handling
-						].join('\n') : ''
-					].join('\n');
-				}
-				break;
-			}
-			case 3: {
-				if (isDevelopmentGuide(parsedResult)) {
-					return [
-						"# Development Guide\n",
-						"## Setup",
-						parsedResult.setup,
-						"\n## Workflow",
-						parsedResult.workflow,
-						"\n## Guidelines",
-						parsedResult.guidelines.map((guideline: string) => `- ${guideline}`).join('\n')
-					].join('\n');
-				}
-				break;
-			}
-			case 4: {
-				if (isMaintenanceOps(parsedResult)) {
-					return [
-						"# Maintenance & Operations\n",
-						"## Procedures",
-						parsedResult.procedures.map((proc: string) => `- ${proc}`).join('\n'),
-						"\n## Troubleshooting",
-						Object.entries(parsedResult.troubleshooting)
-							.map(([key, value]) => `### ${key}\n${value}`)
-							.join('\n\n'),
-						"\n## Operations",
-						parsedResult.operations
-					].join('\n');
-				}
-				break;
-			}
-		}
-
-		// Fallback for unhandled cases
-		return JSON.stringify(parsedResult, null, 2);
-	} catch (error) {
-		console.error('Error formatting tool result:', error);
-		return String(result);
-	}
-};
-
-// Update the validation helper to handle both parts and toolInvocations
-const isValidDocumentationResponse = (message: Message): boolean => {
-	// First check parts array (new format)
-	// @ts-ignore
-	if (message.parts?.length) {
-		// @ts-ignore
-		const hasValidToolResult = message.parts.some(part => {
-			if (part.type !== 'tool-invocation') return false;
-			const toolInvocation = (part as ToolInvocation);
-			return (
-				toolInvocation.toolName === 'final_result' &&
-				toolInvocation.state === 'result' &&
-				toolInvocation.args &&
-				Object.keys(toolInvocation.args).length > 0
-			);
-		});
-		if (hasValidToolResult) return true;
-	}
-
-	// Then check toolInvocations array (fallback format)
-	if (message.toolInvocations?.length) {
-		const hasValidToolResult = message.toolInvocations.some(tool => {
-			return (
-				tool.toolName === 'final_result' &&
-				tool.state === 'result' &&
-				tool.args &&
-				Object.keys(tool.args).length > 0
-			);
-		});
-		if (hasValidToolResult) return true;
-	}
-
-	// Finally check content for JSON format
-	if (message.content?.trim()) {
-		try {
-			const parsedContent = JSON.parse(message.content);
-			return Boolean(
-				parsedContent.finishReason === "step_complete" &&
-				parsedContent.context &&
-				Object.keys(parsedContent.context).length > 0
-			);
-		} catch {
-			return false;
-		}
-	}
-
-	return false;
-};
-
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
+
+	// Ensure agent_id is always a string
+	const safeAgentId = agent_id ? String(agent_id) : '';
+
 	const {
-		data: initialMessages,
+		data: initialMessages = [],
 		isError,
 		isLoading: isLoadingInitial,
-		saveMessage
+		saveMessage,
+		groupedMessages
 	} = useAgentMessages(
 		chat_id,
-		agent_id,
+		safeAgentId,
 		repo_name,
 		'documentation'
 	);
@@ -234,6 +74,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	const [currentStepContent, setCurrentStepContent] = useState<string>('');
 	const [isStepComplete, setIsStepComplete] = useState<boolean>(false);
 	const [selectedStrategy, setSelectedStrategy] = useState<string>("basic");
+	const [isAgentReady, setIsAgentReady] = useState(false);
 
 	// Fetch strategy details
 	const { data: strategyDetails, isLoading: isLoadingStrategy } = useQuery({
@@ -310,14 +151,15 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		stop,
 		setMessages: setStreamingMessages
 	} = useChat({
-		api: `/api/agents/${agent_id}/documentation`,
+		api: `/api/agents/${safeAgentId}/documentation`,
+		experimental_throttle: 50,
 		id: chat_id,
 		initialMessages: initialMessages || [],
 		body: {
 			id: chat_id,
 			messages: initialMessages || [],
 			model: "gpt-4o-mini",
-			agent_id: agent_id,
+			agent_id: safeAgentId,
 			repo_name: repo_name,
 			file_paths: file_paths,
 			chat_id: chat_id,
@@ -425,7 +267,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 				// Only save valid messages to DB
 				await saveMessage({
-					agentId: agent_id,
+					agentId: safeAgentId,
 					chatId: chat_id,
 					repository: repo_name,
 					messageType: 'documentation',
@@ -535,7 +377,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					id: chat_id,
 					messages: initialMessages || [],
 					model: "gpt-4o-mini",
-					agent_id: agent_id,
+					agent_id: safeAgentId,
 					repo_name: repo_name,
 					file_paths: file_paths,
 					chat_id: chat_id,
@@ -553,7 +395,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			console.error("Failed to generate documentation:", error);
 			setIsStepComplete(false);
 		}
-	}, [append, state.currentStep, state.context, isLoading, chat_id, agent_id,
+	}, [append, state.currentStep, state.context, isLoading, chat_id, safeAgentId,
 		repo_name, file_paths, initialMessages, stop, strategyDetails, selectedStrategy]);
 
 	// Update useEffect to handle strategy loading safely
@@ -581,208 +423,365 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		}
 	}, [isStepComplete, state.currentStep, isLoading, handleGenerateDoc, strategyDetails]);
 
-	// Update the message reduction to handle undefined initialMessages
-	const allMessages = [...(initialMessages || []), ...streamingMessages].reduce((acc: MessageWithModel[], message: Message) => {
-		// If message exists in initialMessages (DB), use that version
-		const existingDbMessage = initialMessages?.find((m: MessageWithModel) => m.id === message.id);
-		if (existingDbMessage) {
-			if (!acc.some(m => m.id === existingDbMessage.id)) {
-				acc.push(existingDbMessage);
+	// Add message processing logic
+	const processedMessages = useMemo(() => {
+		const messages = [...(initialMessages || []), ...(streamingMessages || [])];
+		return messages.reduce((acc: MessageWithModel[], message: Message) => {
+			// Avoid duplicates
+			const exists = acc.find((m) => m.id === message.id);
+			if (!exists) {
+				// Convert to MessageWithModel format
+				acc.push({
+					...message,
+					toolInvocations: (message as any).tool_invocations || [],
+					model: (message as any).model || 'gpt-4o-mini',
+					data: { dbId: message.id },
+				} as MessageWithModel);
 			}
 			return acc;
+		}, [] as MessageWithModel[]);
+	}, [initialMessages, streamingMessages]);
+
+	// Move formatToolResult inside the component and memoize it
+	const formatToolResult = useCallback((result: DocumentationResult, step: number): string => {
+		try {
+			// Parse result if it's a string
+			const parsedResult = typeof result === 'string' ? JSON.parse(result) : result;
+
+			// Debug the result structure
+			console.log(`[DEBUG] formatToolResult for step ${step}:`, {
+				resultType: typeof result,
+				parsedResultKeys: Object.keys(parsedResult),
+				isSystemOverview: isSystemOverview(parsedResult),
+				isComponentAnalysis: isComponentAnalysis(parsedResult),
+				isCodeDocumentation: isCodeDocumentation(parsedResult),
+				isDevelopmentGuide: isDevelopmentGuide(parsedResult),
+				isMaintenanceOps: isMaintenanceOps(parsedResult),
+			});
+
+			if (isSystemOverview(parsedResult) ||
+				('architecture_diagram' in parsedResult && 'core_technologies' in parsedResult)) {
+				return [
+					"# System Overview\n",
+					"## Architecture Diagram",
+					"```mermaid",
+					parsedResult.architecture_diagram,
+					"```\n",
+					"## Core Technologies",
+					parsedResult.core_technologies.map((tech: string) => `- ${tech}`).join('\n'),
+					"\n## Design Patterns",
+					parsedResult.design_patterns.map((pattern: string) => `- ${pattern}`).join('\n'),
+					"\n## System Requirements",
+					parsedResult.system_requirements?.map((req: string) => `- ${req}`).join('\n') || '',
+					"\n## Project Structure",
+					"```",
+					parsedResult.project_structure,
+					"```"
+				].join('\n');
+			}
+
+			if (isComponentAnalysis(parsedResult) ||
+				('component_name' in parsedResult && 'description' in parsedResult)) {
+				// Ensure dependencies exists
+				const dependencies = parsedResult.dependencies || [];
+
+				return [
+					`# Component: ${parsedResult.component_name}\n`,
+					`## Description\n${parsedResult.description}\n`,
+					"## Dependencies",
+					Array.isArray(dependencies)
+						? dependencies.map((dep: string) => `- ${dep}`).join('\n')
+						: "No dependencies specified",
+					"## Dependencies Details",
+					typeof parsedResult.dependencies === 'object' && !Array.isArray(parsedResult.dependencies)
+						? Object.entries(parsedResult.dependencies)
+							.map(([key, value]) => `### ${key}\n${value}`)
+							.join('\n\n')
+						: ""
+				].join('\n');
+			}
+
+			if (isCodeDocumentation(parsedResult) || 'code_module' in parsedResult) {
+				const modules = Array.isArray(parsedResult.code_module) ? parsedResult.code_module : [parsedResult.code_module];
+				const formattedModules = modules.map((module: any) => {
+					const deps = Array.isArray(module.dependencies) ? module.dependencies : [module.dependencies || 'No dependencies'];
+					const examples = Array.isArray(module.usage_examples) ? module.usage_examples : [module.usage_examples || 'No examples'];
+					return [
+						`### ${module.name}`,
+						module.purpose,
+						'',
+						'Dependencies:',
+						deps.map((dep: string) => `- ${dep}`).join('\n'),
+						'',
+						'Usage Examples:',
+						examples.map((ex: string) => '```\n' + ex + '\n```').join('\n')
+					].join('\n');
+				});
+
+				return [
+					"# Code Documentation",
+					"",
+					"## Modules",
+					"",
+					formattedModules.join('\n\n')
+				].join('\n');
+			}
+
+			if (isDevelopmentGuide(parsedResult) ||
+				('workflow_documentation' in parsedResult && 'setup_instructions' in parsedResult)) {
+				return [
+					"# Development Guide\n",
+					"## Setup",
+					parsedResult.setup_instructions,
+					"\n## Workflow",
+					parsedResult.workflow_documentation,
+					"\n## Guidelines",
+					parsedResult.guidelines?.map((guideline: string) => `- ${guideline}`).join('\n') || ''
+				].join('\n');
+			}
+
+			if (isMaintenanceOps(parsedResult) || ('maintenance_procedures' in parsedResult && 'troubleshooting_guide' in parsedResult)) {
+				const procedures = Array.isArray(parsedResult.maintenance_procedures)
+					? parsedResult.maintenance_procedures
+					: [parsedResult.maintenance_procedures || 'No procedures specified'];
+
+				const troubleshooting = Object.entries(parsedResult.troubleshooting_guide || {})
+					.map(([key, value]) => `### ${key}\n${value}`)
+					.join('\n\n');
+
+				return [
+					"# Maintenance & Operations",
+					"",
+					"## Procedures",
+					procedures.map((proc: string) => `- ${proc}`).join('\n'),
+					"",
+					"## Troubleshooting",
+					troubleshooting,
+					"",
+					"## Operations",
+					parsedResult.operations || 'No operations specified'
+				].join('\n');
+			}
+
+			// Fallback for unhandled cases
+			console.log("[DEBUG] No specific formatter matched, using JSON stringify");
+			return JSON.stringify(parsedResult, null, 2);
+
+		} catch (error) {
+			console.error('Error formatting tool result:', error);
+			return String(result);
+		}
+	}, []); // Empty dependency array since it doesn't depend on any props or state
+
+	// Update the validation helper to handle both parts and toolInvocations
+	const isValidDocumentationResponse = (message: Message): boolean => {
+		// First check parts array (new format)
+		// @ts-ignore
+		if (message.parts?.length) {
+			// @ts-ignore
+			const hasValidToolResult = message.parts.some(part => {
+				if (part.type !== 'tool-invocation') return false;
+				const toolInvocation = (part as ToolInvocation);
+				return (
+					toolInvocation.toolName === 'final_result' &&
+					toolInvocation.state === 'result' &&
+					toolInvocation.args &&
+					Object.keys(toolInvocation.args).length > 0
+				);
+			});
+			if (hasValidToolResult) return true;
 		}
 
-		// Only add streaming message if it's not already in DB
-		if (!acc.some(m => m.id === message.id)) {
-			const messageWithModel = toMessageWithModel(message, null);
-			acc.push(messageWithModel);
+		// Then check toolInvocations array (fallback format)
+		if (message.toolInvocations?.length) {
+			const hasValidToolResult = message.toolInvocations.some(tool => {
+				return (
+					tool.toolName === 'final_result' &&
+					tool.state === 'result' &&
+					tool.args &&
+					Object.keys(tool.args).length > 0
+				);
+			});
+			if (hasValidToolResult) return true;
 		}
-		return acc;
-	}, [] as MessageWithModel[]);
 
-	const renderMessage = (message: MessageWithModel) => {
-		return (
-			<motion.div
-				key={message.id}
-				initial={{ opacity: 0, y: 10 }}
-				animate={{ opacity: 1, y: 0 }}
-				exit={{ opacity: 0, y: -10 }}
-				className={cn(
-					"group relative w-full transition-all duration-300",
-					message.role === "user"
-						? "mb-8 hover:bg-muted/30 rounded-lg"
-						: "mb-8 hover:bg-primary/5 rounded-lg"
-				)}
-			>
-				<div className="flex items-start gap-4 px-4 py-4">
-					<div className={cn(
-						"min-w-[30px] text-sm font-medium",
-						message.role === "user"
-							? "text-muted-foreground"
-							: "text-primary"
-					)}>
-						{message.role === "user" ? "You" : "AI"}
-					</div>
-					<div className="prose prose-neutral dark:prose-invert flex-1">
-						<Markdown>{message.content}</Markdown>
+		// Finally check content for JSON format
+		if (message.content?.trim()) {
+			try {
+				const parsedContent = JSON.parse(message.content);
+				return Boolean(
+					parsedContent.finishReason === "step_complete" &&
+					parsedContent.context &&
+					Object.keys(parsedContent.context).length > 0
+				);
+			} catch {
+				return false;
+			}
+		}
 
-						{/* Handle both toolInvocations and tool_invocations */}
-						{(message.toolInvocations || (message as any).tool_invocations)?.map((tool: any, index: number) => {
-							// Create a unique key that's stable across renders
-							const uniqueKey = `${message.id}-${tool.toolCallId || 'tool'}-${index}`;
-
-							return (
-								<ToolInvocationDisplay
-									key={uniqueKey}
-									toolInvocation={{
-										id: tool.toolCallId,
-										toolCallId: tool.toolCallId,
-										toolName: tool.toolName,
-										args: tool.args,
-										state: tool.state,
-										result: 'result' in tool ? tool.result : undefined
-									}}
-								/>
-							);
-						})}
-					</div>
-				</div>
-			</motion.div>
-		);
+		return false;
 	};
 
-	// Update step validation
-	const isLastStep = useCallback(() => {
-		if (!strategyDetails) return true;
-		return state.currentStep >= strategyDetails.steps.length - 1;
-	}, [state.currentStep, strategyDetails]);
 
-	// Update progress display
-	const progress = useMemo(() => {
-		if (!strategyDetails) return 0;
-		return (state.completedSteps.length / strategyDetails.steps.length) * 100;
-	}, [state.completedSteps, strategyDetails]);
+	// Helper function to get document type name based on step index
+	const getDocumentTypeName = (index: number): string => {
+		if (!strategyDetails?.steps || index >= strategyDetails.steps.length) {
+			return "Unknown";
+		}
 
-	// Update step buttons
-	const getStepVariant = (index: number) => {
-		if (state.currentStep === index) {
-			return "default";
-		} else if (state.completedSteps.includes(index)) {
-			return "outline";
-		} else {
-			return "ghost";
+		const step = strategyDetails.steps[index];
+
+		// Map step titles to more user-friendly names if needed
+		switch (index) {
+			case 0: return "System Overview";
+			case 1: return "Component Analysis";
+			case 2: return "Code Documentation";
+			case 3: return "Development Guide";
+			case 4: return "Maintenance Ops";
+			default: return step.title || `Step ${index + 1}`;
 		}
 	};
+
 
 	const handleStepClick = (index: number) => {
-		if (!state.completedSteps.includes(index)) {
-			setState(prev => ({
-				...prev,
-				currentStep: index,
-			}));
+		// Always allow changing steps via the document type buttons
+		setState(prev => ({
+			...prev,
+			currentStep: index,
+		}));
+
+		// If we're generating a new document, trigger the generation
+		if (!groupedMessages[index] || !groupedMessages[index].messages?.length) {
+			// Small delay to allow state update to complete
+			setTimeout(() => {
+				handleGenerateDoc();
+			}, 100);
 		}
 	};
 
-	return (
-		<div className="flex flex-col h-full overflow-hidden">
-			<div className="flex-none p-6 border-b">
-				<div className="flex flex-col space-y-4">
-					{/* Title Section */}
-					<div>
-						<h2 className="text-xl font-semibold">Documentation Generator</h2>
-						<p className="text-sm text-muted-foreground mt-1">
-							Generating comprehensive documentation
-						</p>
-					</div>
+	useEffect(() => {
+		const setupDocumentationAgent = async () => {
+			if (!repo_name || isAgentReady) return;
 
-					{/* Controls Section */}
-					<div className="flex items-center justify-start gap-4">
+			try {
+				// First try to get existing agent
+				const getResponse = await fetch(`/api/agents?repository=${repo_name}&type=documentation`);
+
+				if (getResponse.ok) {
+					const agents = await getResponse.json();
+					if (agents.length > 0) {
+						// Use existing agent
+						localStorage.setItem(`doc_agent_${repo_name}`, agents[0].id);
+						setIsAgentReady(true);
+						return;
+					}
+				}
+
+				// If no existing agent, create new one
+				const createResponse = await fetch('/api/agents', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						name: `Documentation Agent for ${repo_name}`,
+						description: 'This agent is created for documentation generation',
+						type: 'documentation',
+						repository: repo_name,
+						agent_id: safeAgentId,
+						file_paths: file_paths,
+						chat_id: chat_id,
+					}),
+				});
+
+				if (createResponse.ok) {
+					const newAgent = await createResponse.json();
+					localStorage.setItem(`doc_agent_${repo_name}`, newAgent.id);
+					setIsAgentReady(true);
+				}
+			} catch (error) {
+				console.error('Error setting up documentation agent:', error);
+				setIsAgentReady(false);
+			}
+		};
+
+		setupDocumentationAgent();
+	}, [repo_name, safeAgentId, file_paths, chat_id, isAgentReady]);
+
+	return (
+		<div className="flex flex-col h-full">
+			<div className="flex-1 overflow-y-auto" ref={containerRef}>
+				{/* Strategy selector and Generate button */}
+				<div className="p-4 border-b">
+					<div className="flex items-center justify-between gap-4">
 						<StrategySelector
 							value={selectedStrategy}
 							onChange={handleStrategyChange}
 							strategies={strategies || []}
 						/>
 						<Button
-							size="lg"
-							className={cn(
-								"gap-2 transition-all min-w-[200px]",
-								isLoading ? "bg-destructive hover:bg-destructive/90" : "bg-primary hover:bg-primary/90"
-							)}
-							onClick={isLoading ? stop : handleGenerateDoc}
-							disabled={!strategyDetails || state.currentStep >= strategyDetails.steps.length}
+							onClick={handleGenerateDoc}
+							disabled={isLoading || !strategyDetails}
+							className="flex items-center gap-2"
 						>
 							{isLoading ? (
 								<>
-									<Square className="h-4 w-4" />
-									Stop Generation
-								</>
-							) : strategyDetails && state.currentStep >= strategyDetails.steps.length ? (
-								<>
-									<FileText className="h-4 w-4" />
-									Documentation Complete
+									<Skeleton className="h-4 w-4" />
+									Generating...
 								</>
 							) : (
 								<>
 									<Play className="h-4 w-4" />
-									{state.currentStep === 0 ? 'Generate Documentation' : 'Continue Generation'}
+									Generate
 								</>
 							)}
 						</Button>
 					</div>
 				</div>
+
+				{/* Graph View */}
+				<div className="p-4 border-b">
+					<DocumentationGraph
+						steps={strategyDetails?.steps || []}
+						currentStep={state.currentStep}
+						completedSteps={state.completedSteps}
+						onStepClick={handleStepClick}
+					/>
+				</div>
+
+				{/* Documentation content */}
+				<div className="p-4 space-y-6">
+					{groupedMessages.map((group, index) => (
+						<AgentMessageGroup
+							key={`${group.step_index}-${group.iteration_index}`}
+							group={group}
+							currentStep={state.currentStep}
+							onStepClick={handleStepClick}
+						/>
+					))}
+				</div>
+
+				{/* Loading state */}
+				{isLoading && (
+					<div className="p-4">
+						<Skeleton className="h-24 w-full" />
+					</div>
+				)}
+
+				{/* Error state */}
+				{isError && (
+					<div className="p-4 text-red-500">
+						Error loading documentation. Please try again.
+					</div>
+				)}
+
+				{/* Empty state */}
+				{!isLoading && !isError && groupedMessages.length === 0 && (
+					<div className="p-4 text-center text-muted-foreground">
+						No documentation generated yet. Click the Generate button to begin.
+					</div>
+				)}
+
+				<div ref={endRef} />
 			</div>
-
-			{strategyDetails && (
-				<div className="flex-none p-4 space-y-4 border-b">
-					<div className="flex items-center justify-between mb-4">
-						<h3 className="text-sm font-medium">
-							{currentStep?.title}
-						</h3>
-					</div>
-					<div className="flex items-center gap-4">
-						{strategyDetails.steps.map((step, index) => (
-							<Button
-								key={step.id}
-								variant={getStepVariant(index)}
-								size="sm"
-								className={cn(
-									"relative",
-									state.currentStep === index && "animate-pulse"
-								)}
-								onClick={() => handleStepClick(index)}
-								disabled={!state.completedSteps.includes(index) && index !== state.currentStep}
-							>
-								{step.title}
-								{state.completedSteps.includes(index) && (
-									<CheckCircle className="ml-2 h-4 w-4" />
-								)}
-							</Button>
-						))}
-					</div>
-				</div>
-			)}
-
-			<ScrollArea className="flex-1 w-full h-[calc(100%-180px)]">
-				<div ref={containerRef} className="p-4 space-y-4">
-					<AnimatePresence mode="popLayout">
-						{allMessages.map(renderMessage)}
-					</AnimatePresence>
-
-					{isLoading && (
-						<motion.div
-							initial={{ opacity: 0 }}
-							animate={{ opacity: 1 }}
-							className="flex items-center gap-2 text-muted-foreground"
-						>
-							<Bot className="h-4 w-4" />
-							<span className="text-sm">
-								{currentStep ? `Generating ${currentStep.title}...` : 'Loading...'}
-							</span>
-						</motion.div>
-					)}
-					<div ref={endRef} />
-				</div>
-			</ScrollArea>
 		</div>
 	);
 }

@@ -116,7 +116,7 @@ export function MultimodalInput({
   onCopyConversation
 }: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { toggle, setIsOpen, isPinned, isOpen } = useSidebar();
+  const { setIsOpen: setSidebarOpen, isOpen: isSidebarOpen } = useSidebar();
   const containerRef = useRef<HTMLDivElement>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -128,7 +128,7 @@ export function MultimodalInput({
   });
   const [mentionSearchTerm, setMentionSearchTerm] = useState("");
   const [selectedMenuIndex, setSelectedMenuIndex] = useState(0);
-  const { toggle: toggleAgent, setIsOpen: setAgentOpen, isPinned: isAgentPinned, isOpen: isAgentOpen } = useAgentPanel();
+  const { setIsOpen: setAgentOpen, isOpen: isAgentOpen } = useAgentPanel();
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -402,10 +402,10 @@ export function MultimodalInput({
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    if (isOpen && !isPinned) {
-                      setIsOpen(false);
-                    } else if (!isPinned) {
-                      toggle();
+                    if (isSidebarOpen) {
+                      setSidebarOpen(false);
+                    } else {
+                      setSidebarOpen(!isSidebarOpen);
                     }
                   }}
                   title="Toggle Sidebar"

@@ -2,41 +2,65 @@
 
 import { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
 import { useLocalStorage } from '@/hooks/use-local-storage';
+import { useWindowSize } from 'usehooks-ts';
+
+type ViewType = 'documentation' | 'mermaid' | null;
 
 interface AgentPanelContextType {
 	isOpen: boolean;
 	toggle: () => void;
 	setIsOpen: (value: boolean) => void;
-	isPinned: boolean;
-	setIsPinned: (value: boolean) => void;
+	activeView: ViewType;
+	setActiveView: (value: ViewType) => void;
 }
 
 const AgentPanelContext = createContext<AgentPanelContextType | undefined>(undefined);
 
 export function AgentPanelProvider({ children }: { children: ReactNode }) {
-	const [isOpen, setIsOpen] = useState(false);
-	const [isPinned, setIsPinned] = useLocalStorage('agent-panel-pinned', false);
+	const [storedIsOpen, setStoredIsOpen] = useLocalStorage('agent-panel-is-open', false);
+	const [storedActiveView, setStoredActiveView] = useLocalStorage<ViewType>('agent-panel-active-view', 'documentation');
+	const [isOpen, setIsOpen] = useState(storedIsOpen);
+	const [activeView, setActiveView] = useState<ViewType>(storedActiveView);
+	const { width } = useWindowSize();
 	const [isMounted, setIsMounted] = useState(false);
 
+	// Handle initial mount and window size changes
 	useEffect(() => {
 		setIsMounted(true);
-		if (isPinned) {
-			setIsOpen(true);
+
+		// On first mount or window resize, set appropriate state
+		if (width < 768) {
+			setIsOpen(false);
+		} else {
+			setIsOpen(storedIsOpen);
 		}
-	}, [isPinned]);
+	}, [width, storedIsOpen]);
+
+	// Persist state changes to localStorage
+	useEffect(() => {
+		if (isMounted) {
+			setStoredIsOpen(isOpen);
+		}
+	}, [isOpen, setStoredIsOpen, isMounted]);
+
+	// Persist active view changes
+	useEffect(() => {
+		if (isMounted && activeView) {
+			setStoredActiveView(activeView);
+		}
+	}, [activeView, setStoredActiveView, isMounted]);
 
 	const toggle = useCallback(() => {
-		if (!isPinned) {
-			setIsOpen(current => !current);
-		}
-	}, [isPinned]);
+		setIsOpen(current => !current);
+	}, []);
 
 	const value = {
+		// Don't show panel until we're mounted and have determined the correct state
 		isOpen: isMounted ? isOpen : false,
 		toggle,
 		setIsOpen,
-		isPinned: isMounted ? isPinned : false,
-		setIsPinned
+		activeView: isMounted ? activeView : null,
+		setActiveView
 	};
 
 	return (

@@ -8,18 +8,19 @@ import { useState, useEffect, memo, useCallback, SetStateAction, Dispatch } from
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { ToolInvocationDisplay } from "./tool-invocation";
 import { Markdown } from "./markdown";
 import { EditMessageInput } from "./edit-message-input";
 import { EditIndicator } from "./edit-indicator";
 import { useChatTitle } from "./chat-title-context";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
-import { TokenCount } from "./token-count";
 import { MessageGroup } from "./message-group";
 import { Button } from "@/components/ui/button";
 import { PencilIcon, TrashIcon } from "lucide-react";
 import { ExtendedToolCall } from "@/types/tool-calls";
 import { useAgentPanel } from "./agent-panel/agent-provider";
+import dynamic from 'next/dynamic';
+import { Suspense } from 'react';
+import { Skeleton } from './ui/skeleton';
 
 interface ChatProps {
   chatId?: string;
@@ -45,6 +46,7 @@ export interface MessageWithModel extends Message {
   };
   tool_invocations?: ExtendedToolCall[];
   messageType?: string;
+  agentId?: string;
 }
 
 export function toMessage(messageWithModel: MessageWithModel): Message {
@@ -71,6 +73,23 @@ export function toMessageWithModel(
     messageType: (message as MessageWithModel).messageType
   };
 }
+
+// Dynamically import heavy components
+const ToolInvocationDisplay = dynamic(
+  () => import('./tool-invocation').then(mod => mod.ToolInvocationDisplay),
+  {
+    loading: () => <Skeleton className="w-full h-4" />,
+    ssr: true // Keep SSR for this as it's part of the main content
+  }
+);
+
+const TokenCount = dynamic(
+  () => import('./token-count').then(mod => mod.TokenCount),
+  {
+    loading: () => null, // Token count can appear with a delay
+    ssr: false
+  }
+);
 
 // Memoized Message component to prevent unnecessary re-renders
 const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFirstUserMessage, isOrphaned, onDelete }: ChatMessageProps) => {
@@ -164,13 +183,10 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
             <Markdown>{message.content}</Markdown>
           </div>
 
-          {message.toolInvocations?.map((tool, index) => {
-            // Create a truly unique key by combining message id, tool id, and index
-            const uniqueKey = `${message.id}-${tool.toolCallId || 'tool'}-${index}`;
-
-            return (
+          <Suspense fallback={<Skeleton className="w-full h-4" />}>
+            {message.toolInvocations?.map((tool, index) => (
               <ToolInvocationDisplay
-                key={uniqueKey}
+                key={`${message.id}-${tool.toolCallId || 'tool'}-${index}`}
                 toolInvocation={{
                   id: tool.toolCallId,
                   toolCallId: tool.toolCallId,
@@ -180,14 +196,16 @@ const ChatMessage = memo(({ message, chatId, onEditComplete, onModelChange, isFi
                   result: 'result' in tool ? tool.result : undefined
                 }}
               />
-            );
-          })}
+            ))}
+          </Suspense>
 
-          <TokenCount
-            prompt_tokens={message.prompt_tokens}
-            completion_tokens={message.completion_tokens}
-            total_tokens={message.total_tokens}
-          />
+          <Suspense fallback={null}>
+            <TokenCount
+              prompt_tokens={message.prompt_tokens}
+              completion_tokens={message.completion_tokens}
+              total_tokens={message.total_tokens}
+            />
+          </Suspense>
         </motion.div>
 
         {message.role === "user" && (
@@ -240,7 +258,7 @@ export function Chat({ chatId }: ChatProps) {
   const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
   const { setTitle } = useChatTitle();
   const [currentModel, setCurrentModel] = useState("gpt-4o");
-  const { isOpen: isAgentOpen, isPinned: isAgentPinned } = useAgentPanel();
+  const { isOpen: isAgentOpen } = useAgentPanel();
 
   // Memoize repository status hooks
   const {
@@ -261,7 +279,9 @@ export function Chat({ chatId }: ChatProps) {
         if (!response.ok) throw new Error('Failed to fetch messages');
         const messages = await response.json();
         if (mounted) {
-          setInitialMessages(messages);
+          // Filter out any messages that might have agent_id (shouldn't happen, but just in case)
+          const nonAgentMessages = messages.filter((msg: MessageWithModel) => !msg.agentId && !msg.messageType);
+          setInitialMessages(nonAgentMessages);
         }
       } catch (error) {
         toast.error('Failed to load chat history');
@@ -283,12 +303,13 @@ export function Chat({ chatId }: ChatProps) {
     input,
     handleInputChange,
     handleSubmit,
-    append: vercelAppend,
+    append,
     stop,
-    setMessages: setVercelMessages,
     setInput,
+    setMessages,
     isLoading: isChatLoading,
   } = useChat({
+    experimental_throttle: 50,
     api: chatId ? `/api/chat/${chatId}` : "/api/chat",
     id: chatId,
     initialMessages: initialMessages.map(toMessage),
@@ -298,7 +319,7 @@ export function Chat({ chatId }: ChatProps) {
     onToolCall: async (tool) => {
       // console.log('onToolCall', tool);
 
-      setVercelMessages(prevMessages => {
+      setMessages(prevMessages => {
         const lastMessage = prevMessages[prevMessages.length - 1];
         if (!lastMessage) return prevMessages;
 
@@ -350,7 +371,11 @@ export function Chat({ chatId }: ChatProps) {
           }))
         } as MessageWithModel;
 
-        setVercelMessages(prevMessages =>
+        // Remove any agent-related fields
+        delete messageWithModel.agentId;
+        delete messageWithModel.messageType;
+
+        setMessages(prevMessages =>
           prevMessages.map(m =>
             m.id === messageWithModel.id ? messageWithModel : m
           )
@@ -379,36 +404,6 @@ export function Chat({ chatId }: ChatProps) {
       }
     }
   }, [isLoading, messages, scrollToBottom]);
-
-  // Create a wrapped append function that handles MessageWithModel
-  const append = useCallback(async (
-    message: MessageWithModel | CreateMessage,
-    options?: ChatRequestOptions
-  ) => {
-    // Save user message first if it's a user message
-    if (chatId && message.role === 'user') {
-      try {
-        await fetch(`/api/chat/${chatId}/messages/save`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            role: message.role,
-            content: message.content,
-            agentId: undefined,
-            model: currentModel,
-            toolInvocations: message.toolInvocations,
-            messageType: 'chat',
-          }),
-        });
-      } catch (error) {
-        console.error('Failed to save user message:', error);
-      }
-    }
-
-    return vercelAppend(message, options);
-  }, [vercelAppend, chatId, currentModel]);
 
   // Update thinking state when chat loading state changes
   useEffect(() => {
@@ -444,7 +439,7 @@ export function Chat({ chatId }: ChatProps) {
         content: editedMessage.content
       };
 
-      setVercelMessages(messagesToKeep as MessageWithModel[]);
+      setMessages(messagesToKeep as MessageWithModel[]);
 
       const options = {
         body: {
@@ -457,7 +452,7 @@ export function Chat({ chatId }: ChatProps) {
         },
       }
 
-      await vercelAppend(
+      await append(
         {
           id: crypto.randomUUID(),
           role: 'assistant',
@@ -470,7 +465,7 @@ export function Chat({ chatId }: ChatProps) {
       console.error('Failed to restream messages:', error);
       scrollToBottom({ force: true, behavior: 'auto' });
     }
-  }, [chatId, messages, setVercelMessages, vercelAppend, scrollToBottom]);
+  }, [chatId, messages, setMessages, append, scrollToBottom]);
 
   const handleModelChange = useCallback(async (model: string, messageId: string) => {
     // Update the message's model in the database
@@ -488,14 +483,14 @@ export function Chat({ chatId }: ChatProps) {
     }
 
     // Update local state with proper type casting
-    setVercelMessages((prevMessages) =>
+    setMessages((prevMessages) =>
       prevMessages.map(msg =>
         msg.id === messageId
           ? { ...msg, model } as MessageWithModel
           : msg
       )
     );
-  }, [chatId, setVercelMessages]);
+  }, [chatId, setMessages]);
 
 
   useEffect(() => {
@@ -530,7 +525,7 @@ export function Chat({ chatId }: ChatProps) {
         method: 'DELETE',
       });
       // Update local messages state after successful deletion
-      setVercelMessages(prevMessages =>
+      setMessages(prevMessages =>
         prevMessages.filter(m => m.id !== messageId)
       );
       toast.success('Message deleted');
@@ -538,7 +533,7 @@ export function Chat({ chatId }: ChatProps) {
       console.error('Failed to delete message:', error);
       toast.error('Failed to delete message');
     }
-  }, [chatId, setVercelMessages]);
+  }, [chatId, setMessages]);
 
   const renderMessage = useCallback((message: MessageWithModel, isOrphaned?: boolean) => {
     // Skip rendering empty assistant messages only if they have no tool invocations
@@ -577,20 +572,31 @@ export function Chat({ chatId }: ChatProps) {
     );
   }, [chatId, handleEditComplete, handleModelChange, messages, onDelete]);
 
+  // Add this before the groupedMessages reduction
+  console.log('Processing messages:', messages.map(m => ({
+    id: m.id,
+    role: m.role,
+    messageType: (m as MessageWithModel).messageType,
+    hasToolInvocations: !!(m as MessageWithModel).toolInvocations?.length
+  })));
+
+  // Filter out any agent messages from the grouped messages
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
-    // Skip messages that belong to specific agents
-    const messageType = (message as MessageWithModel).messageType;
-    if (messageType === 'documentation' || messageType === 'mermaid') {
+    const typedMessage = message as MessageWithModel;
+
+    // Only filter out mermaid-specific messages, allow documentation messages
+    if (typedMessage.messageType === 'mermaid') {
       return groups;
     }
 
+    // Start a new group with user message
     if (message.role === 'user') {
-      // Start a new group with user message
       groups.push([message as MessageWithModel]);
-    } else if (groups.length && message.id !== 'edit-indicator') {
+    } else if (groups.length && message.id !== 'edit-indicator' && message.role === 'assistant') {
       // Add assistant message to last group
       groups[groups.length - 1].push(message as MessageWithModel);
     }
+
     return groups;
   }, []);
 
@@ -610,58 +616,54 @@ export function Chat({ chatId }: ChatProps) {
   }, [messages]);
 
   return (
-    <div className={cn(
-      "flex flex-col h-[calc(100vh-4rem)]",
-      "transition-all duration-300 ease-in-out",
-      isAgentOpen && isAgentPinned && "transform -translate-x-[clamp(100px,10%,200px)]"
-    )}>
-      {/* Message container */}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-y-auto message-container"
-      >
-        <div className="flex flex-col w-full gap-4 px-4 md:px-8 py-4">
-          {groupedMessages.map((group, i) => (
-            <MessageGroup
-              key={group[0].id}
-              messages={group}
-              renderMessage={renderMessage}
-            />
-          ))}
-          {isThinking && (
-            <div className="flex justify-center py-4 transform-gpu">
-              <span className="text-sm text-muted-foreground loading-pulse">
-                {messages[messages.length - 1]?.toolInvocations?.some(
-                  tool => tool.state === 'partial-call' || tool.state === 'call'
-                )
-                  ? "Running tools..."
-                  : "Loading chat..."}
-              </span>
-            </div>
-          )}
-          <div ref={endRef} className="h-px w-full" />
+    <div className="h-[calc(100vh-var(--navbar-height))] flex flex-col">
+      {/* Message container - will grow to fill available space */}
+      <div className="flex-1 min-h-0">
+        <div
+          ref={containerRef}
+          className="h-full overflow-y-auto message-container"
+        >
+          <div className="flex flex-col w-full gap-4 px-4 md:px-8 py-4">
+            {groupedMessages.map((group, i) => (
+              <MessageGroup
+                key={group[0].id}
+                messages={group}
+                renderMessage={renderMessage}
+              />
+            ))}
+            {isThinking && (
+              <div className="flex justify-center py-4 transform-gpu">
+                <span className="text-sm text-muted-foreground loading-pulse">
+                  {messages[messages.length - 1]?.toolInvocations?.some(
+                    tool => tool.state === 'partial-call' || tool.state === 'call'
+                  )
+                    ? "Running tools..."
+                    : "Loading chat..."}
+                </span>
+              </div>
+            )}
+            <div ref={endRef} className="h-px w-full" />
+          </div>
         </div>
       </div>
 
-      {/* Input container - fixed at bottom */}
-      <div className="sticky bottom-0 w-full bg-background border-t">
-        <div className="max-w-3xl mx-auto">
-          <MultimodalInput
-            chatId={chatId || ''}
-            input={input}
-            setInput={setInput}
-            isLoading={isChatLoading}
-            stop={stop}
-            messages={messages}
-            setMessages={setVercelMessages as Dispatch<SetStateAction<Message[]>>}
-            append={append}
-            handleSubmit={handleSubmit}
-            searchRepository={searchRepository}
-            currentModel={currentModel}
-            onModelChange={setCurrentModel}
-            onCopyConversation={copyConversationToClipboard}
-          />
-        </div>
+      {/* Input container - will stay at bottom */}
+      <div className="flex-shrink-0 w-full bg-background border-t">
+        <MultimodalInput
+          chatId={chatId || ''}
+          input={input}
+          setInput={setInput}
+          isLoading={isChatLoading}
+          stop={stop}
+          messages={messages}
+          setMessages={setMessages as Dispatch<SetStateAction<Message[]>>}
+          append={append}
+          handleSubmit={handleSubmit}
+          searchRepository={searchRepository}
+          currentModel={currentModel}
+          onModelChange={setCurrentModel}
+          onCopyConversation={copyConversationToClipboard}
+        />
       </div>
     </div>
   );

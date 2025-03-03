@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from httpx import AsyncClient
 from openai import AsyncOpenAI
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai import RunContext
 from pydantic_ai.models.openai import ModelResponse, OpenAIModel, TextPart, ToolCallPart
@@ -32,6 +32,7 @@ from ..utils.models import (
 )
 from ..utils.tools import execute_python_code
 from ..documentation.strategies import strategy_registry
+from ..utils.openai_client import get_openai_client
 
 # region Router Setup
 router = APIRouter()
@@ -138,6 +139,35 @@ async def create_agent(
     agent: AgentCreate,
     db: Session = Depends(get_db),
 ):
+    # Check for existing agent with same name
+    existing_agent = (
+        db.query(Agent)
+        .filter(Agent.name == agent.name, Agent.repository == agent.repository)
+        .first()
+    )
+
+    if existing_agent:
+        # If agent exists and matches repository, return it
+        if existing_agent.repository == agent.repository:
+            return AgentResponse(
+                id=str(existing_agent.id),
+                name=existing_agent.name,
+                description=existing_agent.description,
+                system_prompt=existing_agent.system_prompt,
+                tools=(
+                    existing_agent.tools
+                    if isinstance(existing_agent.tools, list)
+                    else (
+                        json.loads(existing_agent.tools) if existing_agent.tools else []
+                    )
+                ),
+                created_at=existing_agent.created_at,
+                is_active=existing_agent.is_active,
+                repository=existing_agent.repository,
+            )
+        # If name conflict with different repository, append repository name
+        agent.name = f"{agent.name}_{agent.repository}"
+
     # Convert tools list to JSON string for database storage
     tools_json = json.dumps(agent.tools)
 
@@ -153,15 +183,12 @@ async def create_agent(
     db.commit()
     db.refresh(db_agent)
 
-    # Parse the JSON string back to a list for the response
-    tools_list = json.loads(db_agent.tools)
-
     return AgentResponse(
         id=str(db_agent.id),
         name=db_agent.name,
         description=db_agent.description,
         system_prompt=db_agent.system_prompt,
-        tools=tools_list,  # Pass the parsed list instead of JSON string
+        tools=agent.tools,  # Use original tools list
         created_at=db_agent.created_at,
         is_active=db_agent.is_active,
         repository=db_agent.repository,
@@ -169,17 +196,31 @@ async def create_agent(
 
 
 @router.get("/agents", response_model=List[AgentResponse])
-async def list_agents(db: Session = Depends(get_db)):
-    agents = db.query(Agent).filter(Agent.is_active == True).all()
+async def list_agents(
+    repository: Optional[str] = None,
+    type: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """List all agents, optionally filtered by repository"""
+    query = db.query(Agent)
 
-    # Convert each agent's tools from JSON string to list
+    if repository:
+        query = query.filter(Agent.repository == repository)
+
+    agents = query.all()
+
     return [
         AgentResponse(
             id=str(agent.id),
             name=agent.name,
             description=agent.description,
             system_prompt=agent.system_prompt,
-            tools=json.loads(agent.tools),
+            # Handle tools that might already be deserialized
+            tools=(
+                agent.tools
+                if isinstance(agent.tools, list)
+                else json.loads(agent.tools) if agent.tools else []
+            ),
             created_at=agent.created_at,
             is_active=agent.is_active,
             repository=agent.repository,
@@ -354,9 +395,7 @@ class DocumentationRequest(BaseModel):
 # region Agent Configuration
 gpt_4o_mini = OpenAIModel(
     model_name="gpt-4o-mini",
-    openai_client=AsyncOpenAI(
-        api_key=os.getenv("OPENAI_API_KEY"),
-    ),
+    openai_client=get_openai_client(async_client=True),
 )
 
 docs_agent = PydanticAgent(
@@ -497,54 +536,37 @@ async def save_agent_message(
     agent_id: UUID,
     repository: str,
     message_type: str,
-    tool_invocations: List = None,
-) -> Message:
-    """Unified function to save any type of agent message"""
+    tool_invocations: Optional[List[Dict[str, Any]]] = None,
+):
+    """Save a message associated with an agent"""
     try:
-        # Convert tool_invocations to list of dicts if it's a string
-        if isinstance(tool_invocations, str):
-            try:
-                tool_invocations = json.loads(tool_invocations)
-            except json.JSONDecodeError:
-                tool_invocations = []
+        # Validate message type
+        if message_type not in ["documentation", "mermaid"]:
+            raise ValueError("Invalid message type")
 
-        message = Message(
+        # Convert agent_id to string for consistency
+        agent_id_str = str(agent_id)
+
+        # Create message with explicit agent fields
+        db_message = Message(
             id=uuid.uuid4(),
             chat_id=chat_id,
-            content=content,
-            role=role,
-            model=model,
-            created_at=datetime.now(timezone.utc),
-            tool_invocations=tool_invocations or [],
-            agent_id=agent_id,
+            agent_id=agent_id_str,
             repository=repository,
             message_type=message_type,
+            role=role,
+            content=content,
+            tool_invocations=tool_invocations or [],
+            created_at=datetime.now(timezone.utc),
         )
 
-        db.add(message)
+        db.add(db_message)
         db.commit()
-        db.refresh(message)
-
-        # Verify message was saved
-        saved_message = (
-            db.query(Message)
-            .filter(
-                Message.id == message.id,
-                Message.agent_id == agent_id,
-                Message.repository == repository,
-                Message.message_type == message_type,
-            )
-            .first()
-        )
-
-        if not saved_message:
-            raise Exception("Message not saved correctly")
-
-        return message
+        return db_message
     except Exception as e:
         db.rollback()
-        logging.error(f"Error saving message: {str(e)}")
-        raise
+        logging.error(f"Failed to save agent message: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 async def process_documentation_step(
@@ -757,10 +779,16 @@ async def generate_documentation(
 ):
     """Generate documentation with streaming response"""
     try:
+        # Convert agent_id to string for consistency
+        agent_id_str = str(agent_id)
+
         # Verify agent exists
-        agent = db.query(Agent).filter(Agent.id == str(agent_id)).first()
+        agent = db.query(Agent).filter(Agent.id == agent_id_str).first()
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Update request with string agent_id
+        request.agent_id = agent_id_str
 
         # Return streaming response
         return StreamingResponse(
@@ -786,7 +814,7 @@ class MermaidRequest(BaseModel):
     repository: str
     content: Optional[str] = None
     messages: Optional[List[dict]] = []
-    agent_id: Optional[UUID] = None
+    agent_id: Optional[str] = None  # Change to string type
 
 
 mermaid_agent = PydanticAgent(
@@ -892,9 +920,16 @@ async def generate_mermaid(
     db: Session = Depends(get_db),
 ):
     try:
-        agent = db.query(Agent).filter(Agent.id == str(agent_id)).first()
+        # Convert agent_id to string for consistency
+        agent_id_str = str(agent_id)
+
+        # Verify agent exists
+        agent = db.query(Agent).filter(Agent.id == agent_id_str).first()
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Update request with string agent_id
+        request.agent_id = agent_id_str
 
         # Return streaming response
         response = StreamingResponse(
@@ -916,100 +951,59 @@ class MessageCreate(BaseModel):
     """Model for creating new messages"""
 
     chat_id: str
-    agent_id: str  # Change from UUID to str to match database schema
+    agent_id: str
     repository: str
     message_type: str  # 'documentation' or 'mermaid'
     role: str
     content: str
     tool_invocations: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
 
+    @field_validator("message_type")
+    def validate_message_type(cls, v):
+        if v not in ["documentation", "mermaid"]:
+            raise ValueError('message_type must be either "documentation" or "mermaid"')
+        return v
 
-@router.post("/agents/{agent_id}/messages")
-async def save_message(
+
+async def save_agent_message(
+    chat_id: UUID,
+    content: str,
+    role: str,
+    model: str,
+    db: Session,
     agent_id: UUID,
-    message: MessageCreate,
-    db: Session = Depends(get_db),
-):
-    """Save a message for an agent"""
-    try:
-        # Standardize tool invocations to match index.py format
-        tool_invocations = standardize_tool_invocations(message.tool_invocations or [])
-
-        # Create a new message with proper ID and tool invocations
-        db_message = Message(
-            id=uuid.uuid4(),  # Add explicit ID
-            chat_id=message.chat_id,
-            agent_id=str(agent_id),  # Convert UUID to string
-            repository=message.repository,
-            message_type=message.message_type,
-            role=message.role,
-            content=message.content,
-            tool_invocations=tool_invocations,  # Now properly standardized
-            created_at=datetime.now(timezone.utc),
-        )
-        db.add(db_message)
-        db.commit()
-        db.refresh(db_message)
-
-        # Verify the message was saved
-        saved_message = db.query(Message).filter(Message.id == db_message.id).first()
-
-        if not saved_message:
-            raise HTTPException(status_code=500, detail="Message failed to save")
-
-        return {"status": "success", "message_id": str(db_message.id)}
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Failed to save message: {e}")
-        print(f"Failed to save message: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/agents/{agent_id}/messages")
-async def get_messages(
-    agent_id: UUID,
-    chat_id: str,
     repository: str,
     message_type: str,
-    db: Session = Depends(get_db),
+    tool_invocations: Optional[List[Dict[str, Any]]] = None,
 ):
+    """Save a message associated with an agent"""
     try:
-        # Convert string chat_id to UUID
-        chat_id_uuid = UUID(chat_id)
+        # Validate message type
+        if message_type not in ["documentation", "mermaid"]:
+            raise ValueError("Invalid message type")
 
-        logging.info(
-            f"Fetching messages with params: agent_id={agent_id}, chat_id={chat_id}, repository={repository}, message_type={message_type}"
+        # Convert agent_id to string for consistency
+        agent_id_str = str(agent_id)
+
+        # Create message with explicit agent fields
+        db_message = Message(
+            id=uuid.uuid4(),
+            chat_id=chat_id,
+            agent_id=agent_id_str,
+            repository=repository,
+            message_type=message_type,
+            role=role,
+            content=content,
+            tool_invocations=tool_invocations or [],
+            created_at=datetime.now(timezone.utc),
         )
 
-        messages = (
-            db.query(Message)
-            .filter(
-                Message.agent_id == str(agent_id),
-                Message.chat_id == chat_id_uuid,  # Use UUID
-                Message.repository == repository,
-                Message.message_type == message_type,
-            )
-            .order_by(Message.created_at.asc())
-            .all()
-        )
-
-        logging.info(f"Found {len(messages)} messages")
-
-        # Standardize tool invocations for each message
-        for message in messages:
-            if message.tool_invocations:
-                message.tool_invocations = standardize_tool_invocations(
-                    message.tool_invocations
-                )
-            else:
-                message.tool_invocations = []
-
-        return messages
-    except ValueError as e:
-        logging.error(f"Invalid UUID format for chat_id: {chat_id}")
-        raise HTTPException(status_code=400, detail=f"Invalid chat_id format: {str(e)}")
+        db.add(db_message)
+        db.commit()
+        return db_message
     except Exception as e:
-        logging.error(f"Error fetching messages: {str(e)}")
+        db.rollback()
+        logging.error(f"Failed to save agent message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
