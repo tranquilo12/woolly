@@ -572,22 +572,31 @@ export function Chat({ chatId }: ChatProps) {
     );
   }, [chatId, handleEditComplete, handleModelChange, messages, onDelete]);
 
+  // Add this before the groupedMessages reduction
+  console.log('Processing messages:', messages.map(m => ({
+    id: m.id,
+    role: m.role,
+    messageType: (m as MessageWithModel).messageType,
+    hasToolInvocations: !!(m as MessageWithModel).toolInvocations?.length
+  })));
+
   // Filter out any agent messages from the grouped messages
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
-    // Skip messages that belong to agents - strict check for both fields
     const typedMessage = message as MessageWithModel;
-    if (typedMessage.agentId !== undefined || typedMessage.messageType !== undefined) {
+
+    // Only filter out mermaid-specific messages, allow documentation messages
+    if (typedMessage.messageType === 'mermaid') {
       return groups;
     }
 
-    // Only include messages that are explicitly not agent messages
+    // Start a new group with user message
     if (message.role === 'user') {
-      // Start a new group with user message
       groups.push([message as MessageWithModel]);
     } else if (groups.length && message.id !== 'edit-indicator' && message.role === 'assistant') {
-      // Add assistant message to last group, ensuring it's not an agent message
+      // Add assistant message to last group
       groups[groups.length - 1].push(message as MessageWithModel);
     }
+
     return groups;
   }, []);
 

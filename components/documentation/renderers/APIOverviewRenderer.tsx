@@ -1,8 +1,6 @@
 import { memo } from 'react';
-import { motion } from 'framer-motion';
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MermaidWrapper } from './shared/MermaidWrapper';
 
 export const APIOverviewRenderer = memo(function APIOverviewRenderer({ content }: { content: any }) {
 	return (
@@ -14,11 +12,6 @@ export const APIOverviewRenderer = memo(function APIOverviewRenderer({ content }
 				</div>
 
 				<p className="text-muted-foreground">{content.description}</p>
-
-				<MermaidWrapper
-					title="Architecture"
-					content={content.architecture_diagram}
-				/>
 
 				<div className="grid md:grid-cols-2 gap-4">
 					<div className="space-y-2">

@@ -28,9 +28,9 @@ export function AgentMessageGroup({ group, currentStep, onStepClick }: AgentMess
 			initial={{ opacity: 0, y: 20 }}
 			animate={{ opacity: 1, y: 0 }}
 			exit={{ opacity: 0, y: -20 }}
-			className="space-y-4"
+			className="space-y-4 p-6"
 		>
-			<div className="mb-6 border rounded-lg overflow-hidden mt-6">
+			<div className="mb-6 border rounded-lg overflow-hidden">
 				<div className="bg-muted p-4 flex justify-between items-center border-b">
 					<div className="flex items-center gap-3">
 						<h3 className="text-sm font-medium">
