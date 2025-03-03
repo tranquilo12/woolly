@@ -22,15 +22,36 @@ export const DocumentationEdge = memo(function DocumentationEdge({
 		targetX,
 		targetY,
 		targetPosition,
+		borderRadius: 16,
 	});
 
 	return (
-		<path
-			id={id}
-			className={`react-flow__edge-path ${animated ? 'animate-pulse' : ''}`}
-			d={edgePath}
-			style={style}
-			markerEnd={markerEnd}
-		/>
+		<>
+			{/* Shadow path for depth effect */}
+			<path
+				id={`${id}-shadow`}
+				className="react-flow__edge-path"
+				d={edgePath}
+				style={{
+					...style,
+					stroke: 'rgba(0, 0, 0, 0.1)',
+					strokeWidth: (style.strokeWidth as number || 2) + 2,
+					filter: 'blur(2px)',
+				}}
+			/>
+			{/* Main edge path */}
+			<path
+				id={id}
+				className={`react-flow__edge-path transition-all duration-300 ${animated ? 'animate-pulse' : ''
+					}`}
+				d={edgePath}
+				style={{
+					...style,
+					strokeDasharray: animated ? '5,5' : 'none',
+					animation: animated ? 'flow 1s linear infinite' : 'none',
+				}}
+				markerEnd={markerEnd}
+			/>
+		</>
 	);
 }); 

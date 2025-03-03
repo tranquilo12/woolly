@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { CheckCircle } from 'lucide-react';
+import { CheckCircle, ChevronRight } from 'lucide-react';
 import { StrategyStep } from '@/lib/api/documentation';
 
 interface DocumentationNodeData {
@@ -19,10 +19,10 @@ export const DocumentationNode = memo(function DocumentationNode({
 	return (
 		<div
 			className={`
-				p-4 rounded-lg shadow-md w-[250px] cursor-pointer transition-all duration-200
-				${isCurrent ? 'bg-primary text-primary-foreground ring-2 ring-primary' : 'bg-card text-card-foreground'}
-				${isCompleted ? 'border-green-500' : 'border-muted'}
-				hover:ring-2 hover:ring-primary/50
+				group p-4 rounded-lg shadow-lg w-[280px] cursor-pointer transition-all duration-300
+				${isCurrent ? 'bg-primary text-primary-foreground scale-105 ring-2 ring-primary' : 'bg-card text-card-foreground hover:scale-105'}
+				${isCompleted ? 'border-2 border-green-500/50' : 'border border-muted'}
+				hover:shadow-xl hover:ring-2 hover:ring-primary/50
 			`}
 			onClick={(e) => {
 				e.stopPropagation();
@@ -42,22 +42,40 @@ export const DocumentationNode = memo(function DocumentationNode({
 				<Handle
 					type="target"
 					position={Position.Top}
-					className="w-3 h-3 bg-muted-foreground"
+					className={`w-3 h-3 transition-colors duration-200
+						${isCompleted ? 'bg-green-500' : 'bg-muted-foreground'}
+						${isCurrent ? 'bg-primary-foreground' : ''}
+					`}
 				/>
 			)}
 
 			{/* Node content */}
-			<div className="flex items-center justify-between mb-2">
+			<div className="flex items-center justify-between mb-3">
 				<div className="flex items-center gap-2">
-					<span className="text-sm font-medium">Step {index + 1}</span>
+					<span className={`
+						text-sm font-medium px-2 py-0.5 rounded-full
+						${isCurrent ? 'bg-primary-foreground/20' : 'bg-muted'}
+					`}>
+						Step {index + 1}
+					</span>
 					{isCompleted && (
 						<CheckCircle className="w-4 h-4 text-green-500" />
 					)}
 				</div>
 			</div>
 
-			<h3 className="text-base font-semibold mb-1 truncate">{step.title}</h3>
-			<p className="text-xs text-muted-foreground line-clamp-2">
+			<h3 className="text-base font-semibold mb-2 truncate flex items-center gap-2">
+				{step.title}
+				<ChevronRight className={`
+					w-4 h-4 transition-transform duration-300
+					${isCurrent ? 'translate-x-1' : 'group-hover:translate-x-1'}
+				`} />
+			</h3>
+
+			<p className={`
+				text-sm line-clamp-2 transition-colors duration-200
+				${isCurrent ? 'text-primary-foreground/80' : 'text-muted-foreground'}
+			`}>
 				{step.description || 'No description available'}
 			</p>
 
@@ -66,7 +84,10 @@ export const DocumentationNode = memo(function DocumentationNode({
 				<Handle
 					type="source"
 					position={Position.Bottom}
-					className="w-3 h-3 bg-muted-foreground"
+					className={`w-3 h-3 transition-colors duration-200
+						${isCompleted ? 'bg-green-500' : 'bg-muted-foreground'}
+						${isCurrent ? 'bg-primary-foreground' : ''}
+					`}
 				/>
 			)}
 		</div>

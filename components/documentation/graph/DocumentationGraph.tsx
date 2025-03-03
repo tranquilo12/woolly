@@ -40,9 +40,31 @@ export function DocumentationGraph({
 		documentationEdge: DocumentationEdge,
 	}), []);
 
+	// Calculate layout positions for nodes
+	const calculateNodePositions = useCallback((numNodes: number) => {
+		const radius = 300; // Radius of the circular layout
+		const centerX = 400; // Center X coordinate
+		const centerY = 300; // Center Y coordinate
+		const positions: { x: number; y: number }[] = [];
+
+		// For 5 or fewer nodes, create a semi-circular layout
+		const angleStep = Math.PI / (numNodes - 1);
+
+		for (let i = 0; i < numNodes; i++) {
+			const angle = i * angleStep;
+			const x = centerX + radius * Math.cos(angle);
+			const y = centerY + radius * Math.sin(angle);
+			positions.push({ x, y });
+		}
+
+		return positions;
+	}, []);
+
 	// Create nodes from steps
 	const initialNodes: Node[] = useMemo(() => {
 		if (!steps || !steps.length) return [];
+
+		const positions = calculateNodePositions(steps.length);
 
 		return steps.map((step, index) => {
 			const isCompleted = completedSteps.includes(index);
@@ -51,7 +73,7 @@ export function DocumentationGraph({
 			return {
 				id: `step-${index}`,
 				type: 'documentationNode',
-				position: { x: 250, y: 100 + index * 150 }, // Vertical layout
+				position: positions[index],
 				data: {
 					step,
 					index,
@@ -61,7 +83,7 @@ export function DocumentationGraph({
 				},
 			};
 		});
-	}, [steps, currentStep, completedSteps, onStepClick]);
+	}, [steps, currentStep, completedSteps, onStepClick, calculateNodePositions]);
 
 	// Create edges between nodes
 	const initialEdges: Edge[] = useMemo(() => {
@@ -72,10 +94,10 @@ export function DocumentationGraph({
 			source: `step-${index}`,
 			target: `step-${index + 1}`,
 			type: 'documentationEdge',
-			animated: currentStep > index,
+			animated: currentStep > index || currentStep === index,
 			style: {
 				stroke: completedSteps.includes(index) ? '#10b981' : '#64748b',
-				strokeWidth: 2,
+				strokeWidth: completedSteps.includes(index) ? 3 : 2,
 			},
 			markerEnd: {
 				type: MarkerType.ArrowClosed,
@@ -95,7 +117,7 @@ export function DocumentationGraph({
 	}, [initialNodes, initialEdges, setNodes, setEdges]);
 
 	return (
-		<div className="h-full w-full">
+		<div className="h-[600px] w-full border rounded-lg overflow-hidden">
 			<ReactFlow
 				nodes={nodes}
 				edges={edges}
@@ -104,7 +126,7 @@ export function DocumentationGraph({
 				nodeTypes={nodeTypes}
 				edgeTypes={edgeTypes}
 				fitView
-				fitViewOptions={{ padding: 0.2 }}
+				fitViewOptions={{ padding: 0.3 }}
 				minZoom={0.5}
 				maxZoom={1.5}
 				defaultViewport={{ x: 0, y: 0, zoom: 1 }}
@@ -115,7 +137,13 @@ export function DocumentationGraph({
 				elementsSelectable={false}
 			>
 				<Background color="#64748b" gap={16} size={1} />
-				<Controls showInteractive={false} />
+				<Controls
+					showInteractive={false}
+					className="bg-background border-border"
+				/>
+				<Panel position="top-center" className="bg-background/80 p-2 rounded-md shadow-md">
+					<h3 className="text-sm font-medium">Documentation Progress</h3>
+				</Panel>
 			</ReactFlow>
 		</div>
 	);
