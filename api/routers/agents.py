@@ -840,7 +840,8 @@ async def stream_mermaid_response(
             if message.get("role") == "user"
         ]
         if user_messages:
-            user_prompt = f"{base_prompt}\n\nHere is some additional context:\n\n{'\n\n'.join(user_messages)}"
+            separator = "\n\n"
+            user_prompt = f"{base_prompt}\n\nHere is some additional context:\n\n{separator.join(user_messages)}"
 
     code_search_query = CodeSearch(
         query="*",

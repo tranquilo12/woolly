@@ -38,6 +38,12 @@ app.include_router(strategies.router)
 client = get_openai_client(async_client=False)
 
 
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint for Docker healthcheck"""
+    return {"status": "healthy"}
+
+
 class ToolInvocation(BaseModel):
     id: str
     function: Optional[dict] = None

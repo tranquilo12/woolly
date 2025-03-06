@@ -1,0 +1,58 @@
+version: "3"
+
+services:
+  # Backend service
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    volumes:
+      - ./api:/app/api
+      - ./migrations:/app/migrations
+      - ./.env.local:/app/.env.local
+      - ./requirements.txt:/app/requirements.txt
+      - ./api/requirements.txt:/app/api/requirements.txt
+    environment:
+      - PYTHONUNBUFFERED=1
+      - POSTGRES_URL=${POSTGRES_URL:-postgresql://default:zmNuXOkn14TJ@ep-proud-sound-a4rerowu-pooler.us-east-1.aws.neon.tech:5432/verceldb?sslmode=require}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    ports:
+      - "3001:3001"
+    networks:
+      - woolly-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Frontend service
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    volumes:
+      - ./app:/app/app
+      - ./components:/app/components
+      - ./hooks:/app/hooks
+      - ./lib:/app/lib
+      - ./public:/app/public
+      - ./types:/app/types
+      - ./.env.local:/app/.env.local
+      - /app/node_modules
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:3001/api
+      - NEXT_TELEMETRY_DISABLED=1
+    ports:
+      - "3000:3000"
+    networks:
+      - woolly-network
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+networks:
+  woolly-network:
+    driver: bridge
