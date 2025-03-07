@@ -8,17 +8,15 @@ import { ToolInvocation } from '@ai-sdk/ui-utils';
 import { useQuery } from '@tanstack/react-query';
 import { Message } from "ai";
 import { useChat } from 'ai/react';
-import { CheckCircle, ChevronLeft, ChevronRight, Play } from "lucide-react";
+import { Play, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { DocumentationResult, isCodeDocumentation, isComponentAnalysis, isDevelopmentGuide, isMaintenanceOps, isSystemOverview } from '../../types/documentation';
 import { MessageWithModel, toMessageWithModel } from "../chat";
 import { Button } from "../ui/button";
 import { StrategySelector } from './strategy-selector';
-import { Skeleton } from '../ui/skeleton';
-import { toast } from 'sonner';
 import { AgentMessageGroup } from './message-group';
-import { DocumentationGraph } from '../documentation/graph/DocumentationGraph';
 import 'reactflow/dist/style.css';
+import { cn } from "@/lib/utils";
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -42,6 +40,35 @@ interface StepConfig {
 	prompt: string;
 	description: string;
 	requiresConfirmation: boolean;
+}
+
+function PipelineProgress({ currentStep, totalSteps, completedSteps }: {
+	currentStep: number;
+	totalSteps: number;
+	completedSteps: number[];
+}) {
+	return (
+		<div className="mb-4">
+			<div className="flex justify-between items-center mb-2">
+				<span className="text-sm font-medium">Pipeline Progress</span>
+				<span className="text-xs text-muted-foreground">
+					{completedSteps.length} of {totalSteps} steps completed
+				</span>
+			</div>
+			<div className="flex gap-1">
+				{Array.from({ length: totalSteps }).map((_, i) => (
+					<div
+						key={i}
+						className={cn(
+							"h-1.5 rounded-full flex-1 transition-all duration-300",
+							i < currentStep ? "bg-primary" :
+								completedSteps.includes(i) ? "bg-primary/70" : "bg-muted"
+						)}
+					/>
+				))}
+			</div>
+		</div>
+	);
 }
 
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
@@ -468,14 +495,20 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					parsedResult.architecture_diagram,
 					"```\n",
 					"## Core Technologies",
-					parsedResult.core_technologies.map((tech: string) => `- ${tech}`).join('\n'),
+					Array.isArray(parsedResult.core_technologies)
+						? parsedResult.core_technologies.map((tech: string) => `- ${tech}`).join('\n')
+						: "No core technologies specified",
 					"\n## Design Patterns",
-					parsedResult.design_patterns.map((pattern: string) => `- ${pattern}`).join('\n'),
+					Array.isArray(parsedResult.design_patterns)
+						? parsedResult.design_patterns.map((pattern: string) => `- ${pattern}`).join('\n')
+						: "No design patterns specified",
 					"\n## System Requirements",
-					parsedResult.system_requirements?.map((req: string) => `- ${req}`).join('\n') || '',
+					Array.isArray(parsedResult.system_requirements)
+						? parsedResult.system_requirements.map((req: string) => `- ${req}`).join('\n')
+						: "No system requirements specified",
 					"\n## Project Structure",
 					"```",
-					parsedResult.project_structure,
+					parsedResult.project_structure || "No project structure specified",
 					"```"
 				].join('\n');
 			}
@@ -494,7 +527,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						: "No dependencies specified",
 					"## Dependencies Details",
 					typeof parsedResult.dependencies === 'object' && !Array.isArray(parsedResult.dependencies)
-						? Object.entries(parsedResult.dependencies)
+						? Object.entries(parsedResult.dependencies || {})
 							.map(([key, value]) => `### ${key}\n${value}`)
 							.join('\n\n')
 						: ""
@@ -502,13 +535,26 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			}
 
 			if (isCodeDocumentation(parsedResult) || 'code_module' in parsedResult) {
-				const modules = Array.isArray(parsedResult.code_module) ? parsedResult.code_module : [parsedResult.code_module];
+				const modules = Array.isArray(parsedResult.code_module)
+					? parsedResult.code_module
+					: (parsedResult.code_module ? [parsedResult.code_module] : []);
+
+				if (modules.length === 0) {
+					return "# Code Documentation\n\nNo code modules found.";
+				}
+
 				const formattedModules = modules.map((module: any) => {
-					const deps = Array.isArray(module.dependencies) ? module.dependencies : [module.dependencies || 'No dependencies'];
-					const examples = Array.isArray(module.usage_examples) ? module.usage_examples : [module.usage_examples || 'No examples'];
+					const deps = Array.isArray(module?.dependencies)
+						? module.dependencies
+						: (module?.dependencies ? [module.dependencies] : ['No dependencies']);
+
+					const examples = Array.isArray(module?.usage_examples)
+						? module.usage_examples
+						: (module?.usage_examples ? [module.usage_examples] : ['No examples']);
+
 					return [
-						`### ${module.name}`,
-						module.purpose,
+						`### ${module?.name || 'Unnamed Module'}`,
+						module?.purpose || 'No purpose specified',
 						'',
 						'Dependencies:',
 						deps.map((dep: string) => `- ${dep}`).join('\n'),
@@ -532,20 +578,23 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				return [
 					"# Development Guide\n",
 					"## Setup",
-					parsedResult.setup_instructions,
+					parsedResult.setup_instructions || "No setup instructions provided",
 					"\n## Workflow",
-					parsedResult.workflow_documentation,
+					parsedResult.workflow_documentation || "No workflow documentation provided",
 					"\n## Guidelines",
-					parsedResult.guidelines?.map((guideline: string) => `- ${guideline}`).join('\n') || ''
+					Array.isArray(parsedResult.guidelines)
+						? parsedResult.guidelines.map((guideline: string) => `- ${guideline}`).join('\n')
+						: "No guidelines specified"
 				].join('\n');
 			}
 
 			if (isMaintenanceOps(parsedResult) || ('maintenance_procedures' in parsedResult && 'troubleshooting_guide' in parsedResult)) {
 				const procedures = Array.isArray(parsedResult.maintenance_procedures)
 					? parsedResult.maintenance_procedures
-					: [parsedResult.maintenance_procedures || 'No procedures specified'];
+					: (parsedResult.maintenance_procedures ? [parsedResult.maintenance_procedures] : ['No procedures specified']);
 
-				const troubleshooting = Object.entries(parsedResult.troubleshooting_guide || {})
+				const troubleshootingGuide = parsedResult.troubleshooting_guide || {};
+				const troubleshooting = Object.entries(troubleshootingGuide)
 					.map(([key, value]) => `### ${key}\n${value}`)
 					.join('\n\n');
 
@@ -556,7 +605,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					procedures.map((proc: string) => `- ${proc}`).join('\n'),
 					"",
 					"## Troubleshooting",
-					troubleshooting,
+					troubleshooting || "No troubleshooting guide specified",
 					"",
 					"## Operations",
 					parsedResult.operations || 'No operations specified'
@@ -708,78 +757,52 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 	return (
 		<div className="flex flex-col h-full">
-			<div className="flex-1 overflow-y-auto" ref={containerRef}>
-				{/* Strategy selector and Generate button */}
-				<div className="p-4 border-b">
-					<div className="flex items-center justify-between gap-4">
-						<StrategySelector
-							value={selectedStrategy}
-							onChange={handleStrategyChange}
-							strategies={strategies || []}
-						/>
-						<Button
-							onClick={handleGenerateDoc}
-							disabled={isLoading || !strategyDetails}
-							className="flex items-center gap-2"
-						>
-							{isLoading ? (
-								<>
-									<Skeleton className="h-4 w-4" />
-									Generating...
-								</>
-							) : (
-								<>
-									<Play className="h-4 w-4" />
-									Generate
-								</>
-							)}
-						</Button>
-					</div>
+			<div className="p-4 border-b">
+				<div className="flex items-center justify-between gap-4 mb-4">
+					<StrategySelector
+						value={selectedStrategy}
+						onChange={handleStrategyChange}
+						strategies={strategies || []}
+					/>
+					<Button
+						onClick={handleGenerateDoc}
+						disabled={isLoading || !strategyDetails}
+						className="whitespace-nowrap"
+					>
+						{isLoading ? (
+							<>
+								<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+								Generating...
+							</>
+						) : (
+							<>
+								<Play className="mr-2 h-4 w-4" />
+								Generate
+							</>
+						)}
+					</Button>
 				</div>
 
-				{/* Graph View */}
-				<div className="p-4 border-b">
-					<DocumentationGraph
-						steps={strategyDetails?.steps || []}
+				{/* Add progress indicator */}
+				{strategyDetails?.steps && strategyDetails.steps.length > 0 && (
+					<PipelineProgress
 						currentStep={state.currentStep}
+						totalSteps={strategyDetails.steps.length}
 						completedSteps={state.completedSteps}
+					/>
+				)}
+			</div>
+
+			<div ref={containerRef} className="flex-1 overflow-y-auto p-4">
+				{/* Message groups */}
+				{groupedMessages.map((group) => (
+					<AgentMessageGroup
+						key={`${group.step_index}-${group.iteration_index}`}
+						group={group}
+						currentStep={state.currentStep}
 						onStepClick={handleStepClick}
 					/>
-				</div>
-
-				{/* Documentation content */}
-				<div className="p-4 space-y-6">
-					{groupedMessages.map((group, index) => (
-						<AgentMessageGroup
-							key={`${group.step_index}-${group.iteration_index}`}
-							group={group}
-							currentStep={state.currentStep}
-							onStepClick={handleStepClick}
-						/>
-					))}
-				</div>
-
-				{/* Loading state */}
-				{isLoading && (
-					<div className="p-4">
-						<Skeleton className="h-24 w-full" />
-					</div>
-				)}
-
-				{/* Error state */}
-				{isError && (
-					<div className="p-4 text-red-500">
-						Error loading documentation. Please try again.
-					</div>
-				)}
-
-				{/* Empty state */}
-				{!isLoading && !isError && groupedMessages.length === 0 && (
-					<div className="p-4 text-center text-muted-foreground">
-						No documentation generated yet. Click the Generate button to begin.
-					</div>
-				)}
-
+				))}
 				<div ref={endRef} />
 			</div>
 		</div>
