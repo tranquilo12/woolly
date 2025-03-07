@@ -42,44 +42,29 @@ interface StepConfig {
 	requiresConfirmation: boolean;
 }
 
-function PipelineProgress({ currentStep, totalSteps, completedSteps, onStepClick }: {
+function PipelineProgress({ currentStep, totalSteps, completedSteps }: {
 	currentStep: number;
 	totalSteps: number;
 	completedSteps: number[];
-	onStepClick?: (index: number) => void;
 }) {
 	return (
-		<div className="mb-4 bg-background/80 p-3 rounded-md border border-border/30">
-			<div className="flex justify-between items-center mb-3">
+		<div className="mb-4">
+			<div className="flex items-center mb-2">
 				<span className="text-sm font-medium">Pipeline Progress</span>
-				<span className="text-xs text-muted-foreground px-2 py-1 bg-muted/30 rounded-full">
-					{completedSteps.length} of {totalSteps} steps completed
-				</span>
 			</div>
-			<div className="flex gap-2 items-center">
+			<div className="flex gap-1">
 				{Array.from({ length: totalSteps }).map((_, i) => (
-					<div key={i} className="flex flex-col items-center flex-1">
-						<div
-							className={cn(
-								"w-full h-2 rounded-full transition-all duration-300 mb-1.5",
-								i < currentStep ? "bg-primary" :
-									completedSteps.includes(i) ? "bg-primary/70" : "bg-muted"
-							)}
-						/>
-						<button
-							onClick={() => onStepClick?.(i)}
-							disabled={!completedSteps.includes(i) && i !== currentStep}
-							className={cn(
-								"flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium transition-all",
-								i === currentStep ? "bg-primary text-primary-foreground" :
-									completedSteps.includes(i) ? "bg-primary/20 text-primary hover:bg-primary/30 cursor-pointer" :
-										"bg-muted text-muted-foreground cursor-not-allowed"
-							)}
-							title={`Step ${i + 1}`}
-						>
-							{i + 1}
-						</button>
-					</div>
+					<div
+						key={i}
+						className={cn(
+							"h-2 rounded-full flex-1 transition-all duration-300",
+							i < currentStep
+								? "bg-primary"
+								: completedSteps.includes(i)
+									? "bg-primary/70"
+									: "bg-muted"
+						)}
+					/>
 				))}
 			</div>
 		</div>
@@ -144,7 +129,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 	const [currentStepContent, setCurrentStepContent] = useState<string>('');
 	const [isStepComplete, setIsStepComplete] = useState<boolean>(false);
-	const [isAgentReady, setIsAgentReady] = useState(false);
+	const [isAgentReady, setIsAgentReady] = useState(!!safeAgentId);
 
 	// Fetch strategy details
 	const { data: strategyDetails, isLoading: isLoadingStrategy } = useQuery({
@@ -776,6 +761,12 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 	// Move the setupDocumentationAgent function outside of the useEffect
 	const setupDocumentationAgent = useCallback(async () => {
+		// If we already have an agent_id, we're ready
+		if (safeAgentId) {
+			setIsAgentReady(true);
+			return;
+		}
+
 		if (!repo_name || isAgentReady) return;
 
 		try {
@@ -817,11 +808,12 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		} catch (error) {
 			console.error('Error setting up documentation agent:', error);
 		}
-	}, [repo_name, isAgentReady]);
+	}, [repo_name, isAgentReady, safeAgentId]);
 
+	// Update the useEffect that calls setupDocumentationAgent to run when safeAgentId changes
 	useEffect(() => {
 		setupDocumentationAgent();
-	}, [setupDocumentationAgent]);
+	}, [setupDocumentationAgent, safeAgentId]);
 
 	const handleStartPipeline = () => {
 		// Reset state to start from the beginning
@@ -949,47 +941,36 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 									currentStep={state.currentStep}
 									totalSteps={strategyDetails.steps.length}
 									completedSteps={state.completedSteps}
-									onStepClick={handleStepClick}
 								/>
 
 								{/* Control buttons with improved layout */}
 								<div className="flex flex-col gap-3">
-									{/* Step information with better visual hierarchy */}
-									<div className="flex items-center justify-between bg-background/80 p-3 rounded-md border border-border/30">
-										<div className="flex flex-col">
-											<span className="text-xs text-muted-foreground">Current Step</span>
-											<span className="text-sm font-medium">
-												{strategyDetails.steps[state.currentStep]?.title || 'Unknown'}
-											</span>
-										</div>
-
-										<div className="flex space-x-2">
-											{/* Generation control buttons */}
-											{isLoading && !isGenerationStopped && (
-												<Button
-													size="sm"
-													variant="outline"
-													onClick={handleStopGeneration}
-													className="flex items-center gap-1"
-													title="Stop generation"
-												>
-													<Square className="h-3.5 w-3.5" />
-													<span>Stop</span>
-												</Button>
-											)}
-											{isGenerationStopped && (
-												<Button
-													size="sm"
-													variant="outline"
-													onClick={handleContinueGeneration}
-													className="flex items-center gap-1"
-													title="Continue generation"
-												>
-													<Play className="h-3.5 w-3.5" />
-													<span>Continue</span>
-												</Button>
-											)}
-										</div>
+									<div className="flex justify-end">
+										{/* Generation control buttons */}
+										{isLoading && !isGenerationStopped && (
+											<Button
+												size="sm"
+												variant="outline"
+												onClick={handleStopGeneration}
+												className="flex items-center gap-1"
+												title="Stop generation"
+											>
+												<Square className="h-3.5 w-3.5" />
+												<span>Stop</span>
+											</Button>
+										)}
+										{isGenerationStopped && (
+											<Button
+												size="sm"
+												variant="outline"
+												onClick={handleContinueGeneration}
+												className="flex items-center gap-1"
+												title="Continue generation"
+											>
+												<Play className="h-3.5 w-3.5" />
+												<span>Continue</span>
+											</Button>
+										)}
 									</div>
 
 									{/* Generate button with improved styling */}

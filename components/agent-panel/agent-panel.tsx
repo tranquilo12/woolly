@@ -23,51 +23,122 @@ export interface AgentPanelProps {
 
 // Main AgentPanel component that handles both direct props and repository selection
 export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
-	const { isOpen, activeView } = useAgentPanel();
+	const {
+		isOpen,
+		activeView,
+		selectedRepository: contextSelectedRepo,
+		setSelectedRepository,
+		docAgentId: contextDocAgentId,
+		setDocAgentId: setContextDocAgentId,
+		mermaidAgentId: contextMermaidAgentId,
+		setMermaidAgentId: setContextMermaidAgentId
+	} = useAgentPanel();
+
 	const { repositories } = useRepositoryStatus();
 	const { data: systemPrompt } = useSystemPrompt();
-	const [selectedRepo, setSelectedRepo] = useState<AvailableRepository | null>(props.repo_name || null);
+
+	// Use the repository from props or context
+	const [selectedRepo, setSelectedRepo] = useState<AvailableRepository | null>(() => {
+		// First prioritize props if provided
+		if (props.repo_name) return props.repo_name;
+
+		// Then use the repository from context
+		if (contextSelectedRepo) {
+			// Validate that it's a valid repository
+			const isValidRepo = repositories.some(repo => repo.name === contextSelectedRepo);
+			if (isValidRepo) return contextSelectedRepo as AvailableRepository;
+		}
+
+		// Default to null if nothing found
+		return null;
+	});
+
+	// Update the context when selectedRepo changes
+	useEffect(() => {
+		if (selectedRepo !== contextSelectedRepo) {
+			setSelectedRepository(selectedRepo);
+		}
+	}, [selectedRepo, contextSelectedRepo, setSelectedRepository]);
+
 	const [activeTab, setActiveTab] = useState<'documentation' | 'mermaid'>(activeView || 'documentation');
-	const [docAgentId, setDocAgentId] = useState<string | null>(props.agent_id || null);
-	const [mermaidAgentId, setMermaidAgentId] = useState<string | null>(null);
+
+	// Use agent IDs from props or context
+	const [docAgentId, setDocAgentId] = useState<string | null>(() => {
+		// First prioritize props if provided
+		if (props.agent_id) return props.agent_id;
+
+		// Then use the agent ID from context
+		if (contextDocAgentId) return contextDocAgentId;
+
+		// Default to null if nothing found
+		return null;
+	});
+
+	const [mermaidAgentId, setMermaidAgentId] = useState<string | null>(contextMermaidAgentId);
+
+	// Update the context when agent IDs change
+	useEffect(() => {
+		if (docAgentId !== contextDocAgentId) {
+			setContextDocAgentId(docAgentId);
+		}
+	}, [docAgentId, contextDocAgentId, setContextDocAgentId]);
+
+	useEffect(() => {
+		if (mermaidAgentId !== contextMermaidAgentId) {
+			setContextMermaidAgentId(mermaidAgentId);
+		}
+	}, [mermaidAgentId, contextMermaidAgentId, setContextMermaidAgentId]);
+
 	const [isMaximized, setIsMaximized] = useState(false);
 	const panelRef = useRef<HTMLDivElement>(null);
 	const pathname = usePathname();
 	const chatId = props.chat_id || pathname?.split('/').pop() || '';
 
+	// This effect is still needed to load agent IDs from localStorage for backward compatibility
 	useEffect(() => {
 		if (selectedRepo) {
 			// Initialize or retrieve documentation agent with string handling
-			const storedDocId = localStorage.getItem(`doc_agent_${selectedRepo}`);
-			if (storedDocId) {
-				try {
-					// Ensure we're storing a valid string
-					setDocAgentId(String(storedDocId));
-				} catch (error) {
-					console.error('Invalid doc agent ID in localStorage:', error);
-					localStorage.removeItem(`doc_agent_${selectedRepo}`);
+			if (!docAgentId) {
+				const storedDocId = localStorage.getItem(`doc_agent_${selectedRepo}`);
+				if (storedDocId) {
+					try {
+						// Ensure we're storing a valid string
+						setDocAgentId(String(storedDocId));
+					} catch (error) {
+						console.error('Invalid doc agent ID in localStorage:', error);
+						localStorage.removeItem(`doc_agent_${selectedRepo}`);
+					}
 				}
 			}
 
 			// Initialize or retrieve mermaid agent with string handling
-			const storedMermaidId = localStorage.getItem(`mermaid_agent_${selectedRepo}`);
-			if (storedMermaidId) {
-				try {
-					// Ensure we're storing a valid string
-					setMermaidAgentId(String(storedMermaidId));
-				} catch (error) {
-					console.error('Invalid mermaid agent ID in localStorage:', error);
-					localStorage.removeItem(`mermaid_agent_${selectedRepo}`);
+			if (!mermaidAgentId) {
+				const storedMermaidId = localStorage.getItem(`mermaid_agent_${selectedRepo}`);
+				if (storedMermaidId) {
+					try {
+						// Ensure we're storing a valid string
+						setMermaidAgentId(String(storedMermaidId));
+					} catch (error) {
+						console.error('Invalid mermaid agent ID in localStorage:', error);
+						localStorage.removeItem(`mermaid_agent_${selectedRepo}`);
+					}
 				}
 			}
 		}
-	}, [selectedRepo]);
+	}, [selectedRepo, docAgentId, mermaidAgentId]);
 
 	// Toggle maximize/minimize panel
 	const toggleMaximize = () => {
 		setIsMaximized(!isMaximized);
 		// This would ideally communicate with the parent layout to adjust sizes
 		// For now, we'll just add a class that can be styled with CSS
+	};
+
+	// Create a handler for repository selection that updates the state
+	const handleRepoChange = (value: string) => {
+		const repo = value as AvailableRepository;
+		setSelectedRepo(repo);
+		setSelectedRepository(repo);
 	};
 
 	// If we have direct props, render the content directly
@@ -117,11 +188,33 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 			<div className="flex flex-col w-full h-full">
 				<div className="flex flex-col space-y-4 p-4 border-b border-border/50">
 					<div className="flex items-center justify-between gap-4">
-						<div className="flex items-center gap-2">
-							<div className="flex items-center justify-center h-8 w-8 rounded-md bg-primary/10">
-								<Bot className="h-5 w-5 text-primary" />
+						<div className="flex items-center gap-4">
+							<div className="flex items-center gap-2">
+								<div className="flex items-center justify-center h-8 w-8 rounded-md bg-primary/10">
+									<Bot className="h-5 w-5 text-primary" />
+								</div>
+								<h2 className="text-lg font-semibold">AI Assistant</h2>
 							</div>
-							<h2 className="text-lg font-semibold">AI Assistant</h2>
+
+							<Select
+								value={selectedRepo || ""}
+								onValueChange={handleRepoChange}
+							>
+								<SelectTrigger className={cn(
+									"w-[180px] bg-background/50",
+									"border-border/50 hover:border-border",
+									"focus:ring-1 focus:ring-ring text-sm"
+								)}>
+									<SelectValue placeholder="Select Repository" />
+								</SelectTrigger>
+								<SelectContent>
+									{repositories.map((repo) => (
+										<SelectItem key={repo.name} value={repo.name}>
+											{repo.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
 						</div>
 
 						<div className="flex items-center gap-2">
@@ -147,26 +240,6 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 							>
 								<HelpCircle className="h-4 w-4" />
 							</Button>
-
-							<Select
-								value={selectedRepo || ""}
-								onValueChange={(value) => setSelectedRepo(value as AvailableRepository)}
-							>
-								<SelectTrigger className={cn(
-									"w-[180px] bg-background/50",
-									"border-border/50 hover:border-border",
-									"focus:ring-1 focus:ring-ring text-sm"
-								)}>
-									<SelectValue placeholder="Select Repository" />
-								</SelectTrigger>
-								<SelectContent>
-									{repositories.map((repo) => (
-										<SelectItem key={repo.name} value={repo.name}>
-											{repo.name}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
 						</div>
 					</div>
 
