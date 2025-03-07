@@ -387,6 +387,7 @@ class DocumentationRequest(BaseModel):
     context: Optional[DocumentationContext] = None
     prompt: Optional[str] = None
     strategy: str = "basic"  # Add strategy selection
+    pipeline_id: Optional[str] = None  # Add pipeline_id field
 
 
 # endregion
@@ -537,6 +538,10 @@ async def save_agent_message(
     repository: str,
     message_type: str,
     tool_invocations: Optional[List[Dict[str, Any]]] = None,
+    pipeline_id: Optional[str] = None,
+    iteration_index: Optional[int] = None,
+    step_index: Optional[int] = None,
+    step_title: Optional[str] = None,
 ):
     """Save a message associated with an agent"""
     try:
@@ -554,10 +559,14 @@ async def save_agent_message(
             agent_id=agent_id_str,
             repository=repository,
             message_type=message_type,
+            pipeline_id=pipeline_id,
             role=role,
             content=content,
             tool_invocations=tool_invocations or [],
             created_at=datetime.now(timezone.utc),
+            iteration_index=iteration_index,
+            step_index=step_index,
+            step_title=step_title,
         )
 
         db.add(db_message)
@@ -576,8 +585,9 @@ async def process_documentation_step(
     code_search_query: CodeSearch,
     prompt: str,
     strategy: str = "basic",
+    pipeline_id: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
-    """Process a documentation step using specialized agents with handoff"""
+    """Process a single documentation step"""
     try:
         # Get the strategy-specific agents
         step_agents = get_step_agents(strategy)
@@ -594,12 +604,16 @@ async def process_documentation_step(
         if not strategy_details:
             raise ValueError(f"Strategy {strategy} not found")
 
-        # Generate context key from step model name
+        # Get current step details for metadata
         current_step = next((s for s in strategy_details.steps if s.id == step), None)
         if not current_step:
             raise ValueError(f"Step {step} not found in strategy {strategy}")
 
-        context_key = current_step.model.lower()  # Use model name as context key
+        # Store step title for metadata
+        step_title = current_step.title
+
+        # Use model name as context key
+        context_key = current_step.model.lower()
 
         # Construct a more specific prompt that includes the user's intent and previous context
         enhanced_prompt = f"""For repository {repo_name}, {prompt}\n\nPrevious documentation context:\n\n {json.dumps(context.partial_results, indent=2)}\n\nFocus on generating documentation for the current step ({context_key}). \n\n Your response should be a complete, well-structured JSON object matching the schema for this step"""
@@ -745,9 +759,38 @@ async def stream_documentation_response(request: DocumentationRequest, db: Sessi
         if step < 1 or step > 5:  # Validate step range
             raise ValueError(f"Invalid step number: {step}")
 
+        # Get strategy details to retrieve step title
+        strategy_details = strategy_registry.get(request.strategy)
+        if not strategy_details:
+            raise ValueError(f"Strategy {request.strategy} not found")
+
+        # Get current step details for metadata
+        current_step = next((s for s in strategy_details.steps if s.id == step), None)
+        if not current_step:
+            raise ValueError(f"Step {step} not found in strategy {request.strategy}")
+
+        # Store step title for metadata
+        step_title = current_step.title
+
         code_search_query = CodeSearch(
             query="*",
             repo_name=request.repo_name,
+        )
+
+        # Save initial system message with metadata
+        await save_agent_message(
+            chat_id=request.chat_id,
+            content=f"Starting documentation step {step}: {step_title}",
+            role="system",
+            model=request.model,
+            db=db,
+            agent_id=request.agent_id,
+            repository=request.repo_name,
+            message_type="documentation",
+            pipeline_id=request.pipeline_id,
+            iteration_index=0,  # First iteration
+            step_index=step,
+            step_title=step_title,
         )
 
         # Process current step
@@ -758,6 +801,7 @@ async def stream_documentation_response(request: DocumentationRequest, db: Sessi
             code_search_query,
             request.prompt or "",
             request.strategy,
+            request.pipeline_id,
         ):
             if isinstance(content, str):  # Ensure we only yield strings
                 yield content
@@ -958,6 +1002,7 @@ class MessageCreate(BaseModel):
     role: str
     content: str
     tool_invocations: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    pipeline_id: Optional[str] = None  # Add pipeline_id field
 
     @field_validator("message_type")
     def validate_message_type(cls, v):
@@ -976,6 +1021,10 @@ async def save_agent_message(
     repository: str,
     message_type: str,
     tool_invocations: Optional[List[Dict[str, Any]]] = None,
+    pipeline_id: Optional[str] = None,
+    iteration_index: Optional[int] = None,
+    step_index: Optional[int] = None,
+    step_title: Optional[str] = None,
 ):
     """Save a message associated with an agent"""
     try:
@@ -993,10 +1042,14 @@ async def save_agent_message(
             agent_id=agent_id_str,
             repository=repository,
             message_type=message_type,
+            pipeline_id=pipeline_id,
             role=role,
             content=content,
             tool_invocations=tool_invocations or [],
             created_at=datetime.now(timezone.utc),
+            iteration_index=iteration_index,
+            step_index=step_index,
+            step_title=step_title,
         )
 
         db.add(db_message)

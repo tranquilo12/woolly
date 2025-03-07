@@ -47,6 +47,7 @@ export interface MessageWithModel extends Message {
   tool_invocations?: ExtendedToolCall[];
   messageType?: string;
   agentId?: string;
+  pipeline_id?: string;
 }
 
 export function toMessage(messageWithModel: MessageWithModel): Message {

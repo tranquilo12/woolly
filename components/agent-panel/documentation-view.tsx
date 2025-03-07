@@ -8,7 +8,7 @@ import { ToolInvocation } from '@ai-sdk/ui-utils';
 import { useQuery } from '@tanstack/react-query';
 import { Message } from "ai";
 import { useChat } from 'ai/react';
-import { Play, Loader2 } from "lucide-react";
+import { Play, Loader2, Square, Settings, ChevronUp, ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { DocumentationResult, isCodeDocumentation, isComponentAnalysis, isDevelopmentGuide, isMaintenanceOps, isSystemOverview } from '../../types/documentation';
 import { MessageWithModel, toMessageWithModel } from "../chat";
@@ -42,31 +42,64 @@ interface StepConfig {
 	requiresConfirmation: boolean;
 }
 
-function PipelineProgress({ currentStep, totalSteps, completedSteps }: {
+function PipelineProgress({ currentStep, totalSteps, completedSteps, onStepClick }: {
 	currentStep: number;
 	totalSteps: number;
 	completedSteps: number[];
+	onStepClick?: (index: number) => void;
 }) {
 	return (
-		<div className="mb-4">
-			<div className="flex justify-between items-center mb-2">
+		<div className="mb-4 bg-background/80 p-3 rounded-md border border-border/30">
+			<div className="flex justify-between items-center mb-3">
 				<span className="text-sm font-medium">Pipeline Progress</span>
-				<span className="text-xs text-muted-foreground">
+				<span className="text-xs text-muted-foreground px-2 py-1 bg-muted/30 rounded-full">
 					{completedSteps.length} of {totalSteps} steps completed
 				</span>
 			</div>
-			<div className="flex gap-1">
+			<div className="flex gap-2 items-center">
 				{Array.from({ length: totalSteps }).map((_, i) => (
-					<div
-						key={i}
-						className={cn(
-							"h-1.5 rounded-full flex-1 transition-all duration-300",
-							i < currentStep ? "bg-primary" :
-								completedSteps.includes(i) ? "bg-primary/70" : "bg-muted"
-						)}
-					/>
+					<div key={i} className="flex flex-col items-center flex-1">
+						<div
+							className={cn(
+								"w-full h-2 rounded-full transition-all duration-300 mb-1.5",
+								i < currentStep ? "bg-primary" :
+									completedSteps.includes(i) ? "bg-primary/70" : "bg-muted"
+							)}
+						/>
+						<button
+							onClick={() => onStepClick?.(i)}
+							disabled={!completedSteps.includes(i) && i !== currentStep}
+							className={cn(
+								"flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium transition-all",
+								i === currentStep ? "bg-primary text-primary-foreground" :
+									completedSteps.includes(i) ? "bg-primary/20 text-primary hover:bg-primary/30 cursor-pointer" :
+										"bg-muted text-muted-foreground cursor-not-allowed"
+							)}
+							title={`Step ${i + 1}`}
+						>
+							{i + 1}
+						</button>
+					</div>
 				))}
 			</div>
+		</div>
+	);
+}
+
+function EmptyPipelineState({ pipelineName, onStart }: { pipelineName: string, onStart: () => void }) {
+	return (
+		<div className="flex flex-col items-center justify-center h-full p-8 text-center">
+			<div className="rounded-full bg-primary/10 p-4 mb-4">
+				<Play className="h-6 w-6 text-primary" />
+			</div>
+			<h3 className="text-lg font-medium mb-2">Ready to Generate Documentation</h3>
+			<p className="text-sm text-muted-foreground mb-6 max-w-md">
+				You&apos;ve selected the &ldquo;{pipelineName}&rdquo; pipeline. Click the button below to start generating documentation for your project.
+			</p>
+			<Button onClick={onStart} className="flex items-center gap-2">
+				<Play className="h-4 w-4" />
+				Start Pipeline
+			</Button>
 		</div>
 	);
 }
@@ -74,8 +107,18 @@ function PipelineProgress({ currentStep, totalSteps, completedSteps }: {
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
 
+	// Add state for collapsible settings region
+	const [isSettingsExpanded, setIsSettingsExpanded] = useState<boolean>(true);
+
+	// Toggle settings expansion
+	const toggleSettings = useCallback(() => {
+		setIsSettingsExpanded(prev => !prev);
+	}, []);
+
 	// Ensure agent_id is always a string
 	const safeAgentId = agent_id ? String(agent_id) : '';
+
+	const [selectedStrategy, setSelectedStrategy] = useState<string>("basic");
 
 	const {
 		data: initialMessages = [],
@@ -87,7 +130,8 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		chat_id,
 		safeAgentId,
 		repo_name,
-		'documentation'
+		'documentation',
+		selectedStrategy // Pass the selected strategy as the pipeline_id
 	);
 
 	const [state, setState] = useState<DocumentationState>({
@@ -100,7 +144,6 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 	const [currentStepContent, setCurrentStepContent] = useState<string>('');
 	const [isStepComplete, setIsStepComplete] = useState<boolean>(false);
-	const [selectedStrategy, setSelectedStrategy] = useState<string>("basic");
 	const [isAgentReady, setIsAgentReady] = useState(false);
 
 	// Fetch strategy details
@@ -191,7 +234,8 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			file_paths: file_paths,
 			chat_id: chat_id,
 			step: state.currentStep + 1,
-			context: state.context || {}
+			context: state.context || {},
+			pipeline_id: selectedStrategy
 		},
 		onToolCall: async (tool) => {
 			// @ts-ignore
@@ -253,6 +297,9 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			try {
 				console.log("Finished message:", message);
 
+				// Add this line to reset the isGenerationStopped state
+				setIsGenerationStopped(false);
+
 				// Validate the response
 				if (!isValidDocumentationResponse(message)) {
 					console.warn("Invalid documentation response, retrying...");
@@ -267,6 +314,10 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					handleGenerateDoc();
 					return;
 				}
+
+				// Get current step details for metadata
+				const currentStepDetails = strategyDetails?.steps[state.currentStep];
+				const stepTitle = currentStepDetails?.title || `Step ${state.currentStep + 1}`;
 
 				// De-duplicate tool invocations based on args content
 				const uniqueToolInvocations = message.toolInvocations?.reduce((acc: any[], tool: any) => {
@@ -294,8 +345,8 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 				// Only save valid messages to DB
 				await saveMessage({
-					agentId: safeAgentId,
 					chatId: chat_id,
+					agentId: safeAgentId,
 					repository: repo_name,
 					messageType: 'documentation',
 					role: messageWithModel.role,
@@ -306,7 +357,11 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						args: tool.args,
 						state: tool.state,
 						result: 'result' in tool ? tool.result : undefined
-					}))
+					})),
+					iteration_index: 0,  // First iteration
+					step_index: state.currentStep,
+					step_title: stepTitle,
+					pipeline_id: selectedStrategy
 				});
 
 				// Clear streaming messages after successful save
@@ -368,15 +423,23 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		queryFn: documentationApi.listStrategies,
 	});
 
-	// Handle strategy change
-	const handleStrategyChange = useCallback((strategy: string) => {
-		setSelectedStrategy(strategy);
-		setState(prev => ({
-			...prev,
+	// Add a handleStrategyChange function to reset messages when the strategy changes
+	const handleStrategyChange = (newStrategy: string) => {
+		// Update the selected strategy
+		setSelectedStrategy(newStrategy);
+
+		// Reset the state to start from the beginning
+		setState({
 			currentStep: 0,
 			completedSteps: [],
-		}));
-	}, []);
+			context: {
+				currentPrompt: ''
+			}
+		});
+
+		// Clear streaming messages
+		setStreamingMessages([]);
+	};
 
 	const handleGenerateDoc = useCallback(async () => {
 		if (!strategyDetails?.steps) return;  // Early return if no steps
@@ -422,6 +485,9 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			console.error("Failed to generate documentation:", error);
 			setIsStepComplete(false);
 		}
+
+		// Add this line to reset the isGenerationStopped state
+		setIsGenerationStopped(false);
 	}, [append, state.currentStep, state.context, isLoading, chat_id, safeAgentId,
 		repo_name, file_paths, initialMessages, stop, strategyDetails, selectedStrategy]);
 
@@ -708,102 +774,272 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		}
 	};
 
-	useEffect(() => {
-		const setupDocumentationAgent = async () => {
-			if (!repo_name || isAgentReady) return;
+	// Move the setupDocumentationAgent function outside of the useEffect
+	const setupDocumentationAgent = useCallback(async () => {
+		if (!repo_name || isAgentReady) return;
 
-			try {
-				// First try to get existing agent
-				const getResponse = await fetch(`/api/agents?repository=${repo_name}&type=documentation`);
+		try {
+			// First try to get existing agent
+			const getResponse = await fetch(`/api/agents?repository=${repo_name}&type=documentation`);
 
-				if (getResponse.ok) {
-					const agents = await getResponse.json();
-					if (agents.length > 0) {
-						// Use existing agent
-						localStorage.setItem(`doc_agent_${repo_name}`, agents[0].id);
-						setIsAgentReady(true);
-						return;
-					}
-				}
-
-				// If no existing agent, create new one
-				const createResponse = await fetch('/api/agents', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({
-						name: `Documentation Agent for ${repo_name}`,
-						description: 'This agent is created for documentation generation',
-						type: 'documentation',
-						repository: repo_name,
-						agent_id: safeAgentId,
-						file_paths: file_paths,
-						chat_id: chat_id,
-					}),
-				});
-
-				if (createResponse.ok) {
-					const newAgent = await createResponse.json();
-					localStorage.setItem(`doc_agent_${repo_name}`, newAgent.id);
+			if (getResponse.ok) {
+				const agents = await getResponse.json();
+				if (agents.length > 0) {
+					// Use existing agent
+					localStorage.setItem(`doc_agent_${repo_name}`, agents[0].id);
 					setIsAgentReady(true);
+					return;
 				}
-			} catch (error) {
-				console.error('Error setting up documentation agent:', error);
-				setIsAgentReady(false);
 			}
-		};
 
+			// If no existing agent, create a new one
+			const createResponse = await fetch('/api/agents', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					name: `${repo_name} Documentation Agent`,
+					description: `Agent for generating documentation for ${repo_name}`,
+					system_prompt: 'You are a documentation agent that helps generate comprehensive documentation for code repositories.',
+					tools: ['codebase_search', 'read_file', 'fetch_repo_content'],
+					repository: repo_name,
+				}),
+			});
+
+			if (createResponse.ok) {
+				const newAgent = await createResponse.json();
+				localStorage.setItem(`doc_agent_${repo_name}`, newAgent.id);
+				setIsAgentReady(true);
+			} else {
+				console.error('Failed to create documentation agent');
+			}
+		} catch (error) {
+			console.error('Error setting up documentation agent:', error);
+		}
+	}, [repo_name, isAgentReady]);
+
+	useEffect(() => {
 		setupDocumentationAgent();
-	}, [repo_name, safeAgentId, file_paths, chat_id, isAgentReady]);
+	}, [setupDocumentationAgent]);
+
+	const handleStartPipeline = () => {
+		// Reset state to start from the beginning
+		setState({
+			currentStep: 0,
+			completedSteps: [],
+			context: {
+				currentPrompt: ''
+			}
+		});
+
+		// Start the pipeline
+		setupDocumentationAgent();
+
+		// Generate the first step after a short delay to ensure agent is ready
+		setTimeout(() => {
+			handleGenerateDoc();
+		}, 500);
+	};
+
+	// Add a new state variable to track if generation is stopped
+	const [isGenerationStopped, setIsGenerationStopped] = useState(false);
+
+	// Update the handleStopGeneration function to remove the toast
+	const handleStopGeneration = useCallback(() => {
+		// Stop the current generation
+		stop();
+		setIsGenerationStopped(true);
+
+		// We could add visual feedback here in the future
+	}, [stop]);
+
+	// Update the handleContinueGeneration function
+	const handleContinueGeneration = useCallback(() => {
+		setIsGenerationStopped(false);
+		// Continue with the current step
+		handleGenerateDoc();
+
+		// We could add visual feedback here in the future
+	}, [handleGenerateDoc]);
 
 	return (
 		<div className="flex flex-col h-full">
-			<div className="p-4 border-b">
-				<div className="flex items-center justify-between gap-4 mb-4">
-					<StrategySelector
-						value={selectedStrategy}
-						onChange={handleStrategyChange}
-						strategies={strategies || []}
-					/>
-					<Button
-						onClick={handleGenerateDoc}
-						disabled={isLoading || !strategyDetails}
-						className="whitespace-nowrap"
-					>
-						{isLoading ? (
-							<>
-								<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-								Generating...
-							</>
-						) : (
-							<>
-								<Play className="mr-2 h-4 w-4" />
-								Generate
-							</>
+			{/* Settings Region with collapsible functionality */}
+			<div className="border-b border-b-2 border-border/30 bg-muted/20">
+				{/* Settings Header */}
+				<div className="p-3 flex items-center justify-between">
+					<div className="flex items-center gap-2">
+						<Settings className="h-4 w-4 text-muted-foreground" />
+						<h3 className="text-sm font-medium">Pipeline Settings</h3>
+					</div>
+
+					<div className="flex items-center gap-2">
+						{/* Current step indicator when collapsed */}
+						{!isSettingsExpanded && strategyDetails?.steps && (
+							<div className="flex items-center">
+								<span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">
+									Step {state.currentStep + 1}/{strategyDetails.steps.length}
+								</span>
+							</div>
 						)}
-					</Button>
+
+						{/* Quick access generate button when collapsed */}
+						{!isSettingsExpanded && (
+							<Button
+								onClick={handleGenerateDoc}
+								disabled={isLoading || !strategyDetails}
+								size="sm"
+								variant="secondary"
+								className="flex items-center gap-1"
+							>
+								{isLoading ? (
+									<>
+										<Loader2 className="h-3.5 w-3.5 animate-spin" />
+										<span>Generating...</span>
+									</>
+								) : (
+									<>
+										<Play className="h-3.5 w-3.5" />
+										<span>Generate</span>
+									</>
+								)}
+							</Button>
+						)}
+						{/* Expand/collapse button */}
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-8 w-8 p-0"
+							onClick={toggleSettings}
+							title={isSettingsExpanded ? "Collapse settings" : "Expand settings"}
+						>
+							{isSettingsExpanded ? (
+								<ChevronUp className="h-4 w-4" />
+							) : (
+								<ChevronDown className="h-4 w-4" />
+							)}
+						</Button>
+					</div>
 				</div>
 
-				{/* Add progress indicator */}
-				{strategyDetails?.steps && strategyDetails.steps.length > 0 && (
-					<PipelineProgress
-						currentStep={state.currentStep}
-						totalSteps={strategyDetails.steps.length}
-						completedSteps={state.completedSteps}
-					/>
-				)}
+				{/* Collapsible Settings Content with smooth transition */}
+				<div
+					className={cn(
+						"overflow-hidden transition-all duration-300 ease-in-out",
+						isSettingsExpanded ? "max-h-[1000px] opacity-100" : "max-h-0 opacity-0"
+					)}
+				>
+					<div className="p-4 pt-0">
+						{/* Strategy selector with improved heading */}
+						<div className="mb-6">
+							<h3 className="text-sm font-medium mb-2">Select Pipeline Strategy</h3>
+							<StrategySelector
+								value={selectedStrategy}
+								onChange={handleStrategyChange}
+								strategies={strategies || []}
+							/>
+						</div>
+
+						{/* Progress and controls section with improved spacing */}
+						{strategyDetails?.steps && strategyDetails.steps.length > 0 && (
+							<div className="space-y-4">
+								{/* Progress bar */}
+								<PipelineProgress
+									currentStep={state.currentStep}
+									totalSteps={strategyDetails.steps.length}
+									completedSteps={state.completedSteps}
+									onStepClick={handleStepClick}
+								/>
+
+								{/* Control buttons with improved layout */}
+								<div className="flex flex-col gap-3">
+									{/* Step information with better visual hierarchy */}
+									<div className="flex items-center justify-between bg-background/80 p-3 rounded-md border border-border/30">
+										<div className="flex flex-col">
+											<span className="text-xs text-muted-foreground">Current Step</span>
+											<span className="text-sm font-medium">
+												{strategyDetails.steps[state.currentStep]?.title || 'Unknown'}
+											</span>
+										</div>
+
+										<div className="flex space-x-2">
+											{/* Generation control buttons */}
+											{isLoading && !isGenerationStopped && (
+												<Button
+													size="sm"
+													variant="outline"
+													onClick={handleStopGeneration}
+													className="flex items-center gap-1"
+													title="Stop generation"
+												>
+													<Square className="h-3.5 w-3.5" />
+													<span>Stop</span>
+												</Button>
+											)}
+											{isGenerationStopped && (
+												<Button
+													size="sm"
+													variant="outline"
+													onClick={handleContinueGeneration}
+													className="flex items-center gap-1"
+													title="Continue generation"
+												>
+													<Play className="h-3.5 w-3.5" />
+													<span>Continue</span>
+												</Button>
+											)}
+										</div>
+									</div>
+
+									{/* Generate button with improved styling */}
+									<Button
+										onClick={handleGenerateDoc}
+										disabled={isLoading || !strategyDetails}
+										className="mx-auto px-8"
+										size="default"
+										variant="secondary"
+									>
+										{isLoading ? (
+											<>
+												<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+												Generating...
+											</>
+										) : (
+											<>
+												<Play className="mr-2 h-4 w-4" />
+												Generate
+											</>
+										)}
+									</Button>
+								</div>
+							</div>
+						)}
+					</div>
+				</div>
 			</div>
 
-			<div ref={containerRef} className="flex-1 overflow-y-auto p-4">
-				{/* Message groups */}
-				{groupedMessages.map((group) => (
-					<AgentMessageGroup
-						key={`${group.step_index}-${group.iteration_index}`}
-						group={group}
-						currentStep={state.currentStep}
-						onStepClick={handleStepClick}
+			<div ref={containerRef} className="flex-1 overflow-y-auto p-4 pt-6 bg-background">
+				{/* Show empty state when no messages are found for the selected pipeline */}
+				{!isLoadingInitial && groupedMessages.length === 0 && !isLoading ? (
+					<EmptyPipelineState
+						pipelineName={selectedStrategy}
+						onStart={() => handleStartPipeline()}
 					/>
-				))}
-				<div ref={endRef} />
+				) : (
+					<>
+						{/* Message groups */}
+						{groupedMessages.map((group) => (
+							<AgentMessageGroup
+								key={`${group.step_index}-${group.iteration_index}`}
+								group={group}
+								currentStep={state.currentStep}
+								onStepClick={handleStepClick}
+							/>
+						))}
+						<div ref={endRef} />
+					</>
+				)}
 			</div>
 		</div>
 	);

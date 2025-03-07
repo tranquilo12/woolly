@@ -10,6 +10,7 @@ export interface AgentMessage extends Message {
 	iteration_index?: number;
 	step_index?: number;
 	step_title?: string;
+	pipeline_id?: string;
 }
 
 export interface MessageGroup {

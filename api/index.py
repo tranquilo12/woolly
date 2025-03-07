@@ -648,6 +648,7 @@ async def get_agent_messages(
     agent_id: str = Query(None),
     repository: str = Query(None),
     message_type: str = Query(None),
+    pipeline_id: str = Query(None),
     db: Session = Depends(get_db),
 ):
     """Get messages for a specific agent in a chat"""
@@ -665,6 +666,8 @@ async def get_agent_messages(
             query = query.filter(Message.repository == repository)
         if message_type:
             query = query.filter(Message.message_type == message_type)
+        if pipeline_id:
+            query = query.filter(Message.pipeline_id == pipeline_id)
 
         # Get messages ordered by creation time
         messages = query.order_by(Message.created_at).all()
@@ -719,17 +722,31 @@ async def create_agent_message(
 ):
     """Create a new agent message"""
     try:
-        return await agents.save_agent_message(
+        # Extract pipeline_id from the message if it exists
+        pipeline_id = message.get("pipeline_id")
+
+        # Create a new message with the agent_id, repository, message_type, and pipeline_id
+        db_message = Message(
+            id=uuid.uuid4(),
             chat_id=chat_id,
-            content=message["content"],
-            role=message["role"],
-            model=message["model"],
-            db=db,
-            agent_id=uuid.UUID(message["agent_id"]),
+            agent_id=message["agent_id"],
             repository=message["repository"],
             message_type=message["message_type"],
+            pipeline_id=pipeline_id,  # Add pipeline_id
+            role=message["role"],
+            content=message["content"],
+            model=message.get("model"),
             tool_invocations=message.get("tool_invocations", []),
+            created_at=datetime.now(timezone.utc),
+            iteration_index=message.get("iteration_index"),
+            step_index=message.get("step_index"),
+            step_title=message.get("step_title"),
         )
+
+        db.add(db_message)
+        db.commit()
+        return db_message
     except Exception as e:
+        db.rollback()
         logging.error(f"Failed to create agent message: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -174,6 +174,9 @@ class Message(Base):
     agent_id = Column(UUID(as_uuid=True), nullable=True)
     repository = Column(String, nullable=True)
     message_type = Column(String, nullable=True)
+    pipeline_id = Column(
+        String, nullable=True
+    )  # New field for pipeline/strategy identification
 
     # New fields for agent message grouping
     iteration_index: Optional[int] = Column(Integer)
