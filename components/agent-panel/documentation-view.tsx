@@ -15,8 +15,10 @@ import { MessageWithModel, toMessageWithModel } from "../chat";
 import { Button } from "../ui/button";
 import { StrategySelector } from './strategy-selector';
 import { AgentMessageGroup } from './message-group';
+import { PipelineFlow } from './pipeline-flow';
 import 'reactflow/dist/style.css';
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface DocumentationViewProps {
 	repo_name: AvailableRepository;
@@ -32,6 +34,13 @@ interface DocumentationState {
 		[key: string]: string;
 		currentPrompt: string;
 	};
+	stepResults: Record<string, any>;
+	version: number;
+	history: Array<{
+		version: number;
+		stepResults: Record<string, any>;
+		completedSteps: number[];
+	}>;
 }
 
 interface StepConfig {
@@ -40,35 +49,7 @@ interface StepConfig {
 	prompt: string;
 	description: string;
 	requiresConfirmation: boolean;
-}
-
-function PipelineProgress({ currentStep, totalSteps, completedSteps }: {
-	currentStep: number;
-	totalSteps: number;
-	completedSteps: number[];
-}) {
-	return (
-		<div className="mb-4">
-			<div className="flex items-center mb-2">
-				<span className="text-sm font-medium">Pipeline Progress</span>
-			</div>
-			<div className="flex gap-1">
-				{Array.from({ length: totalSteps }).map((_, i) => (
-					<div
-						key={i}
-						className={cn(
-							"h-2 rounded-full flex-1 transition-all duration-300",
-							i < currentStep
-								? "bg-primary"
-								: completedSteps.includes(i)
-									? "bg-primary/70"
-									: "bg-muted"
-						)}
-					/>
-				))}
-			</div>
-		</div>
-	);
+	model: string;
 }
 
 function EmptyPipelineState({ pipelineName, onStart }: { pipelineName: string, onStart: () => void }) {
@@ -124,7 +105,10 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		completedSteps: [],
 		context: {
 			currentPrompt: ''
-		}
+		},
+		stepResults: {},
+		version: 1,
+		history: []
 	});
 
 	const [currentStepContent, setCurrentStepContent] = useState<string>('');
@@ -150,6 +134,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		if (!currentStep) return;
 
 		const contextKey = currentStep.model.toLowerCase();
+		const stepKey = `step-${state.currentStep}`;
 
 		// Get content either from context parameter or currentStepContent
 		let parsedContent: any;
@@ -189,6 +174,10 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				[contextKey]: parsedContent,
 				currentPrompt: currentStep?.prompt || ''
 			},
+			stepResults: {
+				...prev.stepResults,
+				[stepKey]: parsedContent
+			},
 			completedSteps: [...prev.completedSteps, prev.currentStep],
 			currentStep: prev.currentStep + 1,
 		}));
@@ -220,6 +209,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			chat_id: chat_id,
 			step: state.currentStep + 1,
 			context: state.context || {},
+			strategy: selectedStrategy,
 			pipeline_id: selectedStrategy
 		},
 		onToolCall: async (tool) => {
@@ -419,7 +409,10 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			completedSteps: [],
 			context: {
 				currentPrompt: ''
-			}
+			},
+			stepResults: {},
+			version: 1,
+			history: []
 		});
 
 		// Clear streaming messages
@@ -427,12 +420,22 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	};
 
 	const handleGenerateDoc = useCallback(async () => {
-		if (!strategyDetails?.steps) return;  // Early return if no steps
+		if (isLoading || !strategyDetails) return;
 
-		if (isLoading) {
-			stop();
-			setIsStepComplete(false);
-			return;
+		// Save current state to history before generating new content
+		if (state.completedSteps.length > 0) {
+			setState(prev => ({
+				...prev,
+				history: [
+					...prev.history,
+					{
+						version: prev.version,
+						stepResults: { ...prev.stepResults },
+						completedSteps: [...prev.completedSteps]
+					}
+				],
+				version: prev.version + 1
+			}));
 		}
 
 		if (state.currentStep >= strategyDetails.steps.length) {
@@ -464,17 +467,34 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					},
 					prompt: currentStep.prompt,
 					strategy: selectedStrategy,
+					pipeline_id: selectedStrategy,
 				}
 			});
 		} catch (error) {
 			console.error("Failed to generate documentation:", error);
+			// Add more detailed error logging
+			if (error instanceof Error) {
+				console.error("Error message:", error.message);
+				console.error("Error stack:", error.stack);
+			}
+			// If it's a response error, try to get more details
+			if (error instanceof Response || (error as any)?.response) {
+				const response = error instanceof Response ? error : (error as any).response;
+				console.error("Response status:", response.status);
+				console.error("Response statusText:", response.statusText);
+				// Try to get the response body
+				response.text().then((text: string) => {
+					console.error("Response body:", text);
+				}).catch((e: any) => {
+					console.error("Failed to get response body:", e);
+				});
+			}
 			setIsStepComplete(false);
 		}
 
 		// Add this line to reset the isGenerationStopped state
 		setIsGenerationStopped(false);
-	}, [append, state.currentStep, state.context, isLoading, chat_id, safeAgentId,
-		repo_name, file_paths, initialMessages, stop, strategyDetails, selectedStrategy]);
+	}, [isLoading, strategyDetails, state.completedSteps.length, state.currentStep, state.context, append, chat_id, initialMessages, safeAgentId, repo_name, file_paths, selectedStrategy]);
 
 	// Update useEffect to handle strategy loading safely
 	useEffect(() => {
@@ -486,7 +506,10 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			completedSteps: [],
 			context: {
 				currentPrompt: strategyDetails.steps[0]?.prompt || ''
-			}
+			},
+			stepResults: {},
+			version: 1,
+			history: []
 		});
 	}, [selectedStrategy, strategyDetails]);
 
@@ -822,7 +845,10 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			completedSteps: [],
 			context: {
 				currentPrompt: ''
-			}
+			},
+			stepResults: {},
+			version: 1,
+			history: []
 		});
 
 		// Start the pipeline
@@ -854,6 +880,59 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 		// We could add visual feedback here in the future
 	}, [handleGenerateDoc]);
+
+	// Add a function to handle restarting the flow
+	const handleRestartFlow = useCallback(() => {
+		if (isLoading) return;
+
+		// Reset state
+		setState({
+			currentStep: 0,
+			completedSteps: [],
+			context: {
+				currentPrompt: strategyDetails?.steps[0]?.prompt || '',
+			},
+			stepResults: {},
+			version: 1,
+			history: []
+		});
+
+		// Clear messages
+		setStreamingMessages([]);
+
+		// Show confirmation
+		toast.success("Pipeline restarted");
+	}, [isLoading, strategyDetails, setStreamingMessages]);
+
+	// Add a function to restore a previous version
+	const handleRestoreVersion = useCallback((versionIndex: number) => {
+		const versionToRestore = state.history[versionIndex];
+		if (!versionToRestore) return;
+
+		setState(prev => ({
+			...prev,
+			stepResults: { ...versionToRestore.stepResults },
+			completedSteps: [...versionToRestore.completedSteps],
+			currentStep: versionToRestore.completedSteps.length
+		}));
+
+		toast.success(`Restored to version ${versionToRestore.version}`);
+	}, [state.history]);
+
+	// Add a function to handle adding child nodes
+	const handleAddChildNode = useCallback((parentId: string) => {
+		// Extract the step index from the parentId
+		const stepIndex = parseInt(parentId.replace('step-', ''));
+		if (isNaN(stepIndex) || stepIndex < 0 || stepIndex >= (strategyDetails?.steps?.length || 0)) {
+			return;
+		}
+
+		// For now, show a toast message
+		toast.info(`Adding a child node to step ${stepIndex + 1} (${strategyDetails?.steps[stepIndex]?.title}) will be implemented in a future update.`);
+
+		// In the future, this would open a modal to select a child step to add
+		// or create a new child step
+	}, [strategyDetails]);
 
 	return (
 		<div className="flex flex-col h-full">
@@ -936,11 +1015,18 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						{/* Progress and controls section with improved spacing */}
 						{strategyDetails?.steps && strategyDetails.steps.length > 0 && (
 							<div className="space-y-4">
-								{/* Progress bar */}
-								<PipelineProgress
+								{/* Replace Progress bar with PipelineFlow */}
+								<PipelineFlow
+									steps={strategyDetails.steps}
 									currentStep={state.currentStep}
-									totalSteps={strategyDetails.steps.length}
 									completedSteps={state.completedSteps}
+									onStepClick={handleStepClick}
+									onRestartFlow={handleRestartFlow}
+									onAddChildNode={handleAddChildNode}
+									results={state.stepResults}
+									version={state.version}
+									history={state.history}
+									onRestoreVersion={handleRestoreVersion}
 								/>
 
 								{/* Control buttons with improved layout */}

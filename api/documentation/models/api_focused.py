@@ -15,18 +15,46 @@ class APIEndpoint(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class APIOverview(BaseModel):
-    """High-level API documentation overview"""
+class ApiOverview(BaseModel):
+    """API overview documentation section"""
 
-    title: str
-    version: str
-    description: str
-    base_url: str
-    authentication_methods: List[str]
-    architecture_diagram: str = Field(description="Mermaid diagram of API architecture")
-    core_technologies: List[str]
-    global_headers: Optional[Dict[str, str]]
-    rate_limits: Optional[Dict[str, str]]
+    purpose: str = Field(description="The purpose and goals of the API")
+    architecture: str = Field(description="High-level architecture of the API")
+    design_decisions: List[str] = Field(
+        description="Key design decisions made during API development"
+    )
+    technologies: List[str] = Field(description="Core technologies used in the API")
+    versioning_strategy: str = Field(description="How API versioning is handled")
+
+
+class EndpointDocumentation(BaseModel):
+    """API endpoint documentation section"""
+
+    endpoints: List[Dict[str, str]] = Field(
+        description="List of API endpoints with details"
+    )
+    authentication: str = Field(
+        description="Authentication methods supported by the API"
+    )
+    rate_limiting: Optional[str] = Field(
+        description="Rate limiting policies if applicable"
+    )
+    error_handling: str = Field(description="How errors are handled and communicated")
+
+
+class DataModels(BaseModel):
+    """API data models documentation section"""
+
+    models: List[Dict[str, str]] = Field(description="Data models used by the API")
+    schemas: Dict[str, Dict] = Field(
+        description="JSON schemas for request/response objects"
+    )
+    relationships: Optional[str] = Field(
+        description="Relationships between data models"
+    )
+    validation_rules: Optional[str] = Field(
+        description="Validation rules applied to data"
+    )
 
 
 class EndpointAnalysis(BaseModel):
@@ -58,19 +86,15 @@ class SecurityDocumentation(BaseModel):
 
 
 class IntegrationGuide(BaseModel):
-    """API integration documentation"""
+    """API integration guide documentation section"""
 
-    setup_steps: List[str]
-    authentication_setup: Dict[str, str]
-    basic_usage_examples: Dict[str, str]
-    advanced_patterns: List[Dict[str, str]]
-    error_handling: Dict[str, str]
-    rate_limiting_guide: str
-    environment_setup: Dict[str, str]
-    testing_guide: str
-    integration_diagram: str = Field(
-        description="Mermaid diagram showing integration flow"
+    getting_started: str = Field(description="Getting started with the API")
+    authentication_guide: str = Field(description="Detailed guide on authentication")
+    common_use_cases: List[Dict[str, str]] = Field(
+        description="Common integration scenarios"
     )
+    best_practices: List[str] = Field(description="Best practices for API integration")
+    troubleshooting: Dict[str, str] = Field(description="Common issues and solutions")
 
 
 class APIMaintenanceOps(BaseModel):
@@ -87,3 +111,12 @@ class APIMaintenanceOps(BaseModel):
     operations_diagram: str = Field(
         description="Mermaid diagram of operational architecture"
     )
+
+
+class ApiDocumentationResult(BaseModel):
+    """Complete API documentation result"""
+
+    api_overview: ApiOverview
+    endpoint_documentation: EndpointDocumentation
+    data_models: DataModels
+    integration_guide: IntegrationGuide

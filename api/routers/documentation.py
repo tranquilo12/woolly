@@ -47,6 +47,7 @@ async def get_strategy_details(strategy_name: str):
                 "id": step.id,
                 "title": step.title,
                 "prompt": step.prompt,
+                "model": step.model,
             }
             for step in strategy.steps
         ],

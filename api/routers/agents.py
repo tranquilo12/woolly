@@ -756,13 +756,17 @@ async def stream_documentation_response(request: DocumentationRequest, db: Sessi
 
         # Ensure step is properly set
         step = request.step if request.step is not None else context.current_step
-        if step < 1 or step > 5:  # Validate step range
-            raise ValueError(f"Invalid step number: {step}")
 
         # Get strategy details to retrieve step title
         strategy_details = strategy_registry.get(request.strategy)
         if not strategy_details:
             raise ValueError(f"Strategy {request.strategy} not found")
+
+        # Validate step range using strategy steps length
+        if step < 1 or step > len(strategy_details.steps):
+            raise ValueError(
+                f"Invalid step number: {step}. Valid range is 1-{len(strategy_details.steps)}"
+            )
 
         # Get current step details for metadata
         current_step = next((s for s in strategy_details.steps if s.id == step), None)

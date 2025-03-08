@@ -1,55 +1,57 @@
-from ..models.api_focused import (
-    APIOverview,
-    EndpointAnalysis,
-    SecurityDocumentation,
-    IntegrationGuide,
-    APIMaintenanceOps,
-)
-from ..strategies import DocumentationStrategy, StepConfig, register_strategy
+from typing import Dict, Type
+from pydantic import BaseModel
+from .. import models
+from . import DocumentationStrategy, StepConfig, register_strategy
 
 API_STRATEGY = DocumentationStrategy(
     name="api_focused",
-    description="Documentation strategy focused on API documentation",
+    description="API-focused documentation strategy",
+    version="1.0.0",
     steps=[
         StepConfig(
             id=1,
             title="API Overview",
-            prompt="Generate a comprehensive API overview including endpoints, authentication, and data models.",
-            model="APIOverview",
+            prompt="Generate a comprehensive overview of the API including its purpose, architecture, and key design decisions.",
+            model="ApiOverview",
+            system_prompt="You are an API documentation specialist. Focus on creating a clear overview of the API's purpose, architecture, and design decisions.",
+            next_steps=[2],
+            position={"x": 0, "y": 0},
         ),
         StepConfig(
             id=2,
-            title="Endpoint Analysis",
-            prompt="Document each API endpoint, parameters, responses, and examples.",
-            model="EndpointAnalysis",
+            title="Endpoint Documentation",
+            prompt="Document all API endpoints, their parameters, request/response formats, and authentication requirements.",
+            model="EndpointDocumentation",
+            system_prompt="You are an API documentation specialist. Focus on documenting endpoints, parameters, request/response formats, and authentication requirements.",
+            next_steps=[3],
+            position={"x": 200, "y": 0},
         ),
         StepConfig(
             id=3,
-            title="Security Documentation",
-            prompt="Document API security measures, authentication, and authorization.",
-            model="SecurityDocumentation",
+            title="Data Models",
+            prompt="Document the data models used by the API, including schemas, relationships, and validation rules.",
+            model="DataModels",
+            system_prompt="You are a data modeling specialist. Focus on documenting data models, schemas, relationships, and validation rules.",
+            next_steps=[4],
+            position={"x": 400, "y": 0},
         ),
         StepConfig(
             id=4,
             title="Integration Guide",
-            prompt="Create API integration guides with examples and best practices.",
+            prompt="Create a guide for integrating with the API, including authentication, rate limiting, and error handling.",
             model="IntegrationGuide",
-        ),
-        StepConfig(
-            id=5,
-            title="API Operations",
-            prompt="Document API maintenance, monitoring, and troubleshooting.",
-            model="APIMaintenanceOps",
+            system_prompt="You are an API integration specialist. Focus on creating a guide for authentication, rate limiting, and error handling.",
+            next_steps=[],
+            position={"x": 600, "y": 0},
         ),
     ],
     models={
-        "APIOverview": APIOverview,
-        "EndpointAnalysis": EndpointAnalysis,
-        "SecurityDocumentation": SecurityDocumentation,
-        "IntegrationGuide": IntegrationGuide,
-        "APIMaintenanceOps": APIMaintenanceOps,
+        "ApiOverview": models.ApiOverview,
+        "EndpointDocumentation": models.EndpointDocumentation,
+        "DataModels": models.DataModels,
+        "IntegrationGuide": models.IntegrationGuide,
     },
 )
 
-# Use register_strategy function instead of calling register method
+# Register strategy using the function
 register_strategy(API_STRATEGY)

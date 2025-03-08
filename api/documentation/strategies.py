@@ -1,5 +1,5 @@
-from typing import Dict, Type, List, Any
-from pydantic import BaseModel, ConfigDict
+from typing import Dict, Type, List, Any, Optional
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class StepConfig(BaseModel):
@@ -9,6 +9,21 @@ class StepConfig(BaseModel):
     title: str
     prompt: str
     model: str
+    # Add fields for graph-based flows
+    next_steps: List[int] = Field(
+        default_factory=list, description="IDs of the next steps in the flow"
+    )
+    child_steps: List[int] = Field(
+        default_factory=list,
+        description="IDs of child steps that can be added to this step",
+    )
+    parent_id: Optional[int] = Field(
+        default=None, description="ID of the parent step if this is a child step"
+    )
+    position: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Position of the step in the flow visualization",
+    )
 
 
 class DocumentationStrategy(BaseModel):
@@ -20,6 +35,8 @@ class DocumentationStrategy(BaseModel):
     description: str
     steps: List[StepConfig]
     models: Dict[str, Type[BaseModel]]
+    # Add field for versioning
+    version: str = Field(default="1.0.0", description="Version of the strategy")
 
 
 class StrategyRegistry:
