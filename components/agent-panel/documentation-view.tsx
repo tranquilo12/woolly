@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Message } from "ai";
 import { useChat } from 'ai/react';
 import { Play, Loader2, Square, Settings, ChevronUp, ChevronDown } from "lucide-react";
-import { useCallback, useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { DocumentationResult, isCodeDocumentation, isComponentAnalysis, isDevelopmentGuide, isMaintenanceOps, isSystemOverview } from '../../types/documentation';
 import { MessageWithModel, toMessageWithModel } from "../chat";
 import { Button } from "../ui/button";
@@ -71,20 +71,24 @@ function EmptyPipelineState({ pipelineName, onStart }: { pipelineName: string, o
 }
 
 export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
+	// Ensure agent_id is always a string
+	const safeAgentId = agent_id ? String(agent_id) : '';
 	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
+	const [isLoading, setIsLoading] = useState(false);
+	const [isStepComplete, setIsStepComplete] = useState(false);
+	const [isGenerationStopped, setIsGenerationStopped] = useState(false);
+	const [currentStepContent, setCurrentStepContent] = useState('');
+	const [selectedStrategy, setSelectedStrategy] = useState('basic');
+	const [isRunningSingleStep, setIsRunningSingleStep] = useState(false);
+	const [singleStepIndex, setSingleStepIndex] = useState<number | null>(null);
 
 	// Add state for collapsible settings region
-	const [isSettingsExpanded, setIsSettingsExpanded] = useState<boolean>(true);
+	const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
 
 	// Toggle settings expansion
 	const toggleSettings = useCallback(() => {
 		setIsSettingsExpanded(prev => !prev);
 	}, []);
-
-	// Ensure agent_id is always a string
-	const safeAgentId = agent_id ? String(agent_id) : '';
-
-	const [selectedStrategy, setSelectedStrategy] = useState<string>("basic");
 
 	const {
 		data: initialMessages = [],
@@ -111,8 +115,6 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		history: []
 	});
 
-	const [currentStepContent, setCurrentStepContent] = useState<string>('');
-	const [isStepComplete, setIsStepComplete] = useState<boolean>(false);
 	const [isAgentReady, setIsAgentReady] = useState(!!safeAgentId);
 
 	// Fetch strategy details
@@ -124,6 +126,9 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 	// Use strategy steps instead of DOCUMENTATION_STEPS
 	const currentStep = strategyDetails?.steps[state.currentStep];
+
+	// Add a state to track the current loading step
+	const [loadingStep, setLoadingStep] = useState<number | null>(null);
 
 	// NEW: Define handleStepComplete early using useCallback so it's available for useChat.onFinish
 	const handleStepComplete = useCallback((context: any) => {
@@ -167,29 +172,51 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		}
 
 		// Update state with the content
-		setState(prev => ({
-			...prev,
-			context: {
-				...prev.context,
-				[contextKey]: parsedContent,
-				currentPrompt: currentStep?.prompt || ''
-			},
-			stepResults: {
-				...prev.stepResults,
-				[stepKey]: parsedContent
-			},
-			completedSteps: [...prev.completedSteps, prev.currentStep],
-			currentStep: prev.currentStep + 1,
-		}));
+		setState(prev => {
+			// Check if we're running a single step
+			const isSingleStep = prev.context.single_step === 'true';
 
-		setIsStepComplete(true);
+			// For single steps, we don't advance to the next step
+			const newState = {
+				...prev,
+				context: {
+					...prev.context,
+					[contextKey]: parsedContent,
+					currentPrompt: currentStep?.prompt || ''
+				},
+				stepResults: {
+					...prev.stepResults,
+					[stepKey]: parsedContent
+				},
+				completedSteps: [...prev.completedSteps, prev.currentStep],
+			};
+
+			// Only advance to the next step if we're not running a single step
+			if (!isSingleStep) {
+				newState.currentStep = prev.currentStep + 1;
+			}
+
+			return newState;
+		});
+
+		// For single steps, we don't want to trigger the next step
+		const isSingleStep = state.context.single_step === 'true';
+		if (!isSingleStep && strategyDetails) {
+			setIsStepComplete(true);
+		}
+
 		setCurrentStepContent('');
-	}, [state.currentStep, currentStepContent, strategyDetails]);
+
+		// Reset loading step
+		setLoadingStep(null);
+
+		// Reset loading state
+		setIsLoading(false);
+	}, [strategyDetails, state.currentStep, state.context.single_step, currentStepContent]);
 
 	const {
 		messages: streamingMessages,
 		append,
-		isLoading,
 		error,
 		reload,
 		stop,
@@ -275,8 +302,14 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				// Add this line to reset the isGenerationStopped state
 				setIsGenerationStopped(false);
 
+				// Check if we have any tool invocations
+				const hasToolInvocations = message.toolInvocations && message.toolInvocations.length > 0;
+
+				// For single step execution, we're more lenient with validation
+				const isSingleStep = state.context.single_step === 'true';
+
 				// Validate the response
-				if (!isValidDocumentationResponse(message)) {
+				if (!hasToolInvocations && !isValidDocumentationResponse(message)) {
 					console.warn("Invalid documentation response, retrying...");
 
 					// Clear streaming messages and retry
@@ -286,7 +319,11 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 					await new Promise(resolve => setTimeout(resolve, 1000));
 
 					// Retry the current step
-					handleGenerateDoc();
+					if (isSingleStep) {
+						handleRunSingleStep(state.currentStep);
+					} else {
+						handleGenerateDoc();
+					}
 					return;
 				}
 
@@ -363,10 +400,18 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						tool => tool.toolName === 'final_result'
 					);
 
+					// If we don't have a final_result tool but we have other tool invocations,
+					// try to use the first one with a result or args
+					const anyResultTool = !finalResultTool && uniqueToolInvocations.length > 0
+						? uniqueToolInvocations.find(tool => tool.result || tool.args)
+						: null;
+
+					const toolToUse = finalResultTool || anyResultTool;
+
 					// @ts-ignore
-					if (finalResultTool?.result || finalResultTool?.args) {
+					if (toolToUse?.result || toolToUse?.args) {
 						// @ts-ignore
-						const formattedContent = formatToolResult(finalResultTool.result || finalResultTool.args, state.currentStep);
+						const formattedContent = formatToolResult(toolToUse.result || toolToUse.args, state.currentStep);
 						const context = {
 							context: {
 								[state.currentStep]: formattedContent
@@ -375,14 +420,60 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 						handleStepComplete(context);
 					} else {
 						// Retry if tool result is missing
-						handleGenerateDoc();
+						// Check if we're running a single step
+						const isSingleStep = state.context.single_step === 'true';
+						if (isSingleStep) {
+							handleRunSingleStep(state.currentStep);
+						} else {
+							handleGenerateDoc();
+						}
 					}
 				} else {
-					// Retry if no valid content or tool results
-					handleGenerateDoc();
+					// If we have any content at all, try to use it
+					if (message.content) {
+						try {
+							// Try to parse the content as JSON
+							const parsedContent = JSON.parse(message.content);
+							if (Object.keys(parsedContent).length > 0) {
+								// If we have valid JSON content, use it
+								const context = {
+									context: {
+										[state.currentStep]: message.content
+									},
+								};
+								handleStepComplete(context);
+								return;
+							}
+						} catch (e) {
+							// If parsing fails, just use the raw content
+							if (message.content.trim().length > 0) {
+								const context = {
+									context: {
+										[state.currentStep]: message.content
+									},
+								};
+								handleStepComplete(context);
+								return;
+							}
+						}
+					}
+
+					// If we get here, we need to retry
+					// Check if we're running a single step
+					const isSingleStep = state.context.single_step === 'true';
+					if (isSingleStep) {
+						handleRunSingleStep(state.currentStep);
+					} else {
+						handleGenerateDoc();
+					}
 				}
 			} catch (error) {
 				console.error('Error in onFinish:', error);
+
+				// Reset loading state on error
+				setIsLoading(false);
+				setLoadingStep(null);
+
 				handleGenerateDoc();
 			}
 		},
@@ -400,6 +491,9 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 	// Add a handleStrategyChange function to reset messages when the strategy changes
 	const handleStrategyChange = (newStrategy: string) => {
+		// Don't do anything if the strategy hasn't changed
+		if (newStrategy === selectedStrategy) return;
+
 		// Update the selected strategy
 		setSelectedStrategy(newStrategy);
 
@@ -417,10 +511,16 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 		// Clear streaming messages
 		setStreamingMessages([]);
+
+		// Make sure we don't automatically trigger generation
+		setIsStepComplete(false);
 	};
 
 	const handleGenerateDoc = useCallback(async () => {
 		if (isLoading || !strategyDetails) return;
+
+		// Set global loading state
+		setIsLoading(true);
 
 		// Save current state to history before generating new content
 		if (state.completedSteps.length > 0) {
@@ -439,8 +539,28 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		}
 
 		if (state.currentStep >= strategyDetails.steps.length) {
+			setIsLoading(false);
 			return;
 		}
+
+		// Reset the single_step flag when running the full pipeline
+		setState(prev => ({
+			...prev,
+			context: {
+				...prev.context,
+				single_step: '',
+				run_single_step: '',
+				only_step: '',
+				skip_subsequent_steps: ''
+			}
+		}));
+
+		// Reset any single step execution state
+		setIsRunningSingleStep(false);
+		setSingleStepIndex(null);
+
+		// Set the current step as the loading step
+		setLoadingStep(state.currentStep);
 
 		const currentStep = strategyDetails.steps[state.currentStep];
 		setCurrentStepContent('');
@@ -490,6 +610,10 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 				});
 			}
 			setIsStepComplete(false);
+		} finally {
+			// Reset loading state
+			setIsLoading(false);
+			setLoadingStep(null);
 		}
 
 		// Add this line to reset the isGenerationStopped state
@@ -500,29 +624,41 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	useEffect(() => {
 		if (!strategyDetails) return;  // Early return if no strategy details
 
-		// Reset state when strategy changes
-		setState({
-			currentStep: 0,
-			completedSteps: [],
-			context: {
-				currentPrompt: strategyDetails.steps[0]?.prompt || ''
-			},
-			stepResults: {},
-			version: 1,
-			history: []
-		});
-	}, [selectedStrategy, strategyDetails]);
+		// Reset state when strategy changes, but only if we're not already in the process of changing strategies
+		// This prevents double-resets when handleStrategyChange is called
+		if (state.currentStep !== 0 || state.completedSteps.length > 0 || Object.keys(state.stepResults).length > 0) {
+			setState({
+				currentStep: 0,
+				completedSteps: [],
+				context: {
+					currentPrompt: strategyDetails.steps[0]?.prompt || ''
+				},
+				stepResults: {},
+				version: 1,
+				history: []
+			});
+		}
+
+		// Make sure we don't automatically trigger generation
+		setIsStepComplete(false);
+	}, [selectedStrategy, strategyDetails, state.currentStep, state.completedSteps.length, state.stepResults]);
 
 	// Place useEffect after handleGenerateDoc
 	useEffect(() => {
-		if (!isLoading && state.currentStep < (strategyDetails?.steps?.length || 0) && isStepComplete) {
+		// Only auto-continue to the next step if we're not running a single step
+		// and if we're not in the process of changing strategies
+		if (!isLoading &&
+			state.currentStep < (strategyDetails?.steps?.length || 0) &&
+			isStepComplete &&
+			state.context.single_step !== 'true') { // Check if we're running a single step
+
 			const timeoutId = setTimeout(() => {
 				setIsStepComplete(false);
 				handleGenerateDoc();
 			}, 100);
 			return () => clearTimeout(timeoutId);
 		}
-	}, [isStepComplete, state.currentStep, isLoading, handleGenerateDoc, strategyDetails]);
+	}, [isStepComplete, state.currentStep, isLoading, handleGenerateDoc, strategyDetails, state.context.single_step]);
 
 	// Add message processing logic
 	const processedMessages = useMemo(() => {
@@ -698,6 +834,9 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 	// Update the validation helper to handle both parts and toolInvocations
 	const isValidDocumentationResponse = (message: Message): boolean => {
+		// Check if we're running a single step - be more lenient
+		const isSingleStep = state.context.single_step === 'true';
+
 		// First check parts array (new format)
 		// @ts-ignore
 		if (message.parts?.length) {
@@ -705,6 +844,13 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			const hasValidToolResult = message.parts.some(part => {
 				if (part.type !== 'tool-invocation') return false;
 				const toolInvocation = (part as ToolInvocation);
+
+				// For single steps, accept any tool invocation with args
+				if (isSingleStep) {
+					return toolInvocation.args && Object.keys(toolInvocation.args).length > 0;
+				}
+
+				// For regular flow, require final_result
 				return (
 					toolInvocation.toolName === 'final_result' &&
 					toolInvocation.state === 'result' &&
@@ -715,9 +861,17 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			if (hasValidToolResult) return true;
 		}
 
-		// Then check toolInvocations array (fallback format)
+		// Then check toolInvocations array (old format)
+		// @ts-ignore
 		if (message.toolInvocations?.length) {
+			// @ts-ignore
 			const hasValidToolResult = message.toolInvocations.some(tool => {
+				// For single steps, accept any tool invocation with args
+				if (isSingleStep) {
+					return tool.args && Object.keys(tool.args).length > 0;
+				}
+
+				// For regular flow, require final_result
 				return (
 					tool.toolName === 'final_result' &&
 					tool.state === 'result' &&
@@ -728,16 +882,12 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 			if (hasValidToolResult) return true;
 		}
 
-		// Finally check content for JSON format
-		if (message.content?.trim()) {
+		// Finally check content (fallback)
+		if (message.content) {
 			try {
-				const parsedContent = JSON.parse(message.content);
-				return Boolean(
-					parsedContent.finishReason === "step_complete" &&
-					parsedContent.context &&
-					Object.keys(parsedContent.context).length > 0
-				);
-			} catch {
+				const content = JSON.parse(message.content);
+				return Object.keys(content).length > 0;
+			} catch (e) {
 				return false;
 			}
 		}
@@ -767,20 +917,129 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 
 
 	const handleStepClick = (index: number) => {
-		// Always allow changing steps via the document type buttons
+		// Set the current step to the clicked step
 		setState(prev => ({
 			...prev,
 			currentStep: index,
 		}));
 
-		// If we're generating a new document, trigger the generation
+		// If we're generating a new document, trigger the generation for just this step
 		if (!groupedMessages[index] || !groupedMessages[index].messages?.length) {
-			// Small delay to allow state update to complete
-			setTimeout(() => {
-				handleGenerateDoc();
-			}, 100);
+			// Run the single step immediately
+			handleRunSingleStep(index);
+		} else {
+			// If the step has already been run, just set the current step
+			console.log(`Step ${index} has already been run, just updating current step`);
+			// Only update the current step without additional visual indicators
 		}
 	};
+
+	// Add a new function to run a single step
+	const handleRunSingleStep = useCallback(async (stepIndex: number) => {
+		if (isLoading || !strategyDetails) return;
+
+		// Set global loading state
+		setIsLoading(true);
+
+		// Set the selected step as the loading step
+		setLoadingStep(stepIndex);
+
+		// Make sure the step index is valid
+		if (stepIndex < 0 || stepIndex >= strategyDetails.steps.length) {
+			return;
+		}
+
+		// Set the single step execution state - simplified to just track the current step
+		setIsRunningSingleStep(true);
+		setSingleStepIndex(stepIndex);
+
+		const stepToRun = strategyDetails.steps[stepIndex];
+		setCurrentStepContent('');
+		setIsStepComplete(false);
+
+		// Clear any previous streaming messages to avoid conflicts
+		setStreamingMessages([]);
+
+		// Update state to indicate we're running a single step
+		setState(prev => ({
+			...prev,
+			context: {
+				...prev.context,
+				single_step: 'true',
+				run_single_step: 'true',
+				only_step: String(stepIndex), // Add the specific step index to run
+				skip_subsequent_steps: 'true' // Explicitly tell the backend to skip subsequent steps
+			}
+		}));
+
+		try {
+			// Create a custom message that explicitly indicates this is a single step run
+			const customMessage = `Run only step ${stepIndex + 1}: ${stepToRun.title}`;
+
+			await append({
+				role: 'user',
+				content: customMessage
+			}, {
+				body: {
+					id: chat_id,
+					messages: initialMessages || [],
+					model: "gpt-4o-mini",
+					agent_id: safeAgentId,
+					repo_name: repo_name,
+					file_paths: file_paths,
+					chat_id: chat_id,
+					step: stepIndex + 1, // API expects 1-indexed steps
+					context: {
+						...state.context,
+						current_step: stepIndex,
+						currentPrompt: stepToRun.prompt,
+						single_step: 'true',
+						run_single_step: 'true',
+						only_step: String(stepIndex),
+						skip_subsequent_steps: 'true',
+						original_prompt: stepToRun.prompt
+					},
+					prompt: customMessage, // Use our custom message
+					original_prompt: stepToRun.prompt, // Keep the original prompt for reference
+					strategy: selectedStrategy,
+					pipeline_id: selectedStrategy,
+					single_step: 'true',
+					run_single_step: true,
+					only_step: stepIndex,
+					skip_subsequent_steps: true
+				}
+			});
+		} catch (error) {
+			console.error("Failed to run step:", error);
+			// Add more detailed error logging
+			if (error instanceof Error) {
+				console.error("Error message:", error.message);
+				console.error("Error stack:", error.stack);
+			}
+			// If it's a response error, try to get more details
+			if (error instanceof Response || (error as any)?.response) {
+				const response = error instanceof Response ? error : (error as any).response;
+				console.error("Response status:", response.status);
+				console.error("Response statusText:", response.statusText);
+				// Try to get the response body
+				response.text().then((text: string) => {
+					console.error("Response body:", text);
+				}).catch((e: any) => {
+					console.error("Failed to get response body:", e);
+				});
+			}
+			setIsStepComplete(false);
+		} finally {
+			// Reset the single step execution state after a delay
+			setTimeout(() => {
+				setIsRunningSingleStep(false);
+				setSingleStepIndex(null);
+			}, 1000);
+		}
+
+		// Reset the isGenerationStopped state
+		setIsGenerationStopped(false);
+	}, [isLoading, strategyDetails, state.context, chat_id, safeAgentId, repo_name, file_paths, selectedStrategy, append, initialMessages, setStreamingMessages, setState, setIsRunningSingleStep, setSingleStepIndex]);
 
 	// Move the setupDocumentationAgent function outside of the useEffect
 	const setupDocumentationAgent = useCallback(async () => {
@@ -860,16 +1119,15 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		}, 500);
 	};
 
-	// Add a new state variable to track if generation is stopped
-	const [isGenerationStopped, setIsGenerationStopped] = useState(false);
-
 	// Update the handleStopGeneration function to remove the toast
 	const handleStopGeneration = useCallback(() => {
 		// Stop the current generation
 		stop();
 		setIsGenerationStopped(true);
 
-		// We could add visual feedback here in the future
+		// Reset loading states
+		setIsLoading(false);
+		setLoadingStep(null);
 	}, [stop]);
 
 	// Update the handleContinueGeneration function
@@ -935,7 +1193,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 	}, [strategyDetails]);
 
 	return (
-		<div className="flex flex-col h-full">
+		<div className="flex flex-col h-full overflow-hidden">
 			{/* Settings Region with collapsible functionality */}
 			<div className="border-b border-b-2 border-border/30 bg-muted/20">
 				{/* Settings Header */}
@@ -1021,12 +1279,14 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 									currentStep={state.currentStep}
 									completedSteps={state.completedSteps}
 									onStepClick={handleStepClick}
-									onRestartFlow={handleRestartFlow}
+									onRestartFlow={handleGenerateDoc}
 									onAddChildNode={handleAddChildNode}
 									results={state.stepResults}
 									version={state.version}
 									history={state.history}
 									onRestoreVersion={handleRestoreVersion}
+									isLoading={isLoading}
+									loadingStep={loadingStep !== null ? loadingStep : undefined}
 								/>
 
 								{/* Control buttons with improved layout */}
@@ -1058,33 +1318,19 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 											</Button>
 										)}
 									</div>
-
-									{/* Generate button with improved styling */}
-									<Button
-										onClick={handleGenerateDoc}
-										disabled={isLoading || !strategyDetails}
-										className="mx-auto px-8"
-										size="default"
-										variant="secondary"
-									>
-										{isLoading ? (
-											<>
-												<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-												Generating...
-											</>
-										) : (
-											<>
-												<Play className="mr-2 h-4 w-4" />
-												Generate
-											</>
-										)}
-									</Button>
 								</div>
 							</div>
 						)}
 					</div>
 				</div>
 			</div>
+
+			{/* Add a minimal visual indicator for single step execution */}
+			{isRunningSingleStep && singleStepIndex !== null && strategyDetails && (
+				<div className="text-xs text-muted-foreground mb-2 text-right">
+					Running: {strategyDetails.steps[singleStepIndex].title}
+				</div>
+			)}
 
 			<div ref={containerRef} className="flex-1 overflow-y-auto p-4 pt-6 bg-background">
 				{/* Show empty state when no messages are found for the selected pipeline */}
@@ -1102,6 +1348,7 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 								group={group}
 								currentStep={state.currentStep}
 								onStepClick={handleStepClick}
+								isLoading={isLoading && (loadingStep === group.step_index)}
 							/>
 						))}
 						<div ref={endRef} />

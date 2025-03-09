@@ -21,6 +21,8 @@ interface PipelineFlowProps {
 		completedSteps: number[];
 	}>;
 	onRestoreVersion?: (versionIndex: number) => void;
+	isLoading?: boolean;
+	loadingStep?: number;
 }
 
 export function PipelineFlow({
@@ -34,7 +36,9 @@ export function PipelineFlow({
 	className,
 	version = 1,
 	history = [],
-	onRestoreVersion
+	onRestoreVersion,
+	isLoading = false,
+	loadingStep
 }: PipelineFlowProps) {
 	// Add a dropdown for version history
 	const [showVersionHistory, setShowVersionHistory] = useState(false);
@@ -44,6 +48,28 @@ export function PipelineFlow({
 			<div className="flex justify-between items-center mb-3">
 				<div className="flex items-center gap-2">
 					<span className="text-sm font-medium">Pipeline Flow</span>
+					<Button
+						variant="secondary"
+						size="sm"
+						className={cn(
+							"h-6 text-xs flex items-center gap-1 transition-all duration-300",
+							isLoading && "bg-primary/10 text-primary border-primary/30"
+						)}
+						onClick={onRestartFlow}
+						title="Run all steps in sequence"
+						disabled={isLoading}
+					>
+						{isLoading ? (
+							<>
+								<span className="animate-pulse">Running...</span>
+							</>
+						) : (
+							<>
+								<Play className="h-3 w-3" />
+								<span>Run All</span>
+							</>
+						)}
+					</Button>
 					{version > 1 && (
 						<div className="relative">
 							<Button
@@ -51,6 +77,7 @@ export function PipelineFlow({
 								size="sm"
 								className="h-6 text-xs flex items-center gap-1"
 								onClick={() => setShowVersionHistory(!showVersionHistory)}
+								disabled={isLoading}
 							>
 								v{version}
 								{showVersionHistory ? (
@@ -95,6 +122,7 @@ export function PipelineFlow({
 							className="h-6 w-6"
 							onClick={onRestartFlow}
 							title="Restart flow"
+							disabled={isLoading}
 						>
 							<RefreshCw className="h-3.5 w-3.5" />
 						</Button>
@@ -103,65 +131,66 @@ export function PipelineFlow({
 			</div>
 
 			<div className="flex gap-4 overflow-x-auto pb-2">
-				{steps.map((step, index) => (
-					<div
-						key={index}
-						className={cn(
-							"flex flex-col min-w-[150px] px-4 py-2 rounded-md border transition-all duration-300",
-							completedSteps.includes(index) ? "border-primary bg-primary/10" :
-								currentStep === index ? "border-primary/70 bg-primary/5" :
-									"border-border/50 bg-background"
-						)}
-					>
-						<div className="flex items-center justify-between mb-1">
-							<div className={cn(
-								"flex items-center justify-center w-5 h-5 rounded-full text-xs mr-2",
-								completedSteps.includes(index) ? "bg-primary text-primary-foreground" :
-									currentStep === index ? "bg-primary/20 text-primary" :
-										"bg-muted text-muted-foreground"
-							)}>
-								{completedSteps.includes(index) ? <Check className="h-3 w-3" /> : null}
-							</div>
-							<span className="text-sm font-medium flex-1">{step.title}</span>
-							<Button
-								variant="ghost"
-								size="icon"
-								className="h-6 w-6 ml-1"
-								onClick={() => onStepClick(index)}
-								title="Run from this step"
-							>
-								<Play className="h-3 w-3" />
-							</Button>
-						</div>
+				{steps.map((step, index) => {
+					const isStepLoading = isLoading && (loadingStep === index || (loadingStep === undefined && currentStep === index));
 
-						{results && results[`step-${index}`] && (
-							<div className="text-xs text-muted-foreground mt-1 mb-2 bg-background/50 p-1 rounded">
-								{typeof results[`step-${index}`] === 'object' ?
-									Object.keys(results[`step-${index}`]).length + ' results' :
-									'Results available'}
-							</div>
-						)}
-
-						{onAddChildNode && (
-							<div className="flex justify-center mt-2">
+					return (
+						<div
+							key={index}
+							className={cn(
+								"flex flex-col min-w-[150px] px-4 py-2 rounded-md border transition-all duration-300",
+								isStepLoading ? "border-primary/50 bg-primary/5 shadow-sm" :
+									completedSteps.includes(index) ? "border-primary/30 bg-background" :
+										currentStep === index ? "border-primary bg-primary/5" :
+											"border-border/50 bg-background"
+							)}
+						>
+							<div className="flex items-center justify-between mb-1">
+								<span className="text-sm font-medium flex-1">{step.title}</span>
 								<Button
 									variant="ghost"
-									size="sm"
-									className="h-6 text-xs flex items-center gap-1"
-									onClick={() => onAddChildNode(`step-${index}`)}
+									size="icon"
+									className="h-6 w-6 ml-1"
+									onClick={() => onStepClick(index)}
+									title="Run only this step"
+									aria-label={`Run only the ${step.title} step`}
+									disabled={isLoading}
 								>
-									<PlusCircle className="h-3 w-3" />
-									<span>Add step</span>
+									<Play className="h-3 w-3" />
 								</Button>
 							</div>
-						)}
 
-						{/* Draw connection line to next step */}
-						{index < steps.length - 1 && (
-							<div className="absolute right-0 top-1/2 w-4 h-0.5 bg-border transform translate-x-full" />
-						)}
-					</div>
-				))}
+							{isStepLoading && (
+								<div className="text-xs text-primary mt-1 mb-2 bg-primary/10 p-1 rounded animate-pulse">
+									Processing...
+								</div>
+							)}
+
+							{results && results[`step-${index}`] && !isStepLoading && (
+								<div className="text-xs text-muted-foreground mt-1 mb-2 bg-background/50 p-1 rounded">
+									{typeof results[`step-${index}`] === 'object' ?
+										Object.keys(results[`step-${index}`]).length + ' results' :
+										'Results available'}
+								</div>
+							)}
+
+							{onAddChildNode && (
+								<div className="flex justify-center mt-2">
+									<Button
+										variant="ghost"
+										size="sm"
+										className="h-6 text-xs flex items-center gap-1"
+										onClick={() => onAddChildNode(`step-${index}`)}
+										disabled={isLoading}
+									>
+										<PlusCircle className="h-3 w-3" />
+										<span>Add step</span>
+									</Button>
+								</div>
+							)}
+						</div>
+					);
+				})}
 			</div>
 		</div>
 	);

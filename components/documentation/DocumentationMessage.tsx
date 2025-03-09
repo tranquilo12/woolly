@@ -46,19 +46,55 @@ export const DocumentationMessage = memo(function DocumentationMessage({
 
 	// Get the final result tool invocation
 	const finalResult = toolInvocations?.find(tool =>
-		tool.toolName === 'final_result' && tool.state === 'result'
+		tool.toolName === 'final_result' && (tool.state === 'result' || tool.state === undefined)
 	);
 
 	// Parse content from tool result or message content
 	let parsedContent = null;
 	if (!finalResult) {
-		console.warn('No final result found in tool invocations');
-		// Check if we have any valid tool invocations with results
+		// Instead of just warning, try to find any valid tool invocation with results
+		// This is a more graceful fallback
 		const validToolInvocation = toolInvocations?.find(tool =>
-			tool.state === 'result' && (tool.args || tool.result)
+			(tool.state === 'result' || tool.state === undefined) &&
+			(tool.args || tool.result || (tool as any).content)
 		);
-		// @ts-ignore
-		parsedContent = validToolInvocation?.args || validToolInvocation?.result || null;
+
+		if (validToolInvocation) {
+			// Try to extract content from various possible locations
+			// Use type assertions for properties that might not exist on all tool invocation types
+			parsedContent =
+				validToolInvocation.args ||
+				(validToolInvocation as any).result ||
+				(validToolInvocation as any).content ||
+				null;
+			console.log("[DEBUG] Using fallback tool invocation:", validToolInvocation.toolName);
+		} else if (message.content && typeof message.content === 'string' && message.content.trim() !== '') {
+			// If no valid tool invocation, try to use the message content directly
+			try {
+				// Try to parse as JSON if it looks like JSON
+				if (message.content.trim().startsWith('{') || message.content.trim().startsWith('[')) {
+					parsedContent = JSON.parse(message.content);
+					console.log("[DEBUG] Parsed message content as JSON");
+				} else {
+					// Otherwise use as plain text
+					parsedContent = message.content;
+					console.log("[DEBUG] Using message content as plain text");
+				}
+			} catch (e) {
+				// If parsing fails, use as plain text
+				parsedContent = message.content;
+				console.log("[DEBUG] Failed to parse message content as JSON, using as plain text");
+			}
+		} else {
+			// Handle status update messages (like "Starting documentation step X")
+			// Instead of warning, we'll use the content as is
+			if (message.content && typeof message.content === 'string' && message.content.trim() !== '') {
+				parsedContent = { type: "status_update", message: message.content };
+				console.log("[DEBUG] Using message content as status update");
+			} else {
+				console.log('No final result found in tool invocations');
+			}
+		}
 	} else {
 		// Handle final result content
 		// @ts-ignore
@@ -211,29 +247,48 @@ export const DocumentationMessage = memo(function DocumentationMessage({
 				</div>
 			)}
 
-			{/* Show tool invocations */}
-			{(!parsedContent || !renderContent(parsedContent)) && toolInvocations?.map((tool: any, index: number) => (
-				<div
-					key={`${message.id}-${tool.toolCallId || 'tool'}-${index}`}
-					className="opacity-100 transition-opacity duration-200"
-				>
-					<ToolInvocationDisplay
-						toolInvocation={{
-							id: tool.toolCallId,
-							toolCallId: tool.toolCallId,
-							toolName: tool.toolName,
-							args: tool.args,
-							state: tool.state,
-							result: 'result' in tool ? tool.result : undefined
-						}}
-					/>
+			{/* Show tool invocations if we don't have parsedContent or if renderContent didn't produce output */}
+			{(!parsedContent || !renderContent(parsedContent)) && toolInvocations && toolInvocations.length > 0 && (
+				<div className="space-y-4">
+					<h3 className="text-sm font-medium">Tool Invocations:</h3>
+					{toolInvocations.map((tool: any, index: number) => (
+						<div
+							key={`${message.id}-${tool.toolCallId || tool.id || 'tool'}-${index}`}
+							className="opacity-100 transition-opacity duration-200"
+						>
+							<ToolInvocationDisplay
+								toolInvocation={{
+									id: tool.toolCallId || tool.id || `tool-${index}`,
+									toolCallId: tool.toolCallId || tool.id || `tool-${index}`,
+									toolName: tool.toolName || 'unknown',
+									args: tool.args || {},
+									state: tool.state || 'unknown',
+									result: 'result' in tool ? tool.result : undefined
+								}}
+							/>
+						</div>
+					))}
 				</div>
-			))}
+			)}
 		</div>
 	);
 });
 
 const DocumentationRenderer = memo(function DocumentationRenderer({ content }: { content: any }) {
+	// Handle null or undefined content
+	if (!content) {
+		return <div className="text-sm text-muted-foreground">No content available</div>;
+	}
+
+	// Handle status update messages
+	if (content.type === "status_update") {
+		return (
+			<div className="text-sm text-muted-foreground italic">
+				{content.message}
+			</div>
+		);
+	}
+
 	// Detect content type and use appropriate renderer
 	if ('core_technologies' in content) {
 		if ('authentication_methods' in content) {
