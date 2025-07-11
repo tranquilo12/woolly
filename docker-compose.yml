@@ -10,8 +10,8 @@ services:
       - ./api:/app/api
       - ./migrations:/app/migrations
       - ./.env.local:/app/.env.local
-      - ./requirements.txt:/app/requirements.txt
-      - ./api/requirements.txt:/app/api/requirements.txt
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./uv.lock:/app/uv.lock
     environment:
       - PYTHONUNBUFFERED=1
       - POSTGRES_URL=${POSTGRES_URL:-postgresql://default:zmNuXOkn14TJ@ep-proud-sound-a4rerowu-pooler.us-east-1.aws.neon.tech:5432/verceldb?sslmode=require}

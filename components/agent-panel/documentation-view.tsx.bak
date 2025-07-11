@@ -1,0 +1,1596 @@
+'use client';
+
+import { useAgentMessages } from '@/hooks/use-agent-messages';
+import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
+import { documentationApi } from '@/lib/api/documentation';
+import { AvailableRepository } from "@/lib/constants";
+import { ToolInvocation } from '@ai-sdk/ui-utils';
+import { useQuery } from '@tanstack/react-query';
+import { Message } from "ai";
+import { useChat } from 'ai/react';
+import { Play, Loader2, Square, Settings, ChevronUp, ChevronDown } from "lucide-react";
+import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
+import { DocumentationResult, isCodeDocumentation, isComponentAnalysis, isDevelopmentGuide, isMaintenanceOps, isSystemOverview } from '../../types/documentation';
+import { MessageWithModel, toMessageWithModel } from "../chat";
+import { Button } from "../ui/button";
+import { StrategySelector } from './strategy-selector';
+import { AgentMessageGroup } from './message-group';
+import { PipelineFlow } from './pipeline-flow';
+import 'reactflow/dist/style.css';
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { useAgentPanel } from "./agent-provider";
+
+interface DocumentationViewProps {
+	repo_name: AvailableRepository;
+	agent_id: string;
+	file_paths: string[];
+	chat_id: string;
+}
+
+interface DocumentationState {
+	currentStep: number;
+	completedSteps: number[];
+	context: {
+		[key: string]: string;
+		currentPrompt: string;
+	};
+	stepResults: Record<string, any>;
+	version: number;
+	history: Array<{
+		version: number;
+		stepResults: Record<string, any>;
+		completedSteps: number[];
+	}>;
+}
+
+interface StepConfig {
+	id: number;
+	title: string;
+	prompt: string;
+	description: string;
+	requiresConfirmation: boolean;
+	model: string;
+}
+
+function EmptyPipelineState({ pipelineName, onStart }: { pipelineName: string, onStart: () => void }) {
+	return (
+		<div className="flex flex-col items-center justify-center h-full p-8 text-center">
+			<div className="rounded-full bg-primary/10 p-4 mb-4">
+				<Play className="h-6 w-6 text-primary" />
+			</div>
+			<h3 className="text-lg font-medium mb-2">Ready to Generate Documentation</h3>
+			<p className="text-sm text-muted-foreground mb-6 max-w-md">
+				You&apos;ve selected the &ldquo;{pipelineName}&rdquo; pipeline. Click the button below to start generating documentation for your project.
+			</p>
+			<Button onClick={onStart} className="flex items-center gap-2">
+				<Play className="h-4 w-4" />
+				Start Pipeline
+			</Button>
+		</div>
+	);
+}
+
+export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: DocumentationViewProps) {
+	// Ensure agent_id is always a string
+	const safeAgentId = agent_id ? String(agent_id) : '';
+	const [localAgentId, setLocalAgentId] = useState<string>(safeAgentId);
+	const { setDocAgentId } = useAgentPanel();
+	const [containerRef, endRef, scrollToBottom] = useScrollToBottom<HTMLDivElement>();
+	const [isLoading, setIsLoading] = useState(false);
+	const [isStepComplete, setIsStepComplete] = useState(false);
+	const [isGenerationStopped, setIsGenerationStopped] = useState(false);
+	const [currentStepContent, setCurrentStepContent] = useState('');
+	const [selectedStrategy, setSelectedStrategy] = useState('basic');
+	const [isRunningSingleStep, setIsRunningSingleStep] = useState(false);
+	const [singleStepIndex, setSingleStepIndex] = useState<number | null>(null);
+
+	// Add state for collapsible settings region
+	const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
+
+	// Toggle settings expansion
+	const toggleSettings = useCallback(() => {
+		setIsSettingsExpanded(prev => !prev);
+	}, []);
+
+	const {
+		data: initialMessages = [],
+		isError,
+		isLoading: isLoadingInitial,
+		saveMessage,
+		groupedMessages
+	} = useAgentMessages(
+		chat_id,
+		localAgentId,
+		repo_name,
+		'documentation',
+		selectedStrategy // Pass the selected strategy as the pipeline_id
+	);
+
+	const [state, setState] = useState<DocumentationState>({
+		currentStep: 0,
+		completedSteps: [],
+		context: {
+			currentPrompt: ''
+		},
+		stepResults: {},
+		version: 1,
+		history: []
+	});
+
+	const [isAgentReady, setIsAgentReady] = useState(!!localAgentId);
+
+	// Add a ref to track if we've already initialized the agent
+	const isInitializingRef = useRef(false);
+	const hasInitializedRef = useRef(false);
+
+	// Fetch strategy details
+	const { data: strategyDetails, isLoading: isLoadingStrategy } = useQuery({
+		queryKey: ['documentation', 'strategy', selectedStrategy],
+		queryFn: () => documentationApi.getStrategyDetails(selectedStrategy),
+		enabled: !!selectedStrategy,
+	});
+
+	// Use strategy steps instead of DOCUMENTATION_STEPS
+	const currentStep = strategyDetails?.steps[state.currentStep];
+
+	// Add a state to track the current loading step
+	const [loadingStep, setLoadingStep] = useState<number | null>(null);
+
+	// Add a ref to track if we're in the process of updating state
+	const isUpdatingRef = useRef(false);
+
+	// NEW: Define handleStepComplete early using useCallback so it's available for useChat.onFinish
+	const handleStepComplete = useCallback((context: any) => {
+		console.log('DocumentationView: handleStepComplete called with context:', context);
+		console.log('DocumentationView: Current state in handleStepComplete:', {
+			currentStep: state.currentStep,
+			completedSteps: state.completedSteps,
+			singleStep: state.context.single_step,
+			onlyStep: state.context.only_step
+		});
+
+		if (!strategyDetails?.steps) {
+			console.log('DocumentationView: No strategy details or steps available');
+			return;
+		}
+
+		// Get current step model name to use as context key
+		const currentStep = strategyDetails.steps[state.currentStep];
+		if (!currentStep) {
+			console.log('DocumentationView: No current step found at index:', state.currentStep);
+			return;
+		}
+
+		const contextKey = currentStep.model.toLowerCase();
+		const stepKey = `step-${state.currentStep}`;
+		console.log('DocumentationView: Using contextKey:', contextKey, 'and stepKey:', stepKey);
+
+		// Get content either from context parameter or currentStepContent
+		let parsedContent: any;
+		try {
+			// Prefer context overview if available
+			if (context?.context?.[contextKey]) {
+				parsedContent = context.context[contextKey];
+				// If it's a string that looks like JSON, try to parse it
+				if (typeof parsedContent === 'string' && parsedContent.trim().startsWith('{')) {
+					parsedContent = JSON.parse(parsedContent);
+				}
+			} else if (currentStepContent) {
+				// If currentStepContent looks like JSON, parse it
+				if (currentStepContent.trim().startsWith('{')) {
+					try {
+						parsedContent = JSON.parse(currentStepContent);
+					} catch (e) {
+						parsedContent = currentStepContent;
+					}
+				} else {
+					parsedContent = currentStepContent;
+				}
+			} else {
+				parsedContent = {};
+			}
+		} catch (error) {
+			console.log('DocumentationView: Error parsing content:', error);
+			parsedContent = {};
+		}
+
+		console.log('DocumentationView: Parsed content:', parsedContent);
+
+		// Update state with the content
+		setState(prev => {
+			// Check if we're running a single step
+			const isSingleStep = prev.context.single_step === 'true';
+			console.log('DocumentationView: Is single step?', isSingleStep);
+
+			// Make sure we don't have duplicate completedSteps
+			const newCompletedSteps = [...prev.completedSteps];
+			if (!newCompletedSteps.includes(prev.currentStep)) {
+				newCompletedSteps.push(prev.currentStep);
+			}
+
+			// For single steps, we don't advance to the next step
+			const newState = {
+				...prev,
+				context: {
+					...prev.context,
+					[contextKey]: parsedContent,
+					currentPrompt: currentStep?.prompt || '',
+					// Reset single_step flag after completion
+					single_step: '',
+					run_single_step: '',
+					only_step: '',
+					skip_subsequent_steps: ''
+				},
+				stepResults: {
+					...prev.stepResults,
+					[stepKey]: parsedContent
+				},
+				completedSteps: newCompletedSteps,
+			};
+
+			// Only advance to the next step if we're not running a single step
+			if (!isSingleStep) {
+				newState.currentStep = prev.currentStep + 1;
+				console.log('DocumentationView: Advancing to next step:', prev.currentStep + 1);
+			} else {
+				console.log('DocumentationView: Not advancing to next step because this is a single step run');
+			}
+
+			console.log('DocumentationView: New state after update:', newState);
+			return newState;
+		});
+
+		// For single steps, we don't want to trigger the next step
+		const isSingleStep = state.context.single_step === 'true';
+		if (!isSingleStep && strategyDetails) {
+			console.log('DocumentationView: Setting isStepComplete to true to trigger next step');
+			setIsStepComplete(true);
+		} else {
+			console.log('DocumentationView: Not setting isStepComplete because this is a single step run');
+		}
+
+		setCurrentStepContent('');
+
+		// Reset loading step
+		setLoadingStep(null);
+
+		// Reset loading state
+		setIsLoading(false);
+
+		// Reset single step execution state
+		setIsRunningSingleStep(false);
+		setSingleStepIndex(null);
+
+		console.log('DocumentationView: handleStepComplete finished, reset loading states');
+	}, [state.currentStep, state.completedSteps, state.context.single_step, state.context.only_step, strategyDetails, currentStepContent]);
+
+	const {
+		messages: streamingMessages,
+		append,
+		error,
+		reload,
+		stop,
+		setMessages: setStreamingMessages
+	} = useChat({
+		api: `/api/agents/${localAgentId}/documentation`,
+		experimental_throttle: 50,
+		id: chat_id,
+		initialMessages: initialMessages || [],
+		body: {
+			id: chat_id,
+			messages: initialMessages || [],
+			model: "gpt-4o-mini",
+			agent_id: localAgentId,
+			repo_name: repo_name,
+			file_paths: file_paths,
+			chat_id: chat_id,
+			step: state.currentStep + 1,
+			context: state.context || {},
+			strategy: selectedStrategy,
+			pipeline_id: selectedStrategy
+		},
+		onToolCall: async (tool) => {
+			// @ts-ignore
+			setStreamingMessages(prevMessages => {
+				const lastMessage = prevMessages[prevMessages.length - 1];
+				if (!lastMessage) return prevMessages;
+
+				const updatedToolInvocations = lastMessage.toolInvocations || (lastMessage as any).tool_invocations || [];
+				const existingToolIndex = updatedToolInvocations.findIndex((t: any) =>
+					t.type === 'tool-invocation' &&
+					(t as ToolInvocation).toolCallId === tool.toolCall.toolCallId
+				);
+
+				if (existingToolIndex >= 0) {
+					updatedToolInvocations[existingToolIndex] = {
+						...updatedToolInvocations[existingToolIndex],
+						toolCallId: tool.toolCall.toolCallId || (tool.toolCall as any).id,
+						toolName: tool.toolCall.toolName,
+						args: tool.toolCall.args,
+					};
+				} else {
+					updatedToolInvocations.push({
+						toolCallId: tool.toolCall.toolCallId || (tool.toolCall as any).id,
+						toolName: tool.toolCall.toolName,
+						args: tool.toolCall.args,
+						// @ts-ignore Property 'state' does not exist on type 'ToolCall<string, unknown>'
+						state: tool.toolCall.state || 'partial-call'
+					});
+				}
+
+				return prevMessages.map((msg, i) =>
+					i === prevMessages.length - 1
+						? {
+							...msg,
+							parts: [
+								// @ts-ignore
+								...(msg.parts || []),
+								{
+									type: 'tool-invocation',
+									toolInvocation: {
+										toolCallId: tool.toolCall.toolCallId,
+										toolName: tool.toolCall.toolName,
+										args: tool.toolCall.args
+									}
+								}
+							]
+						}
+						: msg
+				);
+			});
+		},
+		onFinish: async (message, { usage, finishReason }) => {
+			console.log('onFinish called with message:', message);
+			console.log('finishReason:', finishReason);
+			console.log('Current state in onFinish:', {
+				currentStep: state.currentStep,
+				completedSteps: state.completedSteps,
+				context: state.context
+			});
+
+			if (finishReason === 'stop') {
+				// Handle manual stop
+				setIsStepComplete(false);
+				return;
+			}
+
+			try {
+				// Add this line to reset the isGenerationStopped state
+				setIsGenerationStopped(false);
+
+				// Check if we have any tool invocations
+				const hasToolInvocations = message.toolInvocations && message.toolInvocations.length > 0;
+
+				// For single step execution, we're more lenient with validation
+				const isSingleStep = state.context.single_step === 'true';
+
+				// Validate the response
+				if (!hasToolInvocations && !isValidDocumentationResponse(message)) {
+					// If we're running a single step, we're more lenient
+					if (isSingleStep) {
+						// For single steps, try to extract any useful content
+						// ... existing code ...
+					} else {
+						// For full pipeline, retry the step
+						handleGenerateDoc();
+					}
+					return;
+				}
+
+				// Get current step details for metadata
+				const currentStepDetails = strategyDetails?.steps[state.currentStep];
+				const stepTitle = currentStepDetails?.title || `Step ${state.currentStep + 1}`;
+
+				// De-duplicate tool invocations based on args content
+				const uniqueToolInvocations = message.toolInvocations?.reduce((acc: any[], tool: any) => {
+					// Skip if we already have a tool with the same args
+					const hasMatchingTool = acc.some(existingTool =>
+						JSON.stringify(existingTool.args) === JSON.stringify(tool.args) &&
+						existingTool.toolName === tool.toolName
+					);
+
+					if (!hasMatchingTool) {
+						acc.push(tool);
+					}
+					return acc;
+				}, []) || [];
+
+				// Convert and save message with de-duplicated tool invocations
+				const messageWithModel = toMessageWithModel({
+					...message,
+					toolInvocations: uniqueToolInvocations
+				}, {
+					promptTokens: usage?.promptTokens,
+					completionTokens: usage?.completionTokens,
+					totalTokens: usage?.totalTokens
+				}, 'gpt-4o-mini');
+
+				// Only save valid messages to DB
+				await saveMessage({
+					chatId: chat_id,
+					agentId: localAgentId,
+					repository: repo_name,
+					messageType: 'documentation',
+					role: messageWithModel.role,
+					content: messageWithModel.content || '',
+					toolInvocations: uniqueToolInvocations.map(tool => ({
+						toolCallId: tool.toolCallId || tool.id,
+						toolName: tool.toolName,
+						args: tool.args,
+						state: tool.state,
+						result: 'result' in tool ? tool.result : undefined
+					})),
+					iteration_index: 0,  // First iteration
+					step_index: state.currentStep,
+					step_title: stepTitle,
+					pipeline_id: selectedStrategy
+				});
+
+				// Clear streaming messages after successful save
+				setStreamingMessages([]);
+
+				const hasCompletedToolInvocation = uniqueToolInvocations.some(
+					tool => tool.toolName === 'final_result'
+				);
+
+				// Continue with existing logic...
+				if (messageWithModel.content) {
+					try {
+						const parsedContent = JSON.parse(messageWithModel.content);
+						if (parsedContent.finishReason === "step_complete") {
+							handleStepComplete(parsedContent);
+						}
+					} catch (e) {
+						// Retry on parse error
+						handleGenerateDoc();
+					}
+				} else if (hasCompletedToolInvocation) {
+					const finalResultTool = uniqueToolInvocations.find(
+						tool => tool.toolName === 'final_result'
+					);
+
+					// If we don't have a final_result tool but we have other tool invocations,
+					// try to use the first one with a result or args
+					const anyResultTool = !finalResultTool && uniqueToolInvocations.length > 0
+						? uniqueToolInvocations.find(tool => tool.result || tool.args)
+						: null;
+
+					const toolToUse = finalResultTool || anyResultTool;
+
+					// @ts-ignore
+					if (toolToUse?.result || toolToUse?.args) {
+						// @ts-ignore
+						const formattedContent = formatToolResult(toolToUse.result || toolToUse.args, state.currentStep);
+						const context = {
+							context: {
+								[state.currentStep]: formattedContent
+							},
+						};
+						handleStepComplete(context);
+					} else {
+						// Retry if tool result is missing
+						// Check if we're running a single step
+						const isSingleStep = state.context.single_step === 'true';
+						if (isSingleStep) {
+							handleRunSingleStep(state.currentStep);
+						} else {
+							handleGenerateDoc();
+						}
+					}
+				} else {
+					// If we have any content at all, try to use it
+					if (message.content) {
+						try {
+							// Try to parse the content as JSON
+							const parsedContent = JSON.parse(message.content);
+							if (Object.keys(parsedContent).length > 0) {
+								// If we have valid JSON content, use it
+								const context = {
+									context: {
+										[state.currentStep]: message.content
+									},
+								};
+								handleStepComplete(context);
+								return;
+							}
+						} catch (e) {
+							// If parsing fails, just use the raw content
+							if (message.content.trim().length > 0) {
+								const context = {
+									context: {
+										[state.currentStep]: message.content
+									},
+								};
+								handleStepComplete(context);
+								return;
+							}
+						}
+					}
+
+					// If we get here, we need to retry
+					// Check if we're running a single step
+					const isSingleStep = state.context.single_step === 'true';
+					if (isSingleStep) {
+						handleRunSingleStep(state.currentStep);
+					} else {
+						handleGenerateDoc();
+					}
+				}
+			} catch (error) {
+				// Reset loading state on error
+				setIsLoading(false);
+				setLoadingStep(null);
+
+				handleGenerateDoc();
+			}
+		},
+	});
+
+	// Fetch available strategies
+	const {
+		data: strategies,
+		error: strategiesError,
+		isLoading: isLoadingStrategies
+	} = useQuery({
+		queryKey: ['documentation', 'strategies'],
+		queryFn: documentationApi.listStrategies,
+	});
+
+	// Add a handleStrategyChange function to reset messages when the strategy changes
+	const handleStrategyChange = (newStrategy: string) => {
+		// Don't do anything if the strategy hasn't changed
+		if (newStrategy === selectedStrategy) return;
+
+		// Update the selected strategy
+		setSelectedStrategy(newStrategy);
+
+		// Reset the state to start from the beginning
+		setState({
+			currentStep: 0,
+			completedSteps: [],
+			context: {
+				currentPrompt: ''
+			},
+			stepResults: {},
+			version: 1,
+			history: []
+		});
+
+		// Clear streaming messages
+		setStreamingMessages([]);
+
+		// Make sure we don't automatically trigger generation
+		setIsStepComplete(false);
+	};
+
+	// Add a ref to track if we're currently creating an agent
+	const isCreatingAgentRef = useRef(false);
+
+	// Add a function to verify the agent exists
+	const verifyAgentExists = useCallback(async (agentId: string): Promise<string | null> => {
+		// Prevent recursive calls if we're already creating an agent
+		if (isCreatingAgentRef.current) {
+			console.log('DocumentationView: Already creating an agent, waiting...');
+			// Wait for the current creation to finish
+			let attempts = 0;
+			while (isCreatingAgentRef.current && attempts < 10) {
+				await new Promise(resolve => setTimeout(resolve, 500));
+				attempts++;
+			}
+
+			// If we still have a valid agent ID after waiting, return it
+			if (localAgentId) {
+				return localAgentId;
+			}
+
+			// If we've waited too long, return null
+			if (attempts >= 10) {
+				console.error('DocumentationView: Timed out waiting for agent creation');
+				return null;
+			}
+		}
+
+		try {
+			// First check if we have a valid agent ID in localStorage
+			const storedAgentId = localStorage.getItem(`doc_agent_${repo_name}`);
+
+			// If the stored ID is different from the one we're checking, use the stored one
+			if (storedAgentId && storedAgentId !== agentId) {
+				console.log('DocumentationView: Found different agent ID in localStorage, using that instead');
+
+				// Verify this stored agent exists
+				const storedResponse = await fetch(`/api/agents/${storedAgentId}`, {
+					method: 'GET',
+					headers: {
+						'Content-Type': 'application/json',
+					},
+				});
+
+				if (storedResponse.ok) {
+					// Update our state with the valid stored ID
+					setLocalAgentId(storedAgentId);
+					setDocAgentId(storedAgentId);
+					return storedAgentId;
+				}
+			}
+
+			// Check if the provided agent exists
+			console.log('DocumentationView: Verifying agent exists:', agentId);
+			const response = await fetch(`/api/agents/${agentId}`, {
+				method: 'GET',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+			});
+
+			if (response.ok) {
+				console.log('DocumentationView: Agent exists:', agentId);
+				return agentId;
+			}
+
+			// If the agent doesn't exist, create a new one
+			console.log('DocumentationView: Agent not found, creating a new one');
+			toast.info("Agent not found. Creating a new one. Please wait...");
+
+			// Set flag to indicate we're creating an agent
+			isCreatingAgentRef.current = true;
+
+			try {
+				// Create a new agent and wait for the result
+				const newAgentId = await setupDocumentationAgent();
+
+				if (newAgentId) {
+					console.log('DocumentationView: New agent created with ID:', newAgentId);
+					return newAgentId;
+				} else {
+					console.error('DocumentationView: Failed to create new agent');
+					toast.error("Failed to create agent. Please try again.");
+					return null;
+				}
+			} finally {
+				// Always reset the flag
+				isCreatingAgentRef.current = false;
+			}
+		} catch (error) {
+			console.error('DocumentationView: Error verifying agent:', error);
+			isCreatingAgentRef.current = false;
+			return null;
+		}
+	}, [setupDocumentationAgent, repo_name, setDocAgentId, localAgentId]);
+
+	// Move the setupDocumentationAgent function outside of the useEffect and before handleGenerateDoc
+	const setupDocumentationAgent = useCallback(async () => {
+		if (!repo_name) return null;
+
+		// Prevent recursive calls
+		if (isCreatingAgentRef.current) {
+			console.log('DocumentationView: Already creating an agent, waiting...');
+			// Wait for the current creation to finish
+			let attempts = 0;
+			while (isCreatingAgentRef.current && attempts < 10) {
+				await new Promise(resolve => setTimeout(resolve, 500));
+				attempts++;
+			}
+
+			// If we still have a valid agent ID after waiting, return it
+			if (localAgentId && isAgentReady) {
+				return localAgentId;
+			}
+
+			// If we've waited too long, return null
+			if (attempts >= 10) {
+				console.error('DocumentationView: Timed out waiting for agent creation');
+				return null;
+			}
+		}
+
+		// Set flag to indicate we're creating an agent
+		isCreatingAgentRef.current = true;
+
+		let agentIdToUse = localAgentId;
+
+		// If no localAgentId, generate a new one
+		if (!agentIdToUse) {
+			// Generate a new UUID for the agent
+			const newAgentId = crypto.randomUUID();
+			setLocalAgentId(newAgentId);
+			setDocAgentId(newAgentId);
+			localStorage.setItem(`doc_agent_${repo_name}`, newAgentId);
+			agentIdToUse = newAgentId;
+			// Continue with this new ID instead of returning early
+		}
+
+		// Don't proceed if agent is already ready and we're using the same ID
+		if (isAgentReady && agentIdToUse === localAgentId) {
+			isCreatingAgentRef.current = false;
+			return agentIdToUse;
+		}
+
+		try {
+			// First, create the agent using the /api/agents endpoint
+			console.log('DocumentationView: Creating agent with ID:', agentIdToUse);
+			const createAgentResponse = await fetch(`/api/agents`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					name: `documentation_agent_${repo_name}`,
+					description: `Documentation agent for ${repo_name}`,
+					system_prompt: "You are a documentation agent that helps generate documentation for code repositories.",
+					tools: [],
+					repository: repo_name
+				}),
+			});
+
+			if (!createAgentResponse.ok) {
+				throw new Error(`Failed to create agent: ${createAgentResponse.status} ${createAgentResponse.statusText}`);
+			}
+
+			// Get the agent ID from the response
+			const agentData = await createAgentResponse.json();
+			const agentId = agentData.id;
+			console.log('DocumentationView: Agent created successfully with ID:', agentId);
+
+			// Update the local agent ID
+			setLocalAgentId(agentId);
+			setDocAgentId(agentId);
+			localStorage.setItem(`doc_agent_${repo_name}`, agentId);
+			agentIdToUse = agentId; // Use the new ID for the next request
+
+			// Now, set up the documentation agent
+			console.log('DocumentationView: Setting up documentation agent with ID:', agentId);
+			const createResponse = await fetch(`/api/agents/${agentId}/documentation`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					id: chat_id || crypto.randomUUID(),
+					messages: [],
+					model: "gpt-4o-mini",
+					agent_id: agentId,
+					repo_name,
+					file_paths,
+					chat_id: chat_id || crypto.randomUUID(),
+					strategy: selectedStrategy,
+					pipeline_id: selectedStrategy
+				}),
+			});
+
+			if (createResponse.ok) {
+				// Only set isAgentReady to true if it's not already true
+				if (!isAgentReady) {
+					setIsAgentReady(true);
+					toast.success("Documentation agent ready");
+				}
+				console.log('DocumentationView: Documentation agent setup complete');
+				isCreatingAgentRef.current = false;
+				return agentId; // Return the agent ID for chaining
+			} else {
+				// Handle error response
+				const errorText = await createResponse.text();
+				toast.error("Failed to set up documentation agent. Please try again.");
+				console.error("Error setting up documentation agent:", createResponse.status, createResponse.statusText, errorText);
+				isCreatingAgentRef.current = false;
+				return null;
+			}
+		} catch (error) {
+			// Error handling
+			toast.error("Failed to set up documentation agent. Please try again.");
+			console.error("Error setting up documentation agent:", error);
+			isCreatingAgentRef.current = false;
+			return null;
+		}
+	}, [repo_name, isAgentReady, localAgentId, file_paths, setDocAgentId, chat_id, selectedStrategy]);
+
+	// Add a useEffect to ensure the agent is created when the component mounts
+	useEffect(() => {
+		// Prevent multiple initializations
+		if (isInitializingRef.current || hasInitializedRef.current) return;
+
+		const initializeAgent = async () => {
+			if (!repo_name) return;
+
+			// Set flag to prevent concurrent initializations
+			isInitializingRef.current = true;
+
+			try {
+				// Check if we have a stored agent ID
+				const storedAgentId = localStorage.getItem(`doc_agent_${repo_name}`);
+
+				if (storedAgentId) {
+					// Verify the stored agent exists
+					console.log('DocumentationView: Found stored agent ID, verifying it exists:', storedAgentId);
+					try {
+						const response = await fetch(`/api/agents/${storedAgentId}`, {
+							method: 'GET',
+							headers: {
+								'Content-Type': 'application/json',
+							},
+						});
+
+						if (response.ok) {
+							console.log('DocumentationView: Stored agent exists, using it:', storedAgentId);
+							setLocalAgentId(storedAgentId);
+							setDocAgentId(storedAgentId);
+							setIsAgentReady(true);
+							hasInitializedRef.current = true;
+							isInitializingRef.current = false;
+							return;
+						} else {
+							console.log('DocumentationView: Stored agent does not exist, creating a new one');
+							// If the stored agent doesn't exist, remove it from localStorage
+							localStorage.removeItem(`doc_agent_${repo_name}`);
+						}
+					} catch (error) {
+						console.error('DocumentationView: Error verifying stored agent:', error);
+					}
+				}
+
+				// If we don't have a valid stored agent ID or the agent doesn't exist, create a new one
+				if (!localAgentId) {
+					console.log('DocumentationView: No valid agent ID, creating a new one');
+					await setupDocumentationAgent();
+				}
+
+				// Mark as initialized regardless of outcome to prevent loops
+				hasInitializedRef.current = true;
+			} finally {
+				// Always reset the initializing flag
+				isInitializingRef.current = false;
+			}
+		};
+
+		initializeAgent();
+	}, [repo_name, setDocAgentId, setupDocumentationAgent]);
+
+	const handleGenerateDoc = useCallback(async () => {
+		if (isLoading || !strategyDetails) {
+			// If already loading or no strategy details, don't proceed
+			return;
+		}
+
+		// Validate agent ID
+		if (!localAgentId) {
+			console.log('DocumentationView: Missing agent ID in handleGenerateDoc, creating a new one');
+			toast.info("Creating a new agent for documentation. Please wait...");
+
+			// Attempt to create a new agent and wait for it to complete
+			const newAgentId = await setupDocumentationAgent();
+			if (!newAgentId) {
+				// If agent creation failed, show error and return
+				toast.error("Failed to create agent. Please try again.");
+				return;
+			}
+
+			// Give a moment for the agent to be fully registered in the backend
+			await new Promise(resolve => setTimeout(resolve, 1000));
+
+			// Now proceed with the new agent ID
+			console.log('DocumentationView: Created new agent with ID:', newAgentId);
+			return;
+		}
+
+		// Verify the agent exists before proceeding
+		console.log('DocumentationView: Verifying agent exists before generating doc');
+		const validAgentId = await verifyAgentExists(localAgentId);
+		if (!validAgentId) {
+			// If verifyAgentExists returned null, it means there was an error
+			// The function already shows a toast, so we just return
+			return;
+		}
+
+		// Use the valid agent ID (which might be different from localAgentId)
+		if (validAgentId !== localAgentId) {
+			console.log('DocumentationView: Using different agent ID than local:', validAgentId);
+			setLocalAgentId(validAgentId);
+			setDocAgentId(validAgentId);
+
+			// Give a moment for the agent ID to be updated in state
+			await new Promise(resolve => setTimeout(resolve, 500));
+		}
+
+		// Set global loading state
+		setIsLoading(true);
+		console.log('DocumentationView: Starting doc generation with agent ID:', validAgentId);
+
+		// Save current state to history before generating new content
+		if (state.completedSteps.length > 0) {
+			setState(prev => ({
+				...prev,
+				history: [
+					...prev.history,
+					{
+						version: prev.version,
+						stepResults: { ...prev.stepResults },
+						completedSteps: [...prev.completedSteps]
+					}
+				],
+				version: prev.version + 1
+			}));
+		}
+
+		// Validate current step
+		if (state.currentStep >= strategyDetails.steps.length) {
+			// If we've reached the end of the steps, reset loading state and exit
+			setIsLoading(false);
+			toast.success("Documentation generation complete!");
+			return;
+		}
+
+		// Reset the single_step flag when running the full pipeline
+		setState(prev => ({
+			...prev,
+			context: {
+				...prev.context,
+				single_step: '',
+				run_single_step: '',
+				only_step: '',
+				skip_subsequent_steps: ''
+			}
+		}));
+
+		// Reset any single step execution state
+		setIsRunningSingleStep(false);
+		setSingleStepIndex(null);
+
+		// Set the current step as the loading step
+		setLoadingStep(state.currentStep);
+
+		const currentStep = strategyDetails.steps[state.currentStep];
+		setCurrentStepContent('');
+		setIsStepComplete(false);
+
+		try {
+			// Validate that the agent is ready
+			if (!isAgentReady) {
+				throw new Error("Documentation agent is not ready");
+			}
+
+			// Validate that we have a valid prompt
+			if (!currentStep.prompt) {
+				throw new Error(`No prompt found for step ${state.currentStep + 1}`);
+			}
+
+			await append({
+				role: 'user',
+				content: currentStep.prompt
+			}, {
+				body: {
+					id: chat_id,
+					messages: initialMessages || [],
+					model: "gpt-4o-mini",
+					agent_id: localAgentId,
+					repo_name: repo_name,
+					file_paths: file_paths,
+					chat_id: chat_id,
+					step: state.currentStep + 1,
+					context: {
+						...state.context,
+						current_step: state.currentStep,
+						currentPrompt: currentStep.prompt,
+					},
+					prompt: currentStep.prompt,
+					strategy: selectedStrategy,
+					pipeline_id: selectedStrategy,
+					strategy_id: selectedStrategy
+				}
+			});
+		} catch (error) {
+			// Handle errors more gracefully
+			setIsLoading(false);
+			setLoadingStep(null);
+			setIsStepComplete(false);
+
+			// Show error message to the user
+			if (error instanceof Error) {
+				toast.error(`Failed to generate documentation: ${error.message}`);
+			} else {
+				toast.error("Failed to generate documentation");
+			}
+
+			// If it's a response error, try to get more details
+			if (error instanceof Response || (error as any)?.response) {
+				const response = error instanceof Response ? error : (error as any).response;
+
+				// Try to get the response body
+				try {
+					const text = await response.text();
+					toast.error(`Server error: ${response.status} ${response.statusText}`);
+				} catch (e) {
+					// If we can't get the response body, just show a generic error
+					toast.error("Failed to get error details from server");
+				}
+			}
+		}
+	}, [
+		isLoading,
+		strategyDetails,
+		state.currentStep,
+		state.completedSteps,
+		state.context,
+		isAgentReady,
+		append,
+		chat_id,
+		initialMessages,
+		localAgentId,
+		setLocalAgentId,
+		setDocAgentId,
+		setupDocumentationAgent,
+		verifyAgentExists,
+		repo_name,
+		file_paths,
+		selectedStrategy
+	]);
+
+	// Add a ref to track previous groupedMessages
+	const prevGroupedMessagesRef = useRef<typeof groupedMessages>([]);
+
+	// Add an effect to update completedSteps based on groupedMessages
+	useEffect(() => {
+		// Skip if no messages or if groupedMessages hasn't changed
+		if (!groupedMessages.length || groupedMessages === prevGroupedMessagesRef.current) return;
+
+		// Update the ref
+		prevGroupedMessagesRef.current = groupedMessages;
+
+		// Extract unique step indices from groupedMessages, ensuring they are valid numbers
+		const completedStepIndices = Array.from(new Set(
+			groupedMessages
+				.filter(group => group.messages && group.messages.length > 0 && typeof group.step_index === 'number')
+				.map(group => group.step_index as number)
+		));
+
+		// Only update if the arrays are different (without modifying them)
+		const areArraysEqual = (a: number[], b: number[]) => {
+			if (a.length !== b.length) return false;
+			const sortedA = [...a].sort((x, y) => x - y);
+			const sortedB = [...b].sort((x, y) => x - y);
+			return sortedA.every((val, idx) => val === sortedB[idx]);
+		};
+
+		if (!areArraysEqual(state.completedSteps, completedStepIndices)) {
+			console.log('DocumentationView: Updating completedSteps in state:', completedStepIndices);
+			setState(prev => ({
+				...prev,
+				completedSteps: completedStepIndices
+			}));
+		}
+	}, [groupedMessages, state.completedSteps]); // Only depend on groupedMessages
+
+	// Add a new function to run a single step
+	const handleRunSingleStep = useCallback(async (stepIndex: number) => {
+		console.log('DocumentationView: handleRunSingleStep called with stepIndex:', stepIndex);
+
+		if (isLoading || !strategyDetails) {
+			console.log('DocumentationView: Cannot run single step - isLoading:', isLoading, 'strategyDetails:', !!strategyDetails);
+			return;
+		}
+
+		// Validate agent ID
+		if (!localAgentId) {
+			console.log('DocumentationView: Missing agent ID, creating a new one');
+			toast.info("Creating a new agent for documentation. Please wait...");
+
+			// Attempt to create a new agent and wait for it to complete
+			const newAgentId = await setupDocumentationAgent();
+			if (!newAgentId) {
+				// If agent creation failed, show error and return
+				toast.error("Failed to create agent. Please try again.");
+				return;
+			}
+
+			// Give a moment for the agent to be fully registered in the backend
+			await new Promise(resolve => setTimeout(resolve, 1000));
+
+			// Now proceed with the new agent ID
+			console.log('DocumentationView: Created new agent with ID:', newAgentId);
+			return;
+		}
+
+		// Verify the agent exists before proceeding
+		console.log('DocumentationView: Verifying agent exists before running single step');
+		const validAgentId = await verifyAgentExists(localAgentId);
+		if (!validAgentId) {
+			// If verifyAgentExists returned null, it means there was an error
+			// The function already shows a toast, so we just return
+			return;
+		}
+
+		// Use the valid agent ID (which might be different from localAgentId)
+		if (validAgentId !== localAgentId) {
+			console.log('DocumentationView: Using different agent ID than local for single step:', validAgentId);
+			setLocalAgentId(validAgentId);
+			setDocAgentId(validAgentId);
+
+			// Give a moment for the agent ID to be updated in state
+			await new Promise(resolve => setTimeout(resolve, 500));
+		}
+
+		// Set global loading state
+		setIsLoading(true);
+		console.log('DocumentationView: Starting single step with agent ID:', validAgentId);
+
+		// Set the selected step as the loading step
+		setLoadingStep(stepIndex);
+
+		// Make sure the step index is valid
+		if (stepIndex < 0 || stepIndex >= strategyDetails.steps.length) {
+			console.log('DocumentationView: Invalid step index:', stepIndex);
+			setIsLoading(false);
+			setLoadingStep(null);
+			return;
+		}
+
+		// Set the single step execution state
+		setIsRunningSingleStep(true);
+		setSingleStepIndex(stepIndex);
+
+		const stepToRun = strategyDetails.steps[stepIndex];
+		setCurrentStepContent('');
+		setIsStepComplete(false);
+
+		// Clear any previous streaming messages to avoid conflicts
+		setStreamingMessages([]);
+
+		// Update state to indicate we're running a single step
+		setState(prev => {
+			// Make sure we're setting the current step to the one we're running
+			return {
+				...prev,
+				currentStep: stepIndex, // Ensure currentStep is set to the step we're running
+				context: {
+					...prev.context,
+					single_step: 'true',
+					run_single_step: 'true',
+					only_step: String(stepIndex), // Add the specific step index to run
+					skip_subsequent_steps: 'true', // Explicitly tell the backend to skip subsequent steps
+					currentPrompt: stepToRun.prompt // Set the current prompt to the step's prompt
+				}
+			};
+		});
+
+		console.log('DocumentationView: Updated state for single step execution, about to call append');
+
+		try {
+			// Create a custom message that explicitly indicates this is a single step run
+			const customMessage = `Run only step ${stepIndex + 1}: ${stepToRun.title}`;
+
+			// Log the request body for debugging
+			const requestBody = {
+				id: chat_id,
+				messages: [...initialMessages, ...streamingMessages],
+				model: "gpt-4o-mini",
+				agent_id: validAgentId, // Use the validated agent ID
+				repo_name: repo_name,
+				file_paths: file_paths,
+				chat_id: chat_id,
+				step: stepIndex + 1,
+				context: {
+					...state.context,
+					current_step: stepIndex,
+					currentPrompt: stepToRun.prompt,
+					single_step: 'true',
+					run_single_step: 'true',
+					only_step: String(stepIndex),
+					skip_subsequent_steps: 'true',
+					original_prompt: stepToRun.prompt
+				},
+				prompt: customMessage,
+				original_prompt: stepToRun.prompt,
+				strategy: selectedStrategy,
+				pipeline_id: selectedStrategy,
+				single_step: 'true',
+				run_single_step: true,
+				only_step: stepIndex,
+				skip_subsequent_steps: true
+			};
+
+			console.log('DocumentationView: Request body for append:', requestBody);
+
+			await append({
+				role: 'user',
+				content: customMessage
+			}, {
+				body: requestBody
+			});
+
+			console.log('DocumentationView: Successfully called append for single step execution');
+		} catch (error) {
+			console.error('DocumentationView: Error running single step:', error);
+			// Reset loading states
+			setIsLoading(false);
+			setLoadingStep(null);
+
+			// Reset the single step execution state after a delay
+			setTimeout(() => {
+				setIsRunningSingleStep(false);
+				setSingleStepIndex(null);
+			}, 1000);
+
+			// Show error toast
+			toast.error("Failed to run step. Please try again.");
+		}
+
+		// Reset the isGenerationStopped state
+		setIsGenerationStopped(false);
+	}, [isLoading, strategyDetails, state, localAgentId, setStreamingMessages, setDocAgentId, repo_name, setupDocumentationAgent, verifyAgentExists, chat_id, initialMessages, streamingMessages, file_paths, selectedStrategy, append, setLoadingStep, setIsRunningSingleStep, setSingleStepIndex, setCurrentStepContent, setIsStepComplete, setIsGenerationStopped]);
+
+	// Handle clicking on a step in the sidebar
+	const handleStepClick = (index: number) => {
+		console.log('DocumentationView: handleStepClick called with index:', index);
+
+		// Don't do anything if we're already loading
+		if (isLoading) {
+			console.log('DocumentationView: Cannot click step while loading');
+			return;
+		}
+
+		// Set the current step to the clicked step
+		setState(prev => ({
+			...prev,
+			currentStep: index,
+			// Reset single step flags to ensure they don't interfere with future steps
+			context: {
+				...prev.context,
+				single_step: '',
+				run_single_step: '',
+				only_step: '',
+				skip_subsequent_steps: ''
+			}
+		}));
+
+		// Check if this specific step has messages
+		const hasMessagesForStep = groupedMessages.some(group =>
+			group.step_index === index && group.messages && group.messages.length > 0
+		);
+
+		// Check if this step is in the completedSteps array
+		const isStepCompleted = state.completedSteps.includes(index);
+
+		console.log('DocumentationView: Step check - hasMessagesForStep:', hasMessagesForStep, 'isStepCompleted:', isStepCompleted);
+
+		// If the step hasn't been completed or doesn't have messages, run it
+		if (!hasMessagesForStep || !isStepCompleted) {
+			console.log('DocumentationView: Step', index, 'needs to be run');
+			// Run the single step immediately
+			handleRunSingleStep(index);
+		} else {
+			console.log('DocumentationView: Step', index, 'already completed, just updating current step');
+			// If the step has already been run, just set the current step
+			// Only update the current step without additional visual indicators
+		}
+	};
+
+	// Add a function to handle adding child nodes
+	const handleAddChildNode = useCallback((parentId: string) => {
+		// Extract the step index from the parentId
+		const stepIndex = parseInt(parentId.replace('step-', ''));
+		if (isNaN(stepIndex) || stepIndex < 0 || stepIndex >= (strategyDetails?.steps?.length || 0)) {
+			return;
+		}
+
+		// For now, show a toast message
+		toast.info(`Adding a child node to step ${stepIndex + 1} (${strategyDetails?.steps[stepIndex]?.title}) will be implemented in a future update.`);
+	}, [strategyDetails]);
+
+	// Add a function to restore a previous version
+	const handleRestoreVersion = useCallback((versionIndex: number) => {
+		const versionToRestore = state.history[versionIndex];
+		if (!versionToRestore) return;
+
+		setState(prev => ({
+			...prev,
+			stepResults: { ...versionToRestore.stepResults },
+			completedSteps: [...versionToRestore.completedSteps],
+			currentStep: versionToRestore.completedSteps.length
+		}));
+
+		toast.success(`Restored to version ${versionToRestore.version}`);
+	}, [state.history]);
+
+	// Update the handleStopGeneration function
+	const handleStopGeneration = useCallback(() => {
+		// Stop the current generation
+		stop();
+		setIsGenerationStopped(true);
+
+		// Reset loading states
+		setIsLoading(false);
+		setLoadingStep(null);
+	}, [stop]);
+
+	// Update the handleContinueGeneration function
+	const handleContinueGeneration = useCallback(() => {
+		setIsGenerationStopped(false);
+		// Continue with the current step
+		handleGenerateDoc();
+	}, [handleGenerateDoc]);
+
+	// Add a function to handle starting the pipeline
+	const handleStartPipeline = async () => {
+		// Reset state to start from the beginning
+		setState({
+			currentStep: 0,
+			completedSteps: [],
+			context: {
+				currentPrompt: ''
+			},
+			stepResults: {},
+			version: 1,
+			history: []
+		});
+
+		// Clear streaming messages
+		setStreamingMessages([]);
+
+		// Start the pipeline by ensuring we have a valid agent
+		console.log('DocumentationView: Starting pipeline, ensuring agent exists');
+
+		// If we don't have a local agent ID, create one
+		if (!localAgentId) {
+			console.log('DocumentationView: No agent ID, creating one before starting pipeline');
+			const newAgentId = await setupDocumentationAgent();
+			if (!newAgentId) {
+				toast.error("Failed to create agent. Please try again.");
+				return;
+			}
+
+			// Give a moment for the agent to be fully registered
+			await new Promise(resolve => setTimeout(resolve, 1000));
+		} else {
+			// Verify the existing agent
+			console.log('DocumentationView: Verifying existing agent before starting pipeline');
+			const validAgentId = await verifyAgentExists(localAgentId);
+			if (!validAgentId) {
+				// If verification failed, don't proceed
+				return;
+			}
+
+			// If the agent ID changed, update it
+			if (validAgentId !== localAgentId) {
+				setLocalAgentId(validAgentId);
+				setDocAgentId(validAgentId);
+
+				// Give a moment for the agent ID to be updated
+				await new Promise(resolve => setTimeout(resolve, 500));
+			}
+		}
+
+		// Generate the first step
+		console.log('DocumentationView: Agent ready, starting pipeline');
+		handleGenerateDoc();
+	};
+
+	// Add the isValidDocumentationResponse function
+	const isValidDocumentationResponse = (message: Message): boolean => {
+		// Check if we're running a single step - be more lenient
+		const isSingleStep = state.context.single_step === 'true';
+
+		// First check parts array (new format)
+		// @ts-ignore
+		if (message.parts?.length) {
+			// @ts-ignore
+			const hasValidToolResult = message.parts.some(part => {
+				if (part.type !== 'tool-invocation') return false;
+				const toolInvocation = (part as ToolInvocation);
+
+				// For single steps, accept any tool invocation with args
+				if (isSingleStep) {
+					return toolInvocation.args && Object.keys(toolInvocation.args).length > 0;
+				}
+
+				// For regular flow, require final_result
+				return (
+					toolInvocation.toolName === 'final_result' &&
+					toolInvocation.state === 'result' &&
+					toolInvocation.args &&
+					Object.keys(toolInvocation.args).length > 0
+				);
+			});
+			if (hasValidToolResult) return true;
+		}
+
+		// Then check toolInvocations array (old format)
+		// @ts-ignore
+		if (message.toolInvocations?.length) {
+			// @ts-ignore
+			const hasValidToolResult = message.toolInvocations.some(tool => {
+				// For single steps, accept any tool invocation with args
+				if (isSingleStep) {
+					return tool.args && Object.keys(tool.args).length > 0;
+				}
+
+				// For regular flow, require final_result
+				return (
+					tool.toolName === 'final_result' &&
+					tool.state === 'result' &&
+					tool.args &&
+					Object.keys(tool.args).length > 0
+				);
+			});
+			if (hasValidToolResult) return true;
+		}
+
+		// Finally check content (fallback)
+		if (message.content) {
+			try {
+				const content = JSON.parse(message.content);
+				return Object.keys(content).length > 0;
+			} catch (e) {
+				return false;
+			}
+		}
+
+		return false;
+	};
+
+	return (
+		<div className="flex flex-col h-full overflow-hidden">
+			{/* Settings Region with collapsible functionality */}
+			<div className="border-b border-b-2 border-border/30 bg-muted/20">
+				{/* Settings Header */}
+				<div className="p-3 flex items-center justify-between">
+					<div className="flex items-center gap-2">
+						<Settings className="h-4 w-4 text-muted-foreground" />
+						<h3 className="text-sm font-medium">Pipeline Settings</h3>
+					</div>
+
+					<div className="flex items-center gap-2">
+						{/* Current step indicator when collapsed */}
+						{!isSettingsExpanded && strategyDetails?.steps && (
+							<div className="flex items-center">
+								<span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">
+									Step {state.currentStep + 1}/{strategyDetails.steps.length}
+								</span>
+							</div>
+						)}
+
+						{/* Quick access generate button when collapsed */}
+						{!isSettingsExpanded && (
+							<Button
+								onClick={handleGenerateDoc}
+								disabled={isLoading || !strategyDetails}
+								size="sm"
+								variant="secondary"
+								className="flex items-center gap-1"
+							>
+								{isLoading ? (
+									<>
+										<Loader2 className="h-3.5 w-3.5 animate-spin" />
+										<span>Generating...</span>
+									</>
+								) : (
+									<>
+										<Play className="h-3.5 w-3.5" />
+										<span>Generate</span>
+									</>
+								)}
+							</Button>
+						)}
+						{/* Expand/collapse button */}
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-8 w-8 p-0"
+							onClick={toggleSettings}
+							title={isSettingsExpanded ? "Collapse settings" : "Expand settings"}
+						>
+							{isSettingsExpanded ? (
+								<ChevronUp className="h-4 w-4" />
+							) : (
+								<ChevronDown className="h-4 w-4" />
+							)}
+						</Button>
+					</div>
+				</div>
+
+				{/* Collapsible Settings Content with smooth transition */}
+				<div
+					className={cn(
+						"overflow-hidden transition-all duration-300 ease-in-out",
+						isSettingsExpanded ? "max-h-[1000px] opacity-100" : "max-h-0 opacity-0"
+					)}
+				>
+					<div className="p-4 pt-0">
+						{/* Strategy selector with improved heading */}
+						<div className="mb-6">
+							<h3 className="text-sm font-medium mb-2">Select Pipeline Strategy</h3>
+							<StrategySelector
+								value={selectedStrategy}
+								onChange={handleStrategyChange}
+								strategies={strategies || []}
+							/>
+						</div>
+
+						{/* Progress and controls section with improved spacing */}
+						{strategyDetails?.steps && strategyDetails.steps.length > 0 && (
+							<div className="space-y-4">
+								{/* Replace Progress bar with PipelineFlow */}
+								{(() => { console.log('DocumentationView: Rendering PipelineFlow with completedSteps:', state.completedSteps); return null; })()}
+								<PipelineFlow
+									steps={strategyDetails.steps}
+									currentStep={state.currentStep}
+									completedSteps={state.completedSteps}
+									onStepClick={handleStepClick}
+									onRestartFlow={handleGenerateDoc}
+									onAddChildNode={handleAddChildNode}
+									results={state.stepResults}
+									version={state.version}
+									history={state.history}
+									onRestoreVersion={handleRestoreVersion}
+									isLoading={isLoading}
+									loadingStep={loadingStep !== null ? loadingStep : undefined}
+								/>
+
+								{/* Control buttons with improved layout */}
+								<div className="flex flex-col gap-3">
+									<div className="flex justify-end">
+										{/* Generation control buttons */}
+										{isLoading && !isGenerationStopped && (
+											<Button
+												size="sm"
+												variant="outline"
+												onClick={handleStopGeneration}
+												className="flex items-center gap-1"
+												title="Stop generation"
+											>
+												<Square className="h-3.5 w-3.5" />
+												<span>Stop</span>
+											</Button>
+										)}
+										{isGenerationStopped && (
+											<Button
+												size="sm"
+												variant="outline"
+												onClick={handleContinueGeneration}
+												className="flex items-center gap-1"
+												title="Continue generation"
+											>
+												<Play className="h-3.5 w-3.5" />
+												<span>Continue</span>
+											</Button>
+										)}
+									</div>
+								</div>
+							</div>
+						)}
+					</div>
+				</div>
+			</div>
+
+			{/* Add a minimal visual indicator for single step execution */}
+			{isRunningSingleStep && singleStepIndex !== null && strategyDetails && (
+				<div className="text-xs text-muted-foreground mb-2 text-right">
+					Running: {strategyDetails.steps[singleStepIndex].title}
+				</div>
+			)}
+
+			<div ref={containerRef} className="flex-1 overflow-y-auto p-4 pt-6 bg-background">
+				{/* Show empty state when no messages are found for the selected pipeline */}
+				{!isLoadingInitial && groupedMessages.length === 0 && !isLoading ? (
+					<EmptyPipelineState
+						pipelineName={selectedStrategy}
+						onStart={() => handleStartPipeline()}
+					/>
+				) : (
+					<>
+						{/* Message groups */}
+						{groupedMessages.map((group) => (
+							<AgentMessageGroup
+								key={`${group.step_index}-${group.iteration_index}`}
+								group={group}
+								currentStep={state.currentStep}
+								onStepClick={handleStepClick}
+								isLoading={isLoading && (loadingStep === group.step_index)}
+							/>
+						))}
+						<div ref={endRef} />
+					</>
+				)}
+			</div>
+		</div>
+	);
+}

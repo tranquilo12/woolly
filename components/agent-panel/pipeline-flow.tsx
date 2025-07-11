@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { RefreshCw, ChevronUp, ChevronDown, Play, Check, PlusCircle } from 'lucide-react';
+import { ChevronUp, ChevronDown, Play, Check, PlusCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '../ui/button';
 
@@ -23,6 +23,7 @@ interface PipelineFlowProps {
 	onRestoreVersion?: (versionIndex: number) => void;
 	isLoading?: boolean;
 	loadingStep?: number;
+	scrollToMessage?: (stepIndex: number) => void;
 }
 
 export function PipelineFlow({
@@ -38,24 +39,81 @@ export function PipelineFlow({
 	history = [],
 	onRestoreVersion,
 	isLoading = false,
-	loadingStep
+	loadingStep,
+	scrollToMessage
 }: PipelineFlowProps) {
+	// Debug log for props
+	console.log('PipelineFlow: Received props:', {
+		currentStep,
+		completedSteps,
+		isLoading,
+		loadingStep,
+		stepsLength: steps.length
+	});
+
 	// Add a dropdown for version history
 	const [showVersionHistory, setShowVersionHistory] = useState(false);
+	// Add state for button click feedback
+	const [clickedStepIndex, setClickedStepIndex] = useState<number | null>(null);
+	const [clickedRunAll, setClickedRunAll] = useState(false);
+
+	// Add a function to handle step button clicks with visual feedback
+	const handleStepButtonClick = (index: number) => {
+		console.log('PipelineFlow: handleStepButtonClick called with index:', index);
+		console.log('PipelineFlow: Current state:', {
+			currentStep,
+			completedSteps,
+			isLoading,
+			loadingStep
+		});
+
+		// Set the clicked step index for visual feedback
+		setClickedStepIndex(index);
+
+		// Call the onStepClick function
+		onStepClick(index);
+
+		// Scroll to the corresponding message if the function is provided
+		if (scrollToMessage) {
+			scrollToMessage(index);
+		}
+
+		// Reset the clicked step index after a short delay
+		setTimeout(() => {
+			setClickedStepIndex(null);
+		}, 300);
+	};
+
+	// Add a function to handle run all button clicks with visual feedback
+	const handleRunAllClick = () => {
+		// Set the clicked run all state for visual feedback
+		setClickedRunAll(true);
+
+		// Call the onRestartFlow function
+		if (onRestartFlow) {
+			onRestartFlow();
+		}
+
+		// Reset the clicked run all state after a short delay
+		setTimeout(() => {
+			setClickedRunAll(false);
+		}, 300);
+	};
 
 	return (
 		<div className={cn("w-full bg-background/80 p-3 rounded-md border border-border/30 mb-4", className)}>
 			<div className="flex justify-between items-center mb-3">
-				<div className="flex items-center gap-2">
+				<div className="flex items-center gap-4">
 					<span className="text-sm font-medium">Pipeline Flow</span>
 					<Button
 						variant="secondary"
 						size="sm"
 						className={cn(
 							"h-6 text-xs flex items-center gap-1 transition-all duration-300",
-							isLoading && "bg-primary/10 text-primary border-primary/30"
+							isLoading && "bg-primary/10 text-primary border-primary/30",
+							clickedRunAll && "scale-95 opacity-80" // Add visual feedback for button click
 						)}
-						onClick={onRestartFlow}
+						onClick={handleRunAllClick}
 						title="Run all steps in sequence"
 						disabled={isLoading}
 					>
@@ -110,24 +168,6 @@ export function PipelineFlow({
 						</div>
 					)}
 				</div>
-
-				<div className="flex items-center gap-2">
-					<span className="text-xs text-muted-foreground px-2 py-1 bg-muted/30 rounded-full">
-						{completedSteps.length} of {steps.length} steps completed
-					</span>
-					{onRestartFlow && (
-						<Button
-							variant="ghost"
-							size="icon"
-							className="h-6 w-6"
-							onClick={onRestartFlow}
-							title="Restart flow"
-							disabled={isLoading}
-						>
-							<RefreshCw className="h-3.5 w-3.5" />
-						</Button>
-					)}
-				</div>
 			</div>
 
 			<div className="flex gap-4 overflow-x-auto pb-2">
@@ -141,8 +181,7 @@ export function PipelineFlow({
 								"flex flex-col min-w-[150px] px-4 py-2 rounded-md border transition-all duration-300",
 								isStepLoading ? "border-primary/50 bg-primary/5 shadow-sm" :
 									completedSteps.includes(index) ? "border-primary/30 bg-background" :
-										currentStep === index ? "border-primary bg-primary/5" :
-											"border-border/50 bg-background"
+										"border-border/50 bg-background"
 							)}
 						>
 							<div className="flex items-center justify-between mb-1">
@@ -150,8 +189,11 @@ export function PipelineFlow({
 								<Button
 									variant="ghost"
 									size="icon"
-									className="h-6 w-6 ml-1"
-									onClick={() => onStepClick(index)}
+									className={cn(
+										"h-6 w-6 ml-1",
+										clickedStepIndex === index && "scale-95 opacity-80" // Add visual feedback for button click
+									)}
+									onClick={() => handleStepButtonClick(index)}
 									title="Run only this step"
 									aria-label={`Run only the ${step.title} step`}
 									disabled={isLoading}

@@ -91,6 +91,41 @@ available_tools = {
 
 
 def do_stream(messages: List[ChatCompletionMessageParam], model: str = "gpt-4o"):
+    # Validate messages to ensure we don't send an empty array to OpenAI
+    if not messages:
+        logging.warning(
+            "Empty messages array received in do_stream. Adding default system message."
+        )
+        # Add a default system message to prevent the empty array error
+        messages = [{"role": "system", "content": "You are a helpful assistant."}]
+
+    # Additional validation: ensure each message has required fields
+    validated_messages = []
+    for msg in messages:
+        if isinstance(msg, dict):
+            # Ensure each message has at least role and content
+            if "role" not in msg:
+                logging.warning("Message missing 'role' field, skipping")
+                continue
+            if "content" not in msg and "experimental_attachments" not in msg:
+                logging.warning(
+                    "Message missing both 'content' and 'experimental_attachments' fields, skipping"
+                )
+                continue
+            validated_messages.append(msg)
+        else:
+            logging.warning(f"Invalid message format: {type(msg)}, skipping")
+
+    # If all messages were invalid, add a default system message
+    if not validated_messages:
+        logging.warning("All messages were invalid. Adding default system message.")
+        validated_messages = [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ]
+
+    # Use validated messages for the rest of the function
+    messages = validated_messages
+
     # Convert messages to the format expected by OpenAI Vision API
     formatted_messages = []
 
@@ -117,37 +152,79 @@ def do_stream(messages: List[ChatCompletionMessageParam], model: str = "gpt-4o")
             # Handle regular text messages
             formatted_messages.append(msg)
 
-    stream = client.chat.completions.create(
-        messages=formatted_messages,
-        model=model,
-        stream=True,
-        stream_options={"include_usage": True},
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": "execute_python_code",
-                    "description": "Execute Python code",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "The Python code to execute",
-                            },
-                            "output_format": {
-                                "type": "string",
-                                "description": "The format of the output",
-                            },
-                        },
-                        "required": ["code", "output_format"],
-                    },
-                },
-            }
-        ],
-    )
+    # Final validation to ensure we don't send empty messages to OpenAI
+    if not formatted_messages:
+        logging.error("Empty formatted_messages in do_stream after processing")
+        formatted_messages = [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ]
 
-    return stream
+    # Log the final messages for debugging
+    logging.info(f"Sending {len(formatted_messages)} messages to OpenAI")
+    for i, msg in enumerate(formatted_messages):
+        role = msg.get("role", "unknown")
+        content_type = type(msg.get("content", ""))
+        content_preview = (
+            str(msg.get("content", ""))[:50] + "..."
+            if len(str(msg.get("content", ""))) > 50
+            else str(msg.get("content", ""))
+        )
+        logging.info(
+            f"Message {i}: role={role}, content_type={content_type}, content_preview={content_preview}"
+        )
+
+    try:
+        stream = client.chat.completions.create(
+            messages=formatted_messages,
+            model=model,
+            stream=True,
+            stream_options={"include_usage": True},
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "execute_python_code",
+                        "description": "Execute Python code",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "code": {
+                                    "type": "string",
+                                    "description": "The Python code to execute",
+                                },
+                                "output_format": {
+                                    "type": "string",
+                                    "description": "The format of the output",
+                                },
+                            },
+                            "required": ["code", "output_format"],
+                        },
+                    },
+                }
+            ],
+        )
+        return stream
+    except Exception as e:
+        logging.error(f"Error in do_stream: {str(e)}")
+
+        # Provide more detailed error information
+        error_details = str(e)
+
+        # Check for specific error types
+        if "messages" in error_details.lower():
+            logging.error("Error related to messages format")
+            # Log the messages that caused the error
+            for i, msg in enumerate(formatted_messages):
+                logging.error(f"Message {i}: {msg}")
+        elif "api key" in error_details.lower():
+            logging.error("Error related to API key")
+        elif "rate limit" in error_details.lower():
+            logging.error("Rate limit exceeded")
+        elif "model" in error_details.lower():
+            logging.error("Error related to model selection")
+
+        # Re-raise the exception with more context
+        raise Exception(f"OpenAI API error: {error_details}") from e
 
 
 def stream_text(
@@ -565,11 +642,40 @@ async def handle_chat_legacy(
 ):
     """Legacy endpoint maintained for backward compatibility"""
     messages = request.messages
+
+    # Check if messages array is empty and add a default system message if needed
+    if not messages:
+        logging.warning(
+            "Empty messages array received in legacy chat endpoint. Adding default system message."
+        )
+        # Add a default system message to prevent the empty array error
+        messages = [
+            ClientMessageWithTools(
+                role="system",
+                content="You are a helpful assistant.",
+                id=str(uuid.uuid4()),
+            )
+        ]
+
     openai_messages = convert_to_openai_messages(messages)
 
-    response = StreamingResponse(stream_text(openai_messages, protocol))
-    response.headers["x-vercel-ai-data-stream"] = "v1"
-    return response
+    # Additional validation to ensure we don't send empty messages to OpenAI
+    if not openai_messages:
+        logging.error("Empty openai_messages after conversion in legacy chat endpoint")
+        raise HTTPException(
+            status_code=400,
+            detail="Unable to process empty message array. Please provide at least one message.",
+        )
+
+    try:
+        response = StreamingResponse(
+            stream_text(openai_messages, protocol, model=request.model)
+        )
+        response.headers["x-vercel-ai-data-stream"] = "v1"
+        return response
+    except Exception as e:
+        logging.error(f"Error in legacy chat endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.patch("/api/chat/{chat_id}/messages/{message_id}")

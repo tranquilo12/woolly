@@ -21,13 +21,13 @@ export function useAgentMessages(
 	pipeline_id?: string
 ) {
 	const queryClient = useQueryClient();
-	console.log("[DEBUG] useAgentMessages fetch called", {
-		api: `/api/chat/${chatId}/agent/messages`,
-		agentId,
-		messageType,
-		repository,
-		pipeline_id,
-	});
+	// console.log("[DEBUG] useAgentMessages fetch called", {
+	// 	api: `/api/chat/${chatId}/agent/messages`,
+	// 	agentId,
+	// 	messageType,
+	// 	repository,
+	// 	pipeline_id,
+	// });
 
 	const { data, isError, isLoading, refetch } = useQuery({
 		queryKey: ['messages', chatId, agentId, repository, messageType, pipeline_id] as const,
@@ -79,7 +79,7 @@ export function useAgentMessages(
 			return (a.step_index ?? 0) - (b.step_index ?? 0);
 		});
 
-		console.log("[DEBUG] Sorted messages:", sortedMessages);
+		// console.log("[DEBUG] Sorted messages:", sortedMessages);
 
 		return sortedMessages.reduce((groups: MessageGroup[], message, index) => {
 			const stepIndex = message.step_index ?? index;

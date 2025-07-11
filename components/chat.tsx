@@ -574,12 +574,12 @@ export function Chat({ chatId }: ChatProps) {
   }, [chatId, handleEditComplete, handleModelChange, messages, onDelete]);
 
   // Add this before the groupedMessages reduction
-  console.log('Processing messages:', messages.map(m => ({
-    id: m.id,
-    role: m.role,
-    messageType: (m as MessageWithModel).messageType,
-    hasToolInvocations: !!(m as MessageWithModel).toolInvocations?.length
-  })));
+  // console.log('Processing messages:', messages.map(m => ({
+  //   id: m.id,
+  //   role: m.role,
+  //   messageType: (m as MessageWithModel).messageType,
+  //   hasToolInvocations: !!(m as MessageWithModel).toolInvocations?.length
+  // })));
 
   // Filter out any agent messages from the grouped messages
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {

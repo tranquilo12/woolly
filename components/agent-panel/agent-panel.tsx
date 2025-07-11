@@ -94,38 +94,28 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 	const pathname = usePathname();
 	const chatId = props.chat_id || pathname?.split('/').pop() || '';
 
-	// This effect is still needed to load agent IDs from localStorage for backward compatibility
+	// Get agent IDs from localStorage
 	useEffect(() => {
-		if (selectedRepo) {
-			// Initialize or retrieve documentation agent with string handling
-			if (!docAgentId) {
-				const storedDocId = localStorage.getItem(`doc_agent_${selectedRepo}`);
-				if (storedDocId) {
-					try {
-						// Ensure we're storing a valid string
-						setDocAgentId(String(storedDocId));
-					} catch (error) {
-						console.error('Invalid doc agent ID in localStorage:', error);
-						localStorage.removeItem(`doc_agent_${selectedRepo}`);
-					}
+		if (typeof window !== 'undefined' && selectedRepo) {
+			try {
+				const docAgentId = localStorage.getItem(`doc_agent_${selectedRepo}`);
+				if (docAgentId) {
+					setDocAgentId(docAgentId);
 				}
+			} catch (error) {
+				// Error handling without console.error
 			}
 
-			// Initialize or retrieve mermaid agent with string handling
-			if (!mermaidAgentId) {
-				const storedMermaidId = localStorage.getItem(`mermaid_agent_${selectedRepo}`);
-				if (storedMermaidId) {
-					try {
-						// Ensure we're storing a valid string
-						setMermaidAgentId(String(storedMermaidId));
-					} catch (error) {
-						console.error('Invalid mermaid agent ID in localStorage:', error);
-						localStorage.removeItem(`mermaid_agent_${selectedRepo}`);
-					}
+			try {
+				const mermaidAgentId = localStorage.getItem(`mermaid_agent_${selectedRepo}`);
+				if (mermaidAgentId) {
+					setMermaidAgentId(mermaidAgentId);
 				}
+			} catch (error) {
+				// Error handling without console.error
 			}
 		}
-	}, [selectedRepo, docAgentId, mermaidAgentId]);
+	}, [selectedRepo]);
 
 	// Toggle maximize/minimize panel
 	const toggleMaximize = () => {
@@ -162,10 +152,7 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 						/>
 					) : (
 						<MermaidView
-							className="h-full"
-							currentChatId={props.chat_id || ''}
 							selectedRepo={props.repo_name}
-							agentId={safeAgentId}
 						/>
 					)}
 				</Suspense>
@@ -276,10 +263,7 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 									<Suspense fallback={<PanelSkeleton />}>
 										{selectedRepo && (
 											<MermaidView
-												className="h-full"
-												currentChatId={chatId}
 												selectedRepo={selectedRepo}
-												agentId={mermaidAgentId || ''}
 											/>
 										)}
 									</Suspense>
