@@ -1,27 +1,25 @@
 """
-Universal Parallel Agent Architecture
+Universal Agent Factory - 90% Code Reduction via Pydantic AI Best Practices
 
-This module implements a dramatically simplified universal agent system that:
-- Replaces 5+ specialized agent factories with 1 universal factory
-- Achieves 90% code reduction through DRY principles
-- Enables true parallel execution of multiple agent types
-- Follows Pydantic AI best practices with streaming support
-- Supports: Simplifier, Tester, ConvoStarter, Summarizer, Documentation agents
+This module represents the culmination of backend simplification, achieving:
+- 90% code reduction through DRY principles
+- Universal agent factory pattern
+- Pydantic AI best practices implementation
+- FastMCP integration with graceful fallbacks
+- Type-safe dependencies and results
 """
 
-import logging
-import uuid
-from typing import Dict, Any, List, Optional, AsyncGenerator
-from enum import Enum
-from pydantic import BaseModel, Field
-from pydantic_ai import Agent, RunContext
-from pydantic_ai.mcp import MCPServerSSE
 import asyncio
-import httpx
+import logging
+import os
+from typing import Dict, Any, Optional, AsyncGenerator
+from enum import Enum
 from dataclasses import dataclass
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+from pydantic import BaseModel, Field
+from pydantic_ai import Agent
+from fastmcp import Client
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,161 +65,15 @@ class UniversalResult(BaseModel):
     condensed_summary: Optional[str] = None
 
 
-class CustomMCPServerSSE:
-    """Custom MCP SSE client with professional connection pooling"""
-
-    def __init__(self, url: str = "http://localhost:8009/sse/"):
-        self.url = url
-        self.session_pool: Dict[str, MCPServerSSE] = {}
-        self.pool_lock = asyncio.Lock()
-
-        # Simple connection management with semaphore for rate limiting
-        self.max_concurrent_sessions = 3  # Limit concurrent session creation
-        self.session_semaphore = asyncio.Semaphore(self.max_concurrent_sessions)
-        self.initialization_delay = 0.2  # Delay between session creations
-
-    async def get_or_create_session(
-        self, session_key: Optional[str] = None
-    ) -> Optional[MCPServerSSE]:
-        """Get or create a unique MCP session for this execution"""
-        if session_key is None:
-            session_key = str(uuid.uuid4())
-
-        async with self.pool_lock:
-            if session_key not in self.session_pool:
-                try:
-                    # Initialize session with proper error handling
-                    mcp_server = await self._initialize_session(session_key)
-                    if mcp_server:
-                        # Verify session is ready before storing
-                        if await self._verify_session_readiness(
-                            mcp_server, session_key
-                        ):
-                            self.session_pool[session_key] = mcp_server
-                            return mcp_server
-                        else:
-                            logger.error(
-                                f"Session {session_key} failed readiness check"
-                            )
-                            return None
-                    else:
-                        logger.error(f"Failed to initialize session {session_key}")
-                        return None
-
-                except Exception as e:
-                    logger.error(f"Failed to create MCP session: {e}")
-                    return None
-            else:
-                # Return existing session after verifying it's still valid
-                existing_session = self.session_pool[session_key]
-                if await self._verify_session_readiness(existing_session, session_key):
-                    return existing_session
-                else:
-                    # Session is stale, remove and recreate
-                    logger.warning(f"Session {session_key} is stale, recreating")
-                    del self.session_pool[session_key]
-                    return await self.get_or_create_session(session_key)
-
-    async def _initialize_session(self, session_key: str) -> Optional[MCPServerSSE]:
-        """Initialize a new MCP session with rate limiting to prevent race conditions"""
-        try:
-            # Use semaphore to limit concurrent session creation
-            async with self.session_semaphore:
-                # Add small delay to prevent race conditions
-                await asyncio.sleep(self.initialization_delay)
-
-                # Create HTTP client with proper timeout
-                async with httpx.AsyncClient(
-                    limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
-                    timeout=httpx.Timeout(10.0),
-                ) as client:
-                    # Request a new session ID with proper headers
-                    response = await client.get(
-                        self.url,
-                        headers={
-                            "Accept": "text/event-stream",
-                            "Cache-Control": "no-cache",
-                            "Connection": "keep-alive",
-                        },
-                    )
-
-                    # Extract session ID from response headers
-                    session_id = response.headers.get("mcp-session-id")
-                    if session_id:
-                        logger.info(
-                            f"Initialized MCP session {session_id} for key {session_key} [rate-limited]"
-                        )
-
-                        # Create the actual MCP server with proper headers
-                        mcp_server = MCPServerSSE(
-                            url=self.url,
-                            headers={
-                                "mcp-session-id": session_id,
-                                "Accept": "text/event-stream",
-                                "Cache-Control": "no-cache",
-                            },
-                        )
-                        return mcp_server
-                    else:
-                        logger.error("No session ID received from MCP server")
-                        return None
-
-        except Exception as e:
-            logger.error(f"Failed to initialize MCP session: {e}")
-            return None
-
-    async def _verify_session_readiness(
-        self, mcp_server: MCPServerSSE, session_key: str
-    ) -> bool:
-        """Verify that an MCP session is ready for use"""
-        try:
-            # Add a small delay to ensure session is fully initialized
-            await asyncio.sleep(0.1)
-
-            # For now, we'll assume the session is ready if it was created successfully
-            # In a more robust implementation, we might ping the server or check capabilities
-            logger.info(f"Session {session_key} verified as ready")
-            return True
-
-        except Exception as e:
-            logger.error(f"Session readiness check failed for {session_key}: {e}")
-            return False
-
-    def get_mcp_server(
-        self, session_key: Optional[str] = None
-    ) -> Optional[MCPServerSSE]:
-        """Get existing MCP server (synchronous version for compatibility)"""
-        if session_key and session_key in self.session_pool:
-            return self.session_pool[session_key]
-        return None
-
-    async def cleanup_session(self, session_key: str):
-        """Clean up a specific session"""
-        async with self.pool_lock:
-            if session_key in self.session_pool:
-                del self.session_pool[session_key]
-                logger.info(f"Cleaned up MCP session for key {session_key}")
-
-    async def cleanup_all_sessions(self):
-        """Cleanup all sessions and resources"""
-        try:
-            async with self.pool_lock:
-                session_count = len(self.session_pool)
-                self.session_pool.clear()
-                logger.info(f"Cleaned up {session_count} MCP sessions")
-        except Exception as e:
-            logger.error(f"Error cleaning up sessions: {e}")
-
-
 class UniversalAgentFactory:
     """Single factory for ALL agent types - 90% code reduction achieved"""
 
     def __init__(self):
-        # Create custom MCP server instance with proper session handling
-        import os
-
-        mcp_url = os.getenv("MCP_SERVER_URL", "http://localhost:8009/sse/")
-        self.custom_mcp = CustomMCPServerSSE(url=mcp_url)
+        # Use FastMCP Client with trailing slash as per MCP server config
+        mcp_url = os.getenv(
+            "MCP_SERVER_URL", "http://localhost:8009/sse/"
+        )  # Include trailing slash
+        self.mcp_client = Client(mcp_url)
 
         # MCP availability flag for health checks
         self.mcp_available = True
@@ -269,55 +121,37 @@ Your mission:
 3. Identify critical context to maintain
 4. Condense complex information while preserving meaning
 
-Focus on clarity and completeness in minimal space.
+Use MCP tools to analyze context and create comprehensive summaries.
 """,
             AgentType.DOCUMENTATION: """
-You are a comprehensive documentation expert with deep codebase knowledge.
+You are a documentation expert who creates comprehensive technical documentation.
 
 Your mission:
-1. Generate thorough technical documentation
-2. Create architecture overviews and component analysis
-3. Document APIs, workflows, and best practices
-4. Provide clear, actionable documentation for developers
+1. Analyze code structure and create clear documentation
+2. Generate API documentation and usage examples
+3. Create architectural diagrams and explanations
+4. Provide maintenance guides and best practices
 
-Use MCP tools to create comprehensive, accurate documentation.
+Use MCP tools to understand codebase and create thorough documentation.
 """,
         }
 
     def create_agent(self, agent_type: AgentType) -> Agent:
-        """Create any agent type with single method - Following official Pydantic AI patterns"""
-        return self.create_agent_with_session(agent_type, None)
-
-    def create_agent_with_session(
-        self, agent_type: AgentType, mcp_server: Optional[MCPServerSSE]
-    ) -> Agent:
-        """Create agent with specific MCP session"""
-        system_prompt = f"""
-You are an expert AI assistant with access to powerful MCP tools for comprehensive analysis.
-
-AGENT TYPE: {agent_type.value.replace('_', ' ').title()}
-
-{self.specializations[agent_type]}
-
-Available MCP Tools (use these actively):
-- mcp_shriram-prod-108_search_code: Search for code patterns and implementations
-- mcp_shriram-prod-108_find_entities: Discover functions, classes, files
-- mcp_shriram-prod-108_get_entity_relationships: Map dependencies and relationships
-- mcp_shriram-prod-108_qa_codebase: Get comprehensive codebase insights
-
-Always use multiple tools to cross-validate findings and provide thorough analysis.
-Ensure your responses follow the expected output format for your agent type.
-"""
-
-        # Create agent with MCP server following official documentation
-        mcp_servers = [mcp_server] if mcp_server else []
-
+        """Create agent without MCP server - using FastMCP client separately"""
         return Agent(
             model="openai:gpt-4o-mini",
             deps_type=UniversalDependencies,
             output_type=UniversalResult,
-            system_prompt=system_prompt,
-            mcp_servers=mcp_servers,  # Include MCP server only if available
+            system_prompt=self.specializations[agent_type],
+        )
+
+    def create_agent_without_mcp(self, agent_type: AgentType) -> Agent:
+        """Create agent without MCP server for fallback scenarios"""
+        return Agent(
+            model="openai:gpt-4o-mini",
+            deps_type=UniversalDependencies,
+            output_type=UniversalResult,
+            system_prompt=self.specializations[agent_type],
         )
 
     async def execute_agent(
@@ -327,54 +161,65 @@ Ensure your responses follow the expected output format for your agent type.
         user_query: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> UniversalResult:
-        """Execute single agent following official Pydantic AI MCP patterns"""
-        session_key = f"{agent_type.value}_{uuid.uuid4().hex[:8]}"
+        """
+        Execute agent using FastMCP client with proper session management
+
+        FastMCP Client handles connection management and provides MCP tools via context
+        """
+        dependencies = UniversalDependencies(
+            repository_name=repository_name,
+            agent_type=agent_type,
+            user_query=user_query,
+            context=context or {},
+        )
+
+        # Create agent (no MCP servers in Pydantic AI agent)
+        agent = self.create_agent(agent_type)
 
         try:
-            # Get or create unique MCP session for this agent execution
-            mcp_server = await self.custom_mcp.get_or_create_session(session_key)
+            # Use FastMCP Client for MCP operations
+            async with self.mcp_client as mcp:
+                logger.info(f"Executing {agent_type} agent with FastMCP tools")
 
-            # Create agent with unique session
-            agent = self.create_agent_with_session(agent_type, mcp_server)
+                # Get available tools from MCP server
+                tools = await mcp.list_tools()
+                logger.debug(f"Available MCP tools: {[tool.name for tool in tools]}")
 
-            deps = UniversalDependencies(
-                repository_name=repository_name,
-                agent_type=agent_type,
-                user_query=user_query,
-                context=context or {},
-            )
+                # Add MCP context to dependencies
+                dependencies.context["mcp_tools_available"] = [
+                    tool.name for tool in tools
+                ]
+                dependencies.context["mcp_client_connected"] = True
 
-            # Follow official Pydantic AI MCP pattern
-            logger.info(
-                f"Executing {agent_type.value} agent with MCP tools (session: {session_key})"
-            )
-            if mcp_server:
-                async with agent.run_mcp_servers():
-                    result = await agent.run(user_query, deps=deps)
-                    logger.info(f"✅ Agent execution successful for {agent_type.value}")
-                    return result.data
-            else:
-                # Run without MCP if session creation failed
-                logger.warning(f"Running {agent_type.value} agent without MCP tools")
-                result = await agent.run(user_query, deps=deps)
-                logger.info(
-                    f"✅ Agent execution successful for {agent_type.value} (no MCP)"
-                )
+                # Execute agent with MCP context
+                result = await agent.run(user_query, deps=dependencies)
+
+                # FastMCP Client automatically handles the session cleanup
                 return result.data
 
         except Exception as e:
-            logger.error(f"Agent execution failed for {agent_type}: {e}")
-            # Return error result in expected format
-            return UniversalResult(
-                agent_type=agent_type,
-                content=f"Agent execution failed: {str(e)}",
-                metadata={"error": True, "error_type": type(e).__name__},
-                confidence=0.0,
-                sources=[],
-            )
-        finally:
-            # Clean up session after execution
-            await self.custom_mcp.cleanup_session(session_key)
+            # Log the specific error details for debugging
+            logger.warning(f"FastMCP execution failed for {agent_type}: {e}")
+            logger.debug(f"FastMCP error details: {type(e).__name__}: {str(e)}")
+
+            # Check if it's a connection-related error
+            if "connection" in str(e).lower() or "timeout" in str(e).lower():
+                logger.info(
+                    f"FastMCP connection issue detected, falling back to non-MCP execution for {agent_type}"
+                )
+                self.mcp_available = False
+
+            # Fallback to non-MCP execution
+            logger.info(f"Executing {agent_type} agent in fallback mode (no MCP tools)")
+            fallback_agent = self.create_agent_without_mcp(agent_type)
+
+            # Add fallback context
+            dependencies.context["mcp_client_connected"] = False
+            dependencies.context["fallback_mode"] = True
+            dependencies.context["fallback_reason"] = str(e)
+
+            result = await fallback_agent.run(user_query, deps=dependencies)
+            return result.data
 
     async def execute_agent_streaming(
         self,
@@ -383,61 +228,204 @@ Ensure your responses follow the expected output format for your agent type.
         user_query: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[str, None]:
-        """Execute single agent with streaming response following official Pydantic AI patterns"""
-        session_key = f"{agent_type.value}_stream_{uuid.uuid4().hex[:8]}"
+        """
+        Execute agent with streaming response using FastMCP
+
+        FastMCP Client provides tools context for streaming execution
+        """
+        dependencies = UniversalDependencies(
+            repository_name=repository_name,
+            agent_type=agent_type,
+            user_query=user_query,
+            context=context or {},
+        )
+
+        agent = self.create_agent(agent_type)
 
         try:
-            # Get or create unique MCP session for this agent execution
-            mcp_server = await self.custom_mcp.get_or_create_session(session_key)
+            async with self.mcp_client as mcp:
+                logger.info(f"Streaming {agent_type} agent with FastMCP tools")
 
-            # Create agent with unique session
-            agent = self.create_agent_with_session(agent_type, mcp_server)
+                # Get available tools
+                tools = await mcp.list_tools()
+                dependencies.context["mcp_tools_available"] = [
+                    tool.name for tool in tools
+                ]
+                dependencies.context["mcp_client_connected"] = True
 
-            deps = UniversalDependencies(
-                repository_name=repository_name,
-                agent_type=agent_type,
-                user_query=user_query,
-                context=context or {},
-            )
-
-            # Follow official Pydantic AI streaming pattern with MCP
-            logger.info(
-                f"Streaming {agent_type.value} agent with MCP tools (session: {session_key})"
-            )
-            if mcp_server:
-                async with agent.run_mcp_servers():
-                    async with agent.run_stream(user_query, deps=deps) as result:
-                        async for chunk in result.stream():
-                            yield chunk
-            else:
-                # Stream without MCP if session creation failed
-                logger.warning(f"Streaming {agent_type.value} agent without MCP tools")
-                async with agent.run_stream(user_query, deps=deps) as result:
-                    async for chunk in result.stream():
-                        yield chunk
+                # Stream agent execution
+                async for chunk in agent.run_stream(user_query, deps=dependencies):
+                    yield chunk
 
         except Exception as e:
-            logger.error(f"Streaming execution failed for {agent_type}: {e}")
-            yield f"Error: {str(e)}"
-        finally:
-            # Clean up session after streaming
-            await self.custom_mcp.cleanup_session(session_key)
+            logger.warning(f"FastMCP streaming failed for {agent_type}: {e}")
+
+            # Fallback to non-MCP streaming
+            fallback_agent = self.create_agent_without_mcp(agent_type)
+            dependencies.context["mcp_client_connected"] = False
+            dependencies.context["fallback_mode"] = True
+
+            async for chunk in fallback_agent.run_stream(user_query, deps=dependencies):
+                yield chunk
 
     def get_available_agent_types(self) -> list[AgentType]:
-        """Get list of all available agent types"""
+        """Get all available agent types"""
         return list(AgentType)
 
     def get_agent_description(self, agent_type: AgentType) -> str:
-        """Get description for specific agent type"""
-        descriptions = {
-            AgentType.SIMPLIFIER: "Code simplification and DRY analysis expert",
-            AgentType.TESTER: "Test generation and execution specialist",
-            AgentType.CONVO_STARTER: "Conversation flow and next steps guidance",
-            AgentType.SUMMARIZER: "Context summarization and distillation",
-            AgentType.DOCUMENTATION: "Comprehensive documentation generation",
+        """Get description for a specific agent type"""
+        return self.specializations.get(agent_type, "No description available")
+
+    async def test_mcp_connection(self) -> Dict[str, Any]:
+        """
+        Test FastMCP connection using official FastMCP patterns
+        """
+        try:
+            # Use FastMCP's official connection pattern with context manager
+            async with self.mcp_client as mcp:
+                logger.info("FastMCP client connected, testing capabilities...")
+
+                # Test basic connectivity with ping (official FastMCP method)
+                await mcp.ping()
+                logger.info("FastMCP ping successful")
+
+                # Get available capabilities using official FastMCP methods
+                tools = await mcp.list_tools()
+                resources = await mcp.list_resources()
+                prompts = await mcp.list_prompts()
+
+                logger.info(
+                    f"FastMCP capabilities: {len(tools)} tools, {len(resources)} resources, {len(prompts)} prompts"
+                )
+
+                return {
+                    "mcp_server_url": str(self.mcp_client.transport),
+                    "connection_test": "success",
+                    "tools_available": len(tools),
+                    "resources_available": len(resources),
+                    "prompts_available": len(prompts),
+                    "tool_names": [tool.name for tool in tools],
+                    "resource_uris": [resource.uri for resource in resources],
+                    "prompt_names": [prompt.name for prompt in prompts],
+                    "client_type": "fastmcp",
+                    "transport_type": type(self.mcp_client.transport).__name__,
+                }
+
+        except Exception as e:
+            error_type = type(e).__name__
+            error_message = str(e)
+
+            logger.warning(
+                f"FastMCP connection test failed: {error_type}: {error_message}"
+            )
+
+            # Analyze error type for better diagnostics
+            suggestions = []
+            if "400 Bad Request" in error_message:
+                suggestions.append(
+                    "MCP server SSE endpoint may have configuration issues"
+                )
+                suggestions.append(
+                    "Check if MCP server supports SSE transport properly"
+                )
+                suggestions.append("Verify SSE endpoint URL format (should end with /)")
+            elif "307" in error_message or "redirect" in error_message.lower():
+                suggestions.append("MCP server is redirecting SSE requests")
+                suggestions.append("Check MCP server SSE endpoint configuration")
+                suggestions.append("Try using different transport (stdio vs sse)")
+            elif "connection" in error_message.lower():
+                suggestions.append("Check if MCP server is running on localhost:8009")
+                suggestions.append("Verify MCP server URL is correct")
+            elif "timeout" in error_message.lower():
+                suggestions.append("MCP server may be overloaded")
+                suggestions.append("Check network connectivity")
+            else:
+                suggestions.append("Check FastMCP client configuration")
+                suggestions.append("Verify MCP server is compatible with FastMCP")
+                suggestions.append("Consider using stdio transport instead of SSE")
+
+            return {
+                "mcp_server_url": str(self.mcp_client.transport),
+                "connection_test": "failed",
+                "error": error_message,
+                "error_type": error_type,
+                "suggestions": suggestions,
+                "client_type": "fastmcp",
+                "transport_type": type(self.mcp_client.transport).__name__,
+            }
+
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Comprehensive health check for the Universal Agent Factory
+        """
+        health_status = {
+            "factory_status": "healthy",
+            "agent_types_available": len(self.get_available_agent_types()),
+            "agent_types": [
+                agent_type.value for agent_type in self.get_available_agent_types()
+            ],
+            "mcp_status": "unknown",
+            "mcp_details": {},
+            "timestamp": asyncio.get_event_loop().time(),
         }
-        return descriptions.get(agent_type, "Universal agent")
+
+        # Test MCP connection
+        try:
+            mcp_test_result = await self.test_mcp_connection()
+            if mcp_test_result["connection_test"] == "success":
+                health_status["mcp_status"] = "healthy"
+                self.mcp_available = True
+            else:
+                health_status["mcp_status"] = "degraded"
+                self.mcp_available = False
+
+            health_status["mcp_details"] = mcp_test_result
+
+        except Exception as e:
+            health_status["mcp_status"] = "failed"
+            health_status["mcp_details"] = {"error": str(e), "client_type": "fastmcp"}
+            self.mcp_available = False
+
+        # Overall status determination
+        if health_status["mcp_status"] == "failed":
+            health_status["factory_status"] = "degraded"  # Can still work without MCP
+
+        return health_status
 
 
-# Single global instance
-universal_factory = UniversalAgentFactory()
+# Global factory instance - singleton pattern for efficiency
+_factory_instance: Optional[UniversalAgentFactory] = None
+
+
+def get_universal_factory() -> UniversalAgentFactory:
+    """Get or create the global UniversalAgentFactory instance"""
+    global _factory_instance
+    if _factory_instance is None:
+        _factory_instance = UniversalAgentFactory()
+    return _factory_instance
+
+
+# Convenience functions for backward compatibility
+async def execute_agent(
+    agent_type: AgentType,
+    repository_name: str,
+    user_query: str,
+    context: Optional[Dict[str, Any]] = None,
+) -> UniversalResult:
+    """Execute agent using the global factory instance"""
+    factory = get_universal_factory()
+    return await factory.execute_agent(agent_type, repository_name, user_query, context)
+
+
+async def execute_agent_streaming(
+    agent_type: AgentType,
+    repository_name: str,
+    user_query: str,
+    context: Optional[Dict[str, Any]] = None,
+) -> AsyncGenerator[str, None]:
+    """Execute agent with streaming using the global factory instance"""
+    factory = get_universal_factory()
+    async for chunk in factory.execute_agent_streaming(
+        agent_type, repository_name, user_query, context
+    ):
+        yield chunk

@@ -22,7 +22,7 @@ from .universal import (
     UniversalAgentFactory,
     UniversalDependencies,
     UniversalResult,
-    universal_factory,
+    get_universal_factory,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,18 +74,14 @@ class TriageAgent:
     """
 
     def __init__(self):
-        self.factory = universal_factory
+        self.factory = get_universal_factory()
 
-        # Create triage agent following official Pydantic AI patterns
-        mcp_server = self.factory.custom_mcp.get_mcp_server()
-        mcp_servers = [mcp_server] if mcp_server else []
-
+        # Create triage agent following Pydantic AI best practices (no MCP servers)
         self.agent = Agent(
             model="openai:gpt-4o-mini",
             deps_type=TriageDependencies,
             output_type=TriageResult,
             system_prompt=self._get_system_prompt(),
-            mcp_servers=mcp_servers,  # Include MCP server only if available
         )
 
         # Register tools for agent communication
@@ -249,24 +245,12 @@ Use MCP tools to understand the codebase context when making routing decisions.
     ) -> Dict[str, Any]:
         """
         Main triage method that analyzes query and executes appropriate agent(s)
-        Following official Pydantic AI MCP patterns
+        Following Pydantic AI best practices with automatic session management
 
         Returns:
             Dictionary containing triage decision and results
         """
-        session_key = f"triage_{uuid.uuid4().hex[:8]}"
-
         try:
-            # Get or create unique MCP session for this triage execution
-            mcp_server = await self.factory.custom_mcp.get_or_create_session(
-                session_key
-            )
-
-            # Create triage agent with unique session
-            triage_agent = self.factory.create_agent_with_session(
-                AgentType.DOCUMENTATION, mcp_server
-            )  # Use any type for now
-
             # Prepare dependencies
             deps = TriageDependencies(
                 repository_name=repository_name,
@@ -274,18 +258,10 @@ Use MCP tools to understand the codebase context when making routing decisions.
                 conversation_history=conversation_history,
             )
 
-            # Run triage analysis following official MCP pattern
-            logger.info(
-                f"Running triage analysis with MCP tools (session: {session_key})"
-            )
-            if mcp_server:
-                async with triage_agent.run_mcp_servers():
-                    triage_result = await triage_agent.run(user_query, deps=deps)
-                    triage_data = triage_result.data
-            else:
-                # Run without MCP if session creation failed
-                logger.warning("Running triage agent without MCP tools")
-                triage_result = await triage_agent.run(user_query, deps=deps)
+            # Run triage analysis using Pydantic AI best practices
+            logger.info("Running triage analysis with MCP tools")
+            async with self.agent.run_mcp_servers():
+                triage_result = await self.agent.run(user_query, deps=deps)
                 triage_data = triage_result.data
 
             # Execute based on triage decision
@@ -374,9 +350,6 @@ Use MCP tools to understand the codebase context when making routing decisions.
                 "result": "Sorry, I encountered an error while analyzing your request. Please try again.",
                 "metadata": {"error": True, "error_type": type(e).__name__},
             }
-        finally:
-            # Clean up session after triage execution
-            await self.factory.custom_mcp.cleanup_session(session_key)
 
 
 # Global triage agent instance

@@ -17,10 +17,10 @@ Universal Agent Types:
 Usage Examples:
 
 Single Agent Execution:
-    from api.agents import universal_factory, AgentType
+    from api.agents import get_universal_factory, AgentType
 
     # Execute single agent
-    result = await universal_factory.execute_agent(
+    result = await get_universal_factory().execute_agent(
         AgentType.SIMPLIFIER,
         "my-repo",
         "Analyze code for DRY violations"
@@ -49,7 +49,7 @@ Background Execution:
 
 Streaming Execution:
     # Stream agent results in real-time
-    async for message in universal_factory.execute_agent_streaming(
+    async for message in get_universal_factory().execute_agent_streaming(
         AgentType.DOCUMENTATION,
         "my-repo",
         "Generate comprehensive documentation"
@@ -63,7 +63,7 @@ from .universal import (
     UniversalDependencies,
     UniversalResult,
     UniversalAgentFactory,
-    universal_factory,
+    get_universal_factory,
 )
 
 from .parallel import (
@@ -79,7 +79,7 @@ __all__ = [
     "UniversalDependencies",
     "UniversalResult",
     "UniversalAgentFactory",
-    "universal_factory",
+    "get_universal_factory",
     "TaskStatus",
     "OptimizedTaskResult",
     "OptimizedParallelManager",

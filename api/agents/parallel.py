@@ -18,7 +18,7 @@ from enum import Enum
 from dataclasses import dataclass
 
 from .universal import (
-    universal_factory,
+    get_universal_factory,
     AgentType,
     UniversalResult,
     UniversalDependencies,
@@ -75,7 +75,7 @@ class OptimizedParallelManager:
     """
 
     def __init__(self):
-        self.factory = universal_factory
+        self.factory = get_universal_factory()
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
         self.background_tasks: Dict[str, asyncio.Task] = {}
 

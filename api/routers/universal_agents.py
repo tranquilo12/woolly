@@ -18,7 +18,7 @@ import logging
 from datetime import datetime
 from sqlalchemy.orm import Session
 
-from ..agents.universal import AgentType, universal_factory, UniversalDependencies
+from ..agents.universal import AgentType, get_universal_factory, UniversalDependencies
 from ..agents.parallel import parallel_manager
 from ..utils.database import get_db
 from ..routers.agents import save_agent_message
@@ -385,36 +385,65 @@ async def get_available_agent_types() -> Dict[str, Any]:
     return {
         "agent_types": [
             agent_type.value
-            for agent_type in universal_factory.get_available_agent_types()
+            for agent_type in get_universal_factory().get_available_agent_types()
         ],
         "descriptions": {
-            agent_type.value: universal_factory.get_agent_description(agent_type)
-            for agent_type in universal_factory.get_available_agent_types()
+            agent_type.value: get_universal_factory().get_agent_description(agent_type)
+            for agent_type in get_universal_factory().get_available_agent_types()
         },
-        "total_count": len(universal_factory.get_available_agent_types()),
+        "total_count": len(get_universal_factory().get_available_agent_types()),
     }
 
 
 @router.get("/agents/health")
 async def health_check() -> Dict[str, Any]:
-    """Comprehensive health check for universal agent system"""
+    """
+    Health check endpoint for universal agent system
+    """
     try:
-        # Get comprehensive health status from parallel manager
-        health_status = await parallel_manager.health_check()
+        # Get factory health status
+        factory_health = await get_universal_factory().health_check()
 
-        # Add factory-specific health checks
-        agent_types = universal_factory.get_available_agent_types()
-        health_status.update(
-            {
-                "agent_types_available": len(agent_types),
-                "mcp_server_url": universal_factory.mcp_server.url,
-            }
-        )
+        # Get parallel manager health
+        parallel_health = await parallel_manager.health_check()
 
-        return health_status
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "factory": factory_health,
+            "parallel_manager": parallel_health,
+            "available_agents": len(
+                get_universal_factory().get_available_agent_types()
+            ),
+        }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        return {"status": "unhealthy", "error": str(e)}
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+        }
+
+
+@router.get("/agents/mcp/test")
+async def test_mcp_connection() -> Dict[str, Any]:
+    """
+    Test MCP server connection to diagnose TaskGroup errors
+    """
+    try:
+        test_result = await get_universal_factory().test_mcp_connection()
+        return {
+            "status": "completed",
+            "timestamp": datetime.now().isoformat(),
+            "test_result": test_result,
+        }
+    except Exception as e:
+        logger.error(f"MCP connection test failed: {e}")
+        return {
+            "status": "failed",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+        }
 
 
 @router.get("/agents/errors/statistics")
