@@ -68,8 +68,8 @@ from .universal import (
 
 from .parallel import (
     TaskStatus,
-    TaskResult,
-    ParallelAgentManager,
+    OptimizedTaskResult,
+    OptimizedParallelManager,
     parallel_manager,
 )
 
@@ -81,7 +81,7 @@ __all__ = [
     "UniversalAgentFactory",
     "universal_factory",
     "TaskStatus",
-    "TaskResult",
-    "ParallelAgentManager",
+    "OptimizedTaskResult",
+    "OptimizedParallelManager",
     "parallel_manager",
 ]

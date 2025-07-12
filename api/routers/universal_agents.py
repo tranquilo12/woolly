@@ -10,7 +10,7 @@ This module provides unified endpoints for all agent types:
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 from uuid import UUID
 import json
@@ -19,7 +19,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from ..agents.universal import AgentType, universal_factory, UniversalDependencies
-from ..agents.parallel import parallel_manager, TaskStatus
+from ..agents.parallel import parallel_manager
 from ..utils.database import get_db
 from ..routers.agents import save_agent_message
 
@@ -32,7 +32,7 @@ class UniversalRequest(BaseModel):
 
     repository_name: str
     user_query: str
-    agent_types: List[AgentType] = Field(
+    agent_types: list[AgentType] = Field(
         default=[
             AgentType.SIMPLIFIER,
             AgentType.TESTER,
@@ -102,7 +102,7 @@ async def execute_agents(
     try:
         if request.run_in_background:
             # Background execution with session tracking
-            session_id = await parallel_manager.run_background_agents(
+            session_id = await parallel_manager.run_background_session(
                 repository_name=request.repository_name,
                 user_query=request.user_query,
                 agent_types=request.agent_types,
@@ -139,7 +139,7 @@ async def execute_agents(
 
         else:
             # Immediate parallel execution
-            results = await parallel_manager.run_parallel_agents(
+            results = await parallel_manager.execute_parallel_agents(
                 repository_name=request.repository_name,
                 user_query=request.user_query,
                 agent_types=request.agent_types,
@@ -206,7 +206,7 @@ async def execute_agents_streaming(
             yield f"data: {json.dumps({'status': 'started', 'agent_count': len(request.agent_types)})}\n\n"
 
             # Stream results from parallel agents
-            async for result in parallel_manager.run_streaming_agents(
+            async for result in parallel_manager.stream_parallel_agents(
                 repository_name=request.repository_name,
                 user_query=request.user_query,
                 agent_types=request.agent_types,
