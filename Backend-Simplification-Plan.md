@@ -153,38 +153,79 @@ class UniversalResult(BaseModel):
 - **Type Safety**: Pydantic validation ensures data integrity
 - **Extensibility**: Easy to add new agent types
 
-### **3. Native Parallel Execution with AsyncIO**
+### **3. Multi-Agent Workflows with Tools (CORRECTED APPROACH)**
 
 ```python
-async def run_parallel_agents(
-    self,
-    repository_name: str,
-    user_query: str,
-    agent_types: List[AgentType],
-    context: Dict[str, Any] = None
-) -> Dict[AgentType, UniversalResult]:
-    """Run multiple agents in parallel - single method handles everything"""
+# ✅ CORRECT: Multi-agent workflows using Tools and RunContext
+@dataclass
+class TriageDependencies:
+    support_agent: Agent
+    loan_agent: Agent
+    customer_id: int
 
-    # Create tasks for all requested agent types
-    tasks = {}
-    for agent_type in agent_types:
-        agent = self.factory.create_agent(agent_type)
-        task = asyncio.create_task(
-            self._execute_agent_with_mcp(agent, deps, agent_type)
-        )
-        tasks[agent_type] = task
+triage_agent = Agent(
+    'openai:gpt-4o-mini',
+    deps_type=TriageDependencies,
+    system_prompt='You are a triage agent that routes queries to appropriate specialists.',
+    result_type=TriageResult,
+)
 
-    # Wait for all agents to complete
-    results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-    return {agent_type: result for agent_type, result in zip(agent_types, results)}
+@triage_agent.tool
+async def call_support_agent(ctx: RunContext[TriageDependencies], prompt: str) -> RunResult[Any]:
+    """Route to support agent via tool"""
+    support_deps = SupportDependencies(customer_id=ctx.deps.customer_id)
+    return await ctx.deps.support_agent.run(prompt, deps=support_deps)
+
+@triage_agent.tool
+async def call_loan_agent(ctx: RunContext[TriageDependencies], prompt: str) -> RunResult[Any]:
+    """Route to loan agent via tool"""
+    loan_deps = LoanDependencies(customer_id=ctx.deps.customer_id)
+    return await ctx.deps.loan_agent.run(prompt, deps=loan_deps)
 ```
 
 **🎯 Key Benefits:**
 
-- **True Parallelism**: Native asyncio task coordination
-- **Error Resilience**: Exception handling for individual agents
-- **Resource Efficiency**: Optimal CPU and memory usage
-- **Scalability**: Easy to add more agents without complexity
+- **Tool-Based Routing**: Agents communicate via tools, not direct chaining
+- **Dependency Injection**: Clean separation of concerns
+- **Type Safety**: Full RunContext typing
+- **Stateless Agents**: Agents are global, dependencies are contextual
+
+### **4. Pydantic Graph for Complex Workflows (ADVANCED PATTERN)**
+
+```python
+# ✅ CORRECT: For complex state machines and workflows
+from pydantic_graph import BaseNode, GraphRunContext, End, Graph
+
+@dataclass
+class WorkflowState:
+    repository_name: str
+    analysis_results: Dict[str, Any] = field(default_factory=dict)
+    current_step: str = "start"
+
+@dataclass
+class AnalyzeCode(BaseNode[WorkflowState]):
+    async def run(self, ctx: GraphRunContext[WorkflowState]) -> "GenerateTests":
+        # Perform code analysis
+        ctx.state.analysis_results = await analyze_repository(ctx.state.repository_name)
+        ctx.state.current_step = "analysis_complete"
+        return GenerateTests()
+
+@dataclass
+class GenerateTests(BaseNode[WorkflowState]):
+    async def run(self, ctx: GraphRunContext[WorkflowState]) -> End:
+        # Generate tests based on analysis
+        test_results = await generate_tests(ctx.state.analysis_results)
+        return End(test_results)
+
+workflow_graph = Graph(nodes=[AnalyzeCode, GenerateTests])
+```
+
+**🎯 Key Benefits:**
+
+- **State Management**: Persistent state across workflow steps
+- **Visual Workflows**: Can generate Mermaid diagrams
+- **Complex Logic**: Supports conditional branching and loops
+- **Resumable**: Can pause and resume workflows
 
 ---
 
@@ -204,64 +245,55 @@ async def run_parallel_agents(
 
 **Impact:** Route conflicts can cause 500 errors and database parsing issues.
 
-### **2. MCP Server Integration Pitfalls**
+### **2. Agent Communication Anti-Patterns**
 
 ```python
-# ❌ WRONG: Complex MCP orchestration
-class ComplexMCPOrchestrator:
+# ❌ WRONG: Direct agent chaining (not how Pydantic AI works)
+class AgentChainOrchestrator:
+    async def execute_chain(self, agent_chain: List[AgentType]):
+        # This is not the Pydantic AI way
+
+# ✅ CORRECT: Tool-based agent communication
+@triage_agent.tool
+async def call_specialist_agent(ctx: RunContext[Deps], query: str) -> str:
+    """Agents communicate via tools, not direct calls"""
+    return await ctx.deps.specialist_agent.run(query, deps=specialist_deps)
+```
+
+**Lesson:** Pydantic AI uses tools and dependency injection, not direct agent chaining.
+
+### **3. State Management Confusion**
+
+```python
+# ❌ WRONG: Trying to maintain state in agents
+class StatefulAgent:
     def __init__(self):
-        self.servers = [server1, server2, server3]  # Multiple servers
-        self.state_manager = ComplexStateManager()  # Complex state
-        self.task_queue = BackgroundTaskQueue()     # Background complexity
+        self.state = {}  # Agents should be stateless!
 
-# ✅ CORRECT: Simple MCP integration
-class UniversalAgentFactory:
-    def __init__(self):
-        self.mcp_server = MCPServerSSE(url="http://localhost:8009/sse")  # Single server
-        # No complex state management needed
+# ✅ CORRECT: State via dependencies or Pydantic Graph
+@dataclass
+class AgentDependencies:
+    user_context: UserContext
+    session_data: Dict[str, Any]
 ```
 
-**Lesson:** Simple MCP integration is more reliable than complex orchestration.
+**Lesson:** Agents are stateless; state goes in dependencies or Pydantic Graph.
 
-### **3. Database Model Overengineering**
+### **4. Tool Design Best Practices**
 
 ```python
-# ❌ WRONG: Separate models for each agent type
-class DocumentationDependencies(BaseModel): ...
-class SimplifierDependencies(BaseModel): ...
-class TesterDependencies(BaseModel): ...
-# ... 5+ duplicate models
+# ❌ WRONG: Tools that don't follow Pydantic AI patterns
+def some_tool(random_params):
+    # No type safety, no context
 
-# ✅ CORRECT: Universal model with optional fields
-class UniversalDependencies(BaseModel):
-    # Common fields for all agents
-    repository_name: str
-    agent_type: AgentType
-    user_query: str
-
-    # Optional fields for specialization
-    target_files: Optional[List[str]] = None
-    analysis_depth: str = "moderate"
+# ✅ CORRECT: Properly typed tools with context
+@agent.tool
+async def search_code(ctx: RunContext[Deps], query: str, file_pattern: str = "*.py") -> str:
+    """Search for code patterns with proper typing and context"""
+    return await ctx.deps.mcp_client.search(query, pattern=file_pattern)
 ```
 
-**Lesson:** Universal models with optional fields are more maintainable than specialized models.
-
-### **4. Import Dependency Hell**
-
-```python
-# ❌ WRONG: Complex circular imports
-from .documentation.models.basic import DocumentationModel
-from .documentation.strategies import DocumentationStrategy
-from .agents.core import BaseAgentFactory
-# ... complex dependency chains
-
-# ✅ CORRECT: Simple, flat imports
-from .agents.universal import universal_factory
-from .utils.models import UniversalDependencies, UniversalResult
-# ... clean, simple imports
-```
-
-**Lesson:** Flat import structures are easier to maintain and debug.
+**Lesson:** Tools should be typed, use context, and follow Pydantic AI conventions.
 
 ---
 
@@ -272,7 +304,7 @@ from .utils.models import UniversalDependencies, UniversalResult
 - **One Factory**: `UniversalAgentFactory` handles all agent types
 - **One Model**: `UniversalDependencies` for all input data
 - **One Result**: `UniversalResult` for all output data
-- **One Router**: Universal endpoints replace specialized ones
+- **Tool-Based Communication**: Agents interact via tools, not direct calls
 
 ### **2. Configuration Over Code**
 
@@ -285,27 +317,26 @@ self.specializations = {
 }
 ```
 
-### **3. Composition Over Inheritance**
+### **3. Dependency Injection Over Tight Coupling**
 
 ```python
-# Instead of complex inheritance hierarchies
-class UniversalAgentFactory:
-    def create_agent(self, agent_type: AgentType) -> Agent:
-        # Compose agents with different prompts
-        return Agent(
-            model="openai:gpt-4o-mini",
-            system_prompt=self.specializations[agent_type],
-            # ... same base configuration
-        )
+# Instead of hardcoded dependencies
+@agent.tool
+async def call_service(ctx: RunContext[Dependencies]) -> str:
+    # Dependencies injected via context
+    return await ctx.deps.external_service.call()
 ```
 
-### **4. Dynamic Behavior Over Static Classes**
+### **4. Type Safety Throughout**
 
 ```python
-# Instead of static specialized classes
-def execute_agent(agent_type: AgentType, query: str):
-    agent = universal_factory.create_agent(agent_type)
-    return agent.run(query)
+# Every component is fully typed
+agent = Agent[Dependencies, Result](
+    model="openai:gpt-4o-mini",
+    deps_type=Dependencies,
+    result_type=Result,
+    system_prompt="...",
+)
 ```
 
 ---
@@ -390,18 +421,18 @@ def create_agent(self, agent_type: AgentType) -> Agent:
     )
 ```
 
-### **2. MCP Integration Pattern**
+### **2. Multi-Agent Communication Pattern**
 
 ```python
-# ✅ BEST PRACTICE: Simple MCP server setup
-class UniversalAgentFactory:
-    def __init__(self):
-        self.mcp_server = MCPServerSSE(url="http://localhost:8009/sse")
-
-    async def execute_with_mcp(self, agent: Agent, query: str):
-        async with agent.run_mcp_servers():
-            result = await agent.run(query)
-            return result.data
+# ✅ BEST PRACTICE: Tool-based agent communication
+@triage_agent.tool
+async def route_to_specialist(ctx: RunContext[Deps], query: str, specialist: str) -> str:
+    """Route queries to specialist agents via tools"""
+    if specialist == "support":
+        deps = SupportDependencies(customer_id=ctx.deps.customer_id)
+        result = await ctx.deps.support_agent.run(query, deps=deps)
+        return result.data
+    # ... handle other specialists
 ```
 
 ### **3. Error Handling & Fallbacks**
@@ -411,8 +442,8 @@ class UniversalAgentFactory:
 @handle_db_operation
 async def execute_agent(request: UniversalRequest):
     try:
-        results = await parallel_manager.run_parallel_agents(...)
-        return UniversalResponse(status="completed", results=results)
+        result = await agent.run(request.query, deps=dependencies)
+        return UniversalResponse(status="completed", data=result.data)
     except Exception as e:
         logger.error(f"Agent execution failed: {e}")
         return UniversalResponse(status="failed", error=str(e))
@@ -433,11 +464,11 @@ async def legacy_generate(specialization: str, request: dict):
 
 ## 🚀 **FUTURE ROADMAP**
 
-### **Phase 4: Advanced Features (Optional)**
+### **Phase 4: Advanced Features (CORRECTED)**
 
 - **Streaming Responses**: Real-time agent output streaming
-- **Agent Chaining**: Sequential agent execution with context passing
-- **Custom Agent Types**: User-defined agent specializations
+- **Multi-Agent Workflows**: Tool-based agent communication patterns
+- **Pydantic Graph Integration**: Complex workflow orchestration
 - **Performance Monitoring**: Advanced metrics and observability
 
 ### **Phase 5: Production Optimization**
@@ -455,13 +486,14 @@ async def legacy_generate(specialization: str, request: dict):
 
 - [Official Pydantic AI Docs](https://ai.pydantic.dev/)
 - [Agent Creation Best Practices](https://ai.pydantic.dev/api/agent/)
-- [MCP Integration Guide](https://ai.pydantic.dev/mcp/)
+- [Multi-Agent Applications](https://ai.pydantic.dev/multi-agent-applications/)
+- [Pydantic Graph Documentation](https://ai.pydantic.dev/graph/)
 
 ### **Key Patterns Used**
 
 - **Universal Factory Pattern**: Single factory for multiple agent types
+- **Tool-Based Communication**: Agents communicate via tools and RunContext
 - **Dependency Injection**: Type-safe dependency management
-- **Async/Await**: Native Python asyncio for parallel execution
 - **Configuration over Code**: Prompt-based agent differentiation
 
 ---
@@ -475,9 +507,10 @@ This project successfully transformed a complex, over-engineered backend into an
 3. **Maintained Full Functionality**: All existing features preserved
 4. **Improved Performance**: Faster startup and consistent response times
 5. **Enhanced Maintainability**: Simple, flat architecture that's easy to understand
+6. **Followed Pydantic AI Best Practices**: Proper tool-based communication and type safety
 
 **Key Achievement**: We proved that following Pydantic AI best practices and DRY principles can dramatically simplify complex systems while maintaining (and often improving) functionality.
 
-The journey taught us that **simplicity is the ultimate sophistication** - by removing complexity rather than adding it, we created a more robust, maintainable, and scalable system.
+The journey taught us that **simplicity is the ultimate sophistication** - by removing complexity rather than adding it, and by following the proper Pydantic AI patterns for multi-agent systems, we created a more robust, maintainable, and scalable system.
 
 **🎯 Final Status: MISSION ACCOMPLISHED!**
