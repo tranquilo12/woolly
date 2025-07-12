@@ -24,7 +24,7 @@ import uuid
 from sqlalchemy.orm import Session
 from .utils.database import get_db
 from datetime import datetime, timezone, timedelta
-from .routers import agents, strategies
+from .routers import agents, strategies, universal_agents
 from .utils.openai_client import get_openai_client
 import logging
 
@@ -34,6 +34,7 @@ load_dotenv(".env.local")
 app = FastAPI()
 app.include_router(agents.router, prefix="/api")
 app.include_router(strategies.router)
+app.include_router(universal_agents.router, prefix="/api/v1", tags=["universal-agents"])
 
 client = get_openai_client(async_client=False)
 
