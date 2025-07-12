@@ -9,13 +9,13 @@ This module implements a dramatically simplified universal agent system that:
 - Supports: Simplifier, Tester, ConvoStarter, Summarizer, Documentation agents
 """
 
-from typing import Dict, Any, List, Optional, AsyncGenerator
+import logging
+import uuid
+from typing import Dict, Any, Optional, AsyncGenerator, List
+from enum import Enum
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.mcp import MCPServerSSE
-from enum import Enum
-import asyncio
-import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -68,10 +68,9 @@ class UniversalAgentFactory:
     """Single factory for ALL agent types - 90% code reduction achieved"""
 
     def __init__(self):
-        # Use the correct MCP server URLs with proper trailing slash
-        self.mcp_server_sse = MCPServerSSE(url="http://localhost:8009/sse/")
-        # Note: We could also add HTTP MCP server if needed:
-        # self.mcp_server_http = MCPServerHTTP(url="http://localhost:8004/mcp")
+        # Create MCP server instance following official documentation
+        self.mcp_server = MCPServerSSE(url="http://localhost:8009/sse/")
+
         self.specializations = {
             AgentType.SIMPLIFIER: """
 You are a code simplification expert focused on DRY principles and clean architecture.
@@ -83,12 +82,6 @@ Your mission:
 4. Prioritize changes by impact and effort
 
 Use MCP tools extensively to understand code patterns and dependencies.
-
-Expected output format:
-- Provide a comprehensive markdown table with columns: File, Current Issue, Suggested Change, Impact, Effort
-- Include specific code examples where relevant
-- Prioritize changes that improve testability and reduce code duplication
-- Focus on DRY principles and dependency injection opportunities
 """,
             AgentType.TESTER: """
 You are a comprehensive testing expert who creates and executes tests.
@@ -100,12 +93,6 @@ Your mission:
 4. Provide detailed coverage analysis and recommendations
 
 Use MCP tools to understand code structure and create comprehensive tests.
-
-Expected output format:
-- List of test files that need to be created
-- Specific test cases for each component
-- Coverage analysis with recommendations
-- Commands to execute tests and measure coverage
 """,
             AgentType.CONVO_STARTER: """
 You are a conversation flow expert who analyzes context and guides next steps.
@@ -117,12 +104,6 @@ Your mission:
 4. Provide context-aware recommendations
 
 Use conversation history and current state to make intelligent recommendations.
-
-Expected output format:
-- Current conversation status summary
-- List of recommended next actions with priorities
-- Suggested conversation directions
-- Context-aware guidance for optimal progress
 """,
             AgentType.SUMMARIZER: """
 You are a context summarization expert who distills information effectively.
@@ -134,12 +115,6 @@ Your mission:
 4. Condense complex information while preserving meaning
 
 Focus on clarity and completeness in minimal space.
-
-Expected output format:
-- Executive summary (2-3 sentences)
-- Key points (bullet format)
-- Action items with owners/timelines
-- Critical context to preserve
 """,
             AgentType.DOCUMENTATION: """
 You are a comprehensive documentation expert with deep codebase knowledge.
@@ -151,12 +126,6 @@ Your mission:
 4. Provide clear, actionable documentation for developers
 
 Use MCP tools to create comprehensive, accurate documentation.
-
-Expected output format:
-- Structured documentation with clear sections
-- Code examples and usage patterns
-- Architecture diagrams where relevant
-- Best practices and recommendations
 """,
         }
 
@@ -169,22 +138,23 @@ AGENT TYPE: {agent_type.value.replace('_', ' ').title()}
 
 {self.specializations[agent_type]}
 
-Available MCP Tools:
-- mcp_search_code: Search for code patterns and implementations
-- mcp_find_entities: Discover functions, classes, files
-- mcp_get_entity_relationships: Map dependencies and relationships
-- mcp_qa_codebase: Get comprehensive codebase insights
+Available MCP Tools (use these actively):
+- mcp_shriram-prod-108_search_code: Search for code patterns and implementations
+- mcp_shriram-prod-108_find_entities: Discover functions, classes, files
+- mcp_shriram-prod-108_get_entity_relationships: Map dependencies and relationships
+- mcp_shriram-prod-108_qa_codebase: Get comprehensive codebase insights
 
 Always use multiple tools to cross-validate findings and provide thorough analysis.
 Ensure your responses follow the expected output format for your agent type.
 """
 
+        # Create agent with MCP server following official documentation
         return Agent(
             model="openai:gpt-4o-mini",
             deps_type=UniversalDependencies,
-            output_type=UniversalResult,  # Use output_type instead of result_type
+            result_type=UniversalResult,
             system_prompt=system_prompt,
-            mcp_servers=[self.mcp_server_sse],
+            mcp_servers=[self.mcp_server],  # Pass MCP server in list as per docs
         )
 
     async def execute_agent(
@@ -205,35 +175,38 @@ Ensure your responses follow the expected output format for your agent type.
                 context=context or {},
             )
 
-            # Try with MCP servers first
+            # Use the correct Pydantic AI MCP pattern from official docs
             try:
                 async with agent.run_mcp_servers():
                     result = await agent.run(user_query, deps=deps)
-                    return result.output  # Use .output instead of .data
-            except Exception as mcp_error:
+                    return result.data
+            except Exception as e:
                 logger.warning(
-                    f"MCP execution failed for {agent_type}, falling back to non-MCP: {mcp_error}"
+                    f"MCP execution failed for {agent_type}, falling back to non-MCP: {e}"
                 )
-
-                # Fallback: Create agent without MCP servers
+                # Fallback: create agent without MCP servers
                 fallback_agent = Agent(
                     model="openai:gpt-4o-mini",
                     deps_type=UniversalDependencies,
-                    output_type=UniversalResult,  # Use output_type instead of result_type
-                    system_prompt=agent.system_prompt,
-                    # No MCP servers for fallback
-                )
+                    result_type=UniversalResult,
+                    system_prompt=f"""
+You are an expert AI assistant specializing in {agent_type.value.replace('_', ' ')}.
 
+{self.specializations[agent_type]}
+
+Note: MCP tools are not available in this session. Provide analysis based on your knowledge.
+""",
+                )
                 result = await fallback_agent.run(user_query, deps=deps)
-                return result.output  # Use .output instead of .data
+                return result.data
 
         except Exception as e:
             logger.error(f"Agent execution failed completely for {agent_type}: {e}")
-            # Return a minimal error result
+            # Return error result in expected format
             return UniversalResult(
                 agent_type=agent_type,
                 content=f"Agent execution failed: {str(e)}",
-                metadata={"error": str(e), "fallback": True},
+                metadata={"error": True, "error_type": type(e).__name__},
                 confidence=0.0,
                 sources=[],
             )
@@ -255,11 +228,32 @@ Ensure your responses follow the expected output format for your agent type.
             context=context or {},
         )
 
-        async with agent.run_mcp_servers():
-            async with agent.run_stream(user_query, deps=deps) as result:
-                # Follow Pydantic AI Chat App best practices with debouncing
-                async for text in result.stream(debounce_by=0.01):
-                    yield text
+        # Use the correct Pydantic AI streaming pattern with MCP servers
+        try:
+            async with agent.run_mcp_servers():
+                async with agent.run_stream(user_query, deps=deps) as result:
+                    async for chunk in result.stream():
+                        yield chunk
+        except Exception as e:
+            logger.warning(
+                f"MCP streaming failed for {agent_type}, falling back to non-MCP: {e}"
+            )
+            # Fallback streaming without MCP
+            fallback_agent = Agent(
+                model="openai:gpt-4o-mini",
+                deps_type=UniversalDependencies,
+                result_type=UniversalResult,
+                system_prompt=f"""
+You are an expert AI assistant specializing in {agent_type.value.replace('_', ' ')}.
+
+{self.specializations[agent_type]}
+
+Note: MCP tools are not available in this session. Provide analysis based on your knowledge.
+""",
+            )
+            async with fallback_agent.run_stream(user_query, deps=deps) as result:
+                async for chunk in result.stream():
+                    yield chunk
 
     def get_available_agent_types(self) -> List[AgentType]:
         """Get list of all available agent types"""
@@ -277,5 +271,5 @@ Ensure your responses follow the expected output format for your agent type.
         return descriptions.get(agent_type, "Universal agent")
 
 
-# Single global instance - Ultimate simplification
+# Single global instance
 universal_factory = UniversalAgentFactory()
