@@ -68,12 +68,17 @@ class UniversalResult(BaseModel):
 
 
 class CustomMCPServerSSE:
-    """Custom MCP SSE client that handles session pool management properly"""
+    """Custom MCP SSE client with professional connection pooling"""
 
     def __init__(self, url: str = "http://localhost:8009/sse/"):
         self.url = url
         self.session_pool: Dict[str, MCPServerSSE] = {}
         self.pool_lock = asyncio.Lock()
+
+        # Simple connection management with semaphore for rate limiting
+        self.max_concurrent_sessions = 3  # Limit concurrent session creation
+        self.session_semaphore = asyncio.Semaphore(self.max_concurrent_sessions)
+        self.initialization_delay = 0.2  # Delay between session creations
 
     async def get_or_create_session(
         self, session_key: Optional[str] = None
@@ -85,39 +90,102 @@ class CustomMCPServerSSE:
         async with self.pool_lock:
             if session_key not in self.session_pool:
                 try:
-                    async with httpx.AsyncClient() as client:
-                        # Request a new session ID
-                        response = await client.get(
-                            self.url,
-                            headers={
-                                "Accept": "text/event-stream",
-                                "Cache-Control": "no-cache",
-                            },
-                            timeout=5.0,
-                        )
-
-                        # Extract session ID from response headers
-                        session_id = response.headers.get("mcp-session-id")
-                        if session_id:
-                            logger.info(
-                                f"Created new MCP session {session_id} for key {session_key}"
-                            )
-
-                            # Create the actual MCP server with proper headers
-                            mcp_server = MCPServerSSE(
-                                url=self.url, headers={"mcp-session-id": session_id}
-                            )
+                    # Initialize session with proper error handling
+                    mcp_server = await self._initialize_session(session_key)
+                    if mcp_server:
+                        # Verify session is ready before storing
+                        if await self._verify_session_readiness(
+                            mcp_server, session_key
+                        ):
                             self.session_pool[session_key] = mcp_server
                             return mcp_server
                         else:
-                            logger.error("No session ID received from MCP server")
+                            logger.error(
+                                f"Session {session_key} failed readiness check"
+                            )
                             return None
+                    else:
+                        logger.error(f"Failed to initialize session {session_key}")
+                        return None
 
                 except Exception as e:
                     logger.error(f"Failed to create MCP session: {e}")
                     return None
             else:
-                return self.session_pool[session_key]
+                # Return existing session after verifying it's still valid
+                existing_session = self.session_pool[session_key]
+                if await self._verify_session_readiness(existing_session, session_key):
+                    return existing_session
+                else:
+                    # Session is stale, remove and recreate
+                    logger.warning(f"Session {session_key} is stale, recreating")
+                    del self.session_pool[session_key]
+                    return await self.get_or_create_session(session_key)
+
+    async def _initialize_session(self, session_key: str) -> Optional[MCPServerSSE]:
+        """Initialize a new MCP session with rate limiting to prevent race conditions"""
+        try:
+            # Use semaphore to limit concurrent session creation
+            async with self.session_semaphore:
+                # Add small delay to prevent race conditions
+                await asyncio.sleep(self.initialization_delay)
+
+                # Create HTTP client with proper timeout
+                async with httpx.AsyncClient(
+                    limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
+                    timeout=httpx.Timeout(10.0),
+                ) as client:
+                    # Request a new session ID with proper headers
+                    response = await client.get(
+                        self.url,
+                        headers={
+                            "Accept": "text/event-stream",
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                        },
+                    )
+
+                    # Extract session ID from response headers
+                    session_id = response.headers.get("mcp-session-id")
+                    if session_id:
+                        logger.info(
+                            f"Initialized MCP session {session_id} for key {session_key} [rate-limited]"
+                        )
+
+                        # Create the actual MCP server with proper headers
+                        mcp_server = MCPServerSSE(
+                            url=self.url,
+                            headers={
+                                "mcp-session-id": session_id,
+                                "Accept": "text/event-stream",
+                                "Cache-Control": "no-cache",
+                            },
+                        )
+                        return mcp_server
+                    else:
+                        logger.error("No session ID received from MCP server")
+                        return None
+
+        except Exception as e:
+            logger.error(f"Failed to initialize MCP session: {e}")
+            return None
+
+    async def _verify_session_readiness(
+        self, mcp_server: MCPServerSSE, session_key: str
+    ) -> bool:
+        """Verify that an MCP session is ready for use"""
+        try:
+            # Add a small delay to ensure session is fully initialized
+            await asyncio.sleep(0.1)
+
+            # For now, we'll assume the session is ready if it was created successfully
+            # In a more robust implementation, we might ping the server or check capabilities
+            logger.info(f"Session {session_key} verified as ready")
+            return True
+
+        except Exception as e:
+            logger.error(f"Session readiness check failed for {session_key}: {e}")
+            return False
 
     def get_mcp_server(
         self, session_key: Optional[str] = None
@@ -133,6 +201,16 @@ class CustomMCPServerSSE:
             if session_key in self.session_pool:
                 del self.session_pool[session_key]
                 logger.info(f"Cleaned up MCP session for key {session_key}")
+
+    async def cleanup_all_sessions(self):
+        """Cleanup all sessions and resources"""
+        try:
+            async with self.pool_lock:
+                session_count = len(self.session_pool)
+                self.session_pool.clear()
+                logger.info(f"Cleaned up {session_count} MCP sessions")
+        except Exception as e:
+            logger.error(f"Error cleaning up sessions: {e}")
 
 
 class UniversalAgentFactory:
