@@ -521,8 +521,8 @@ Evaluate their similarity, confidence in your assessment, stability indicators, 
             result = await self.critic_agent.run(prompt)
 
             # Extract similarity score from structured output
-            if hasattr(result, "output") and hasattr(result.output, "similarity"):
-                return result.output.similarity
+            if hasattr(result, "data") and hasattr(result.data, "similarity"):
+                return result.data.similarity
             else:
                 logger.warning("Unexpected critic agent response format")
                 return None

@@ -20,7 +20,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
-from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.result import StreamedRunResult
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse
 from pydantic_ai.messages import (
@@ -826,14 +825,14 @@ Use these valid entity IDs for relationship queries instead of making new discov
 
             # ✅ CORRECT: Execute agent with proper message_history parameter
             async with agent.run_mcp_servers():
-                result: AgentRunResult[UniversalResult] = await agent.run(
+                result = await agent.run(
                     user_query, deps=dependencies, message_history=message_history
                 )
 
-            # ✅ CORRECT: Extract result and update conversation context using AgentRunResult
-            agent_result = result.output
+            # ✅ CORRECT: Extract result and update conversation context using RunResult
+            agent_result = result.data
 
-            # ✅ CORRECT: Use AgentRunResult.new_messages to capture the complete conversation
+            # ✅ CORRECT: Use RunResult.new_messages to capture the complete conversation
             # This includes user message, tool calls, tool results, and agent response
             conversation_context.message_history.extend(result.new_messages)
 
@@ -1246,10 +1245,8 @@ Use these valid entity IDs for relationship queries instead of making new discov
                 context={},
             )
 
-            # ✅ CORRECT: Test agent execution with proper RunResult handling
-            result: AgentRunResult[UniversalResult] = await test_agent.run(
-                "Test MCP connection", deps=test_dependencies
-            )
+            # ✅ CORRECT: Test agent execution with proper result handling
+            result = await test_agent.run("Test MCP connection", deps=test_dependencies)
 
             return {
                 "mcp_server_url": "http://localhost:8009/sse/",

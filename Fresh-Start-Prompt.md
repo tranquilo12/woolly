@@ -1,305 +1,292 @@
-# 🚀 Fresh Start: Phase 5 - Streaming Optimization & Frontend Simplification
+# 🚀 Fresh Start Prompt: Phase 5.2 Frontend Modernization
 
-## 📋 **TLDR - Next Page**
+## 📋 **TL;DR - Next Page**
 
-**Current Status:** Phase 4 Complete (95%) - Working LLM-MCP interface with conversation history, but agent exploration loops need optimization and frontend needs modernization
-
-**Critical Issues to Resolve:**
-
-1. **Agent Exploration Loops** - Agents get stuck in infinite tool calling cycles without convergence
-2. **Missing Streaming Implementation** - No real-time streaming of tool calls and results
-3. **Frontend Component Complexity** - Outdated patterns, need shadcn/ui modernization
-4. **Tool Call Optimization** - Need intelligent stopping criteria and tool budgets
-
-**Next Logical Stage:** Phase 5 - Streaming & Frontend Optimization (Backend Simplification Plan continuation)
+**CURRENT STATUS:** ✅ Phase 5.1 Backend Streaming COMPLETE  
+**NEXT PRIORITY:** 🎯 Phase 5.2 Frontend Modernization (Tasks #13-25)  
+**KEY FILES:** `components/agent-panel/`, `app/chat/[id]/page.tsx`, `package.json`  
+**GOAL:** Modernize frontend with shadcn/ui + React 19 + real-time streaming
 
 ---
 
-## 🎯 **MISSION BRIEFING**
+## 🎯 **MISSION CONTEXT**
 
-You are continuing the **Backend Simplification Plan** (see attached `Backend-Simplification-Plan.md`) at **Phase 5: Advanced Streaming & Frontend Integration**. Phase 4 achieved working LLM-MCP interface with 81% code reduction, but now we need to optimize streaming patterns and modernize the frontend.
+You are continuing the **Backend Simplification Plan** (see `Backend-Simplification-Plan.md`) for the Woolly codebase. We have successfully completed **Phase 5.1 Backend Streaming** and are now ready to tackle **Phase 5.2 Frontend Modernization**.
 
-### **🔴 CRITICAL PROBLEMS TO SOLVE**
+### **What We've Achieved (Phase 5.1 ✅)**
 
-#### **Problem 1: Agent Exploration Loop Prevention**
+- ✅ **ToolBudget Model**: Comprehensive tool call limits and convergence detection
+- ✅ **ConvergenceDetector**: AI critic + Jaccard similarity for intelligent stopping
+- ✅ **Enhanced Streaming**: Pydantic AI streaming with Vercel AI SDK v4 compatibility
+- ✅ **All Tests Passing**: 43 comprehensive tests (ToolBudget + Convergence + Streaming)
+- ✅ **Intelligent Stopping**: Prevents agent exploration loops with multi-dimensional limits
 
-**File:** `api/agents/universal.py` (lines 563-650)
-**Issue:** Agents call MCP tools repeatedly without convergence, creating infinite exploration loops.
+### **Critical Architecture Context**
 
-**Current Broken Pattern:**
+```mermaid
+graph TB
+    subgraph "✅ COMPLETED: Backend Streaming (Phase 5.1)"
+        BUDGET[ToolBudget Model]
+        CONV[ConvergenceDetector]
+        STREAM[Enhanced Streaming Pipeline]
+        BUDGET --> STREAM
+        CONV --> STREAM
+    end
 
-```python
-# ❌ PROBLEM: No stopping criteria or tool budgets
-async with agent.run_mcp_servers():
-    result = await agent.run(user_query, deps=dependencies, message_history=message_history)
-    # Agent keeps calling tools indefinitely
+    subgraph "🎯 TARGET: Frontend Modernization (Phase 5.2)"
+        SHADCN[shadcn/ui Components]
+        REACT19[React 19 Patterns]
+        STREAMING_UI[Real-time Streaming UI]
+        GRAPH[Entity Graph Visualization]
+    end
+
+    STREAM --> STREAMING_UI
 ```
 
-**Required Solution Pattern:**
+---
 
-```python
-# ✅ SOLUTION: Implement tool budgets and intelligent stopping
-class ToolBudget(BaseModel):
-    max_tool_calls: int = 10
-    max_depth: int = 3
-    convergence_threshold: float = 0.8
+## 🎯 **IMMEDIATE NEXT STEPS (Phase 5.2)**
 
-async with agent.run_mcp_servers():
-    # Need streaming with tool call limits
-    async with agent.run_stream(
-        user_query,
-        deps=dependencies,
-        message_history=message_history
-    ) as stream:
-        # Stream with intelligent stopping
+### **Priority Task Matrix** (from Backend-Simplification-Plan.md)
+
+| Task #  | Priority        | Task Description                                              | File/Area                            | Status               |
+| ------- | --------------- | ------------------------------------------------------------- | ------------------------------------ | -------------------- |
+| **#13** | 🔥 **CRITICAL** | Install & configure shadcn/ui with React 19 & Tailwind CSS    | `package.json`, `tailwind.config.js` | ☐ **START HERE**     |
+| **#14** | 🔥 **CRITICAL** | Baseline Cypress smoke test to capture current chat behaviour | `cypress/`                           | ☐ **IMMEDIATE**      |
+| **#15** | 🚀 **HIGH**     | Add `streaming-chat.tsx` using shadcn/ui primitives           | `components/agent-panel/`            | ☐ **CORE FEATURE**   |
+| **#16** | 🚀 **HIGH**     | Test: rendering stream events (text, tool-call, tool-result)  | `tests/frontend/`                    | ☐ **VALIDATION**     |
+| **#17** | 📊 **MEDIUM**   | Add `tool-call-indicator.tsx` (progress bar, spinner)         | `components/agent-panel/`            | ☐ **UX ENHANCEMENT** |
+
+### **🎯 START HERE: Task #13 - shadcn/ui Setup**
+
+**IMMEDIATE ACTION REQUIRED:**
+
+1. **Install shadcn/ui**: `npx shadcn@latest init`
+2. **Verify React 19**: Check `package.json` for React 19 compatibility
+3. **Configure Tailwind**: Ensure shadcn/ui Tailwind integration
+4. **Test Build**: Verify `npm run dev` works with new setup
+
+**Expected Files to Modify:**
+
+```
+package.json          # Add shadcn/ui dependencies
+components.json       # shadcn/ui configuration
+tailwind.config.js    # Updated Tailwind config
+components/ui/        # New shadcn/ui components
 ```
 
-#### **Problem 2: Missing Pydantic AI Streaming Implementation**
+---
 
-**File:** `api/agents/universal.py` (lines 674-750)
-**Issue:** No implementation of Pydantic AI's latest streaming patterns for real-time tool call visualization.
+## 📚 **CRITICAL CONTEXT & CONSTRAINTS**
 
-**Current Broken Pattern:**
+### **🔒 MUST PRESERVE**
 
-```python
-# ❌ WRONG: Basic streaming without tool call visibility
-async def execute_agent_streaming(...):
-    # Basic text streaming only, no tool call streaming
+- **81% Code Reduction Achievement**: Don't add unnecessary complexity
+- **MCP Integration**: Keep `mcp_shriram-prod-108_*` tools working [[memory:2924205]]
+- **Universal Agent Factory**: Maintain existing agent execution patterns
+- **Backend Streaming**: Don't break Phase 5.1 streaming implementation
+
+### **🎯 MODERNIZATION TARGETS**
+
+#### **Current Component Issues** (Need Fixing)
+
+```typescript
+// ❌ CURRENT: Outdated patterns in components/agent-panel/
+// - Complex state management in agent-panel.tsx
+// - Deprecated React patterns in message-group.tsx
+// - Missing real-time streaming visualization
+// - No tool call progress indicators
+
+// ✅ TARGET: Modern shadcn/ui patterns
+// - Clean shadcn/ui layout components
+// - React 19 hooks and patterns
+// - Real-time streaming with progress indicators
+// - Entity graph visualization
 ```
 
-**Required Solution Pattern (Research Needed):**
+#### **Key Files Requiring Modernization**
 
-```python
-# ✅ CORRECT: Full streaming with tool calls
-async def execute_agent_streaming(...):
-    async with agent.run_stream(user_query, deps=deps) as stream:
-        async for event in stream:
-            if isinstance(event, ToolCallEvent):
-                yield f"🔧 Calling tool: {event.tool_name}"
-            elif isinstance(event, ToolResultEvent):
-                yield f"✅ Tool result: {event.result}"
-            elif isinstance(event, TextEvent):
-                yield event.delta
+1. **`components/agent-panel/agent-panel.tsx`** - Main panel layout (Task #18)
+2. **`components/agent-panel/message-group.tsx`** - Message rendering (Task #19)
+3. **`app/chat/[id]/page.tsx`** - Chat page with streaming integration (Task #22)
+4. **`components/agent-panel/agent-content.tsx`** - Content display with graph toggle (Task #21)
+
+### **🔧 TECHNICAL SPECIFICATIONS**
+
+#### **Streaming Integration Requirements**
+
+```typescript
+// Backend streaming endpoint (ALREADY IMPLEMENTED ✅)
+// api/agents/universal.py -> execute_agent_streaming()
+// Emits: 'start', 'toolCall', 'toolResult', 'text', 'budget_exceeded', 'converged', 'done'
+
+// Frontend integration target (Task #22)
+// Use Vercel AI SDK v4 createStream() to connect to backend SSE
+import { createStream } from "ai";
+
+const stream = createStream({
+  url: "/api/v1/agents/execute/stream",
+  method: "POST",
+  body: {
+    /* agent request */
+  },
+});
 ```
 
-#### **Problem 3: Frontend Component Modernization**
+#### **Component Architecture Pattern**
 
-**Files:** `app/` directory, `components/agent-panel/`
-**Issue:** Complex component hierarchy using outdated patterns, needs shadcn/ui modernization.
+```typescript
+// Target: Modern shadcn/ui component structure
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 
-**Current Issues:**
-
-- Mixed component patterns
-- No real-time streaming visualization
-- Complex state management
-- No tool call progress indicators
-
-### **🎯 WHAT YOU NEED TO ACCOMPLISH**
-
-#### **Phase 5.1: Research & Implement Pydantic AI Streaming (Priority 1)**
-
-**Target Files:**
-
-- `api/agents/universal.py` (streaming methods)
-- Research latest Pydantic AI documentation
-
-**Research Requirements:**
-
-1. **`agent.run_stream()` patterns** - How to properly stream tool calls and results
-2. **`StreamedRunResult` usage** - Proper event handling for different event types
-3. **Tool call event types** - Understanding `ToolCallEvent`, `ToolResultEvent`, `TextEvent`
-4. **Streaming context management** - Proper async context patterns
-5. **Error handling in streams** - How to handle tool failures during streaming
-
-**Implementation Goals:**
-
-- Real-time tool call streaming
-- Intelligent stopping criteria
-- Tool call budgets and limits
-- Proper event type handling
-
-#### **Phase 5.2: Frontend Modernization with shadcn/ui (Priority 2)**
-
-**Target Files:**
-
-- `components/agent-panel/` (all components)
-- `app/chat/` (chat interface)
-- `components/ui/` (component library)
-
-**Modernization Goals:**
-
-1. **Replace complex components** with shadcn/ui equivalents
-2. **Implement streaming UI** for real-time tool call visualization
-3. **Add progress indicators** for tool execution
-4. **Simplify state management** using React 18 patterns
-5. **Entity relationship visualization** using modern graph components
-
-### **🔧 TECHNICAL REQUIREMENTS**
-
-#### **Backend Streaming Architecture (Research & Implement)**
-
-```python
-# Target Architecture (needs research for correct implementation)
-class StreamingAgent(BaseModel):
-    tool_budget: ToolBudget
-    convergence_detector: ConvergenceDetector
-
-    async def stream_with_intelligence(self, query: str) -> AsyncGenerator[StreamEvent, None]:
-        """Stream with intelligent stopping and tool budgets"""
-        # Research: Proper Pydantic AI streaming patterns
-        # Implement: Tool call limits and convergence detection
-```
-
-#### **Frontend Streaming Components (shadcn/ui based)**
-
-```tsx
-// Target Architecture
-interface StreamingChatProps {
-  onToolCall: (tool: ToolCallEvent) => void;
-  onToolResult: (result: ToolResultEvent) => void;
-  onTextDelta: (delta: string) => void;
+// Example: streaming-chat.tsx (Task #15)
+export function StreamingChat() {
+  return (
+    <Card className="h-full">
+      <CardHeader>
+        <ToolCallIndicator /> {/* Task #17 */}
+      </CardHeader>
+      <CardContent>
+        <MessageStream />
+        <EntityGraph /> {/* Task #20 */}
+      </CardContent>
+    </Card>
+  );
 }
-
-const StreamingChat: React.FC<StreamingChatProps> = () => {
-  // Modern React patterns with shadcn/ui components
-  // Real-time streaming visualization
-  // Tool call progress indicators
-};
 ```
 
-### **📚 RESEARCH REQUIREMENTS**
+---
 
-#### **Priority 1: Pydantic AI Streaming Research**
+## 🧪 **TESTING STRATEGY**
 
-**Key Areas to Research:**
-
-1. **Latest Pydantic AI streaming documentation** - `agent.run_stream()` patterns
-2. **Event handling patterns** - Different event types and their properties
-3. **Streaming context management** - Proper async patterns
-4. **Tool call streaming** - How to stream individual tool calls and results
-5. **Error handling** - Graceful degradation during streaming
-6. **Performance optimization** - Memory management for long conversations
-
-**Research Sources:**
-
-- Pydantic AI official documentation
-- GitHub examples and issues
-- Community best practices
-- Latest version release notes
-
-#### **Priority 2: shadcn/ui Component Research**
-
-**Key Areas to Research:**
-
-1. **Latest shadcn/ui components** - Available components for chat interfaces
-2. **Streaming UI patterns** - Real-time data visualization components
-3. **Progress indicators** - Loading states and progress bars
-4. **Graph components** - Entity relationship visualization
-5. **State management** - React 18 concurrent features
-6. **Performance optimization** - Virtualization for large conversations
-
-### **🗂️ FILES TO MODIFY**
-
-#### **Backend Files (Phase 5.1)**
+### **Test Pyramid for Phase 5.2**
 
 ```
-api/agents/universal.py
-├── execute_agent_streaming() - Implement proper Pydantic AI streaming
-├── execute_agent_with_context() - Add tool budgets and stopping criteria
-├── _extract_entities_from_messages() - Optimize for streaming
-└── Add new: ToolBudget, ConvergenceDetector, StreamingAgent classes
+┌─────────────────────────────────────┐
+│ E2E Tests (Task #25)                │  ← Playwright full regression
+├─────────────────────────────────────┤
+│ Integration Tests (Task #22)        │  ← SSE + Frontend integration
+├─────────────────────────────────────┤
+│ Component Tests (Tasks #16, #19)    │  ← Jest + React Testing Library
+├─────────────────────────────────────┤
+│ Smoke Tests (Task #14)              │  ← Cypress baseline capture
+└─────────────────────────────────────┘
 ```
 
-#### **Frontend Files (Phase 5.2)**
+### **Critical Test Requirements**
 
+- **Task #14**: Cypress smoke test to capture current behavior BEFORE changes
+- **Task #16**: Component tests for streaming event rendering
+- **Task #25**: Full regression suite to ensure no functionality lost
+
+---
+
+## 📋 **TODO LIST FOR NEXT CONVERSATION**
+
+**PRIORITY ORDER (Execute in sequence):**
+
+### **🔥 Phase 5.2-A: Infrastructure Prep (Tasks #13-14)**
+
+- [ ] **Task #13**: Install shadcn/ui, verify React 19, configure Tailwind
+- [ ] **Task #14**: Create Cypress baseline smoke tests for current chat behavior
+- [ ] **Validation**: `npm run dev` builds successfully, Cypress runs pass
+
+### **🚀 Phase 5.2-B: Core Streaming Components (Tasks #15-17)**
+
+- [ ] **Task #15**: Implement `streaming-chat.tsx` with shadcn/ui primitives
+- [ ] **Task #16**: Add component tests for stream event rendering
+- [ ] **Task #17**: Create `tool-call-indicator.tsx` with progress visualization
+- [ ] **Validation**: Storybook renders, Jest tests pass
+
+### **📊 Phase 5.2-C: Component Migration (Tasks #18-19)**
+
+- [ ] **Task #18**: Migrate `agent-panel.tsx` to shadcn/ui layout
+- [ ] **Task #19**: Modernize `message-group.tsx` with React 19 patterns
+- [ ] **Validation**: No regression in Cypress smoke tests
+
+### **🎨 Phase 5.2-D: Advanced Features (Tasks #20-21)**
+
+- [ ] **Task #20**: Implement `entity-graph.tsx` visualization
+- [ ] **Task #21**: Integrate graph toggle into `agent-content.tsx`
+- [ ] **Validation**: Graph renders without layout shift
+
+### **🔌 Phase 5.2-E: Integration & Polish (Tasks #22-25)**
+
+- [ ] **Task #22**: Wire backend SSE to frontend via Vercel AI SDK
+- [ ] **Task #23**: Lighthouse performance audit (≥90 scores)
+- [ ] **Task #24**: Update documentation and README
+- [ ] **Task #25**: Full Playwright regression suite
+- [ ] **Validation**: Live streaming works, all tests pass
+
+---
+
+## 🔍 **DEBUGGING & VALIDATION COMMANDS**
+
+### **Quick Health Checks**
+
+```bash
+# Verify current setup
+npm run dev                    # Should build successfully
+npm run test                   # Current tests should pass
+npm run build                  # Production build check
+
+# After shadcn/ui installation (Task #13)
+npx shadcn@latest add button   # Test shadcn/ui installation
+npm run dev                    # Verify no build errors
+
+# After Cypress setup (Task #14)
+npx cypress run                # Baseline smoke tests
+
+# After streaming integration (Task #22)
+curl -N http://localhost:3000/api/v1/agents/execute/stream  # Test SSE endpoint
 ```
-components/agent-panel/
-├── agent-panel.tsx - Modernize with shadcn/ui
-├── agent-content.tsx - Add streaming visualization
-├── message-group.tsx - Real-time message updates
-└── Add new: streaming-chat.tsx, tool-call-indicator.tsx
 
-app/chat/
-├── [id]/page.tsx - Integrate streaming components
-└── Update: chat layout for real-time updates
+### **Key Files to Monitor**
 
-components/ui/
-├── Add: streaming-progress.tsx
-├── Add: tool-call-card.tsx
-└── Add: entity-graph.tsx
-```
+- `package.json` - Dependencies and scripts
+- `tailwind.config.js` - Tailwind + shadcn/ui integration
+- `components/ui/` - Generated shadcn/ui components
+- `components/agent-panel/` - Core components being modernized
+- `app/chat/[id]/page.tsx` - Main chat interface
 
-### **📋 TODO LIST FOR NEXT CONVERSATION**
+---
 
-**Phase 5.1 TODOs (Backend Streaming):**
+## 🎯 **SUCCESS CRITERIA**
 
-- [ ] Research latest Pydantic AI `agent.run_stream()` documentation and patterns
-- [ ] Research `StreamedRunResult` and event handling (`ToolCallEvent`, `ToolResultEvent`, etc.)
-- [ ] Implement `ToolBudget` class with max_tool_calls and convergence detection
-- [ ] Rewrite `execute_agent_streaming()` using proper Pydantic AI streaming patterns
-- [ ] Add intelligent stopping criteria to prevent exploration loops
-- [ ] Implement real-time tool call and result streaming
-- [ ] Add error handling and graceful degradation for streaming failures
-- [ ] Test streaming performance with large conversation histories
+### **Phase 5.2 Completion Metrics**
 
-**Phase 5.2 TODOs (Frontend Modernization):**
+- ✅ **Frontend Modernized**: shadcn/ui + React 19 patterns implemented
+- ✅ **Real-time Streaming**: Live tool call and result visualization
+- ✅ **Component Simplification**: 50%+ reduction in component complexity
+- ✅ **Performance**: Lighthouse scores ≥90 (performance, accessibility)
+- ✅ **Zero Regressions**: All existing functionality preserved
+- ✅ **Visual Polish**: Tool call indicators and entity graph working
 
-- [ ] Research latest shadcn/ui components suitable for chat interfaces
-- [ ] Research streaming UI patterns and real-time data visualization
-- [ ] Modernize `agent-panel.tsx` with shadcn/ui components
-- [ ] Implement `streaming-chat.tsx` component for real-time updates
-- [ ] Add `tool-call-indicator.tsx` for tool execution progress
-- [ ] Create `entity-graph.tsx` for relationship visualization
-- [ ] Optimize state management using React 18 concurrent features
-- [ ] Implement virtualization for large conversation histories
-- [ ] Add loading states and progress indicators throughout UI
-- [ ] Test frontend performance with real-time streaming data
+### **Quality Gates**
 
-### **🎯 SUCCESS CRITERIA**
-
-**Phase 5.1 Success Metrics:**
-
-- ✅ Agent exploration loops eliminated with intelligent stopping
-- ✅ Real-time streaming of tool calls and results implemented
-- ✅ Tool budgets prevent infinite exploration
-- ✅ Proper Pydantic AI streaming patterns followed
-- ✅ Error handling gracefully manages streaming failures
-
-**Phase 5.2 Success Metrics:**
-
-- ✅ Frontend modernized with latest shadcn/ui components
-- ✅ Real-time streaming visualization working
-- ✅ Component complexity reduced by 50%+
-- ✅ Tool call progress indicators functional
-- ✅ Entity relationship visualization implemented
-
-### **⚠️ CRITICAL CONSTRAINTS**
-
-1. **Maintain 81% Code Reduction** - Don't add unnecessary complexity
-2. **Preserve MCP Integration** - Keep working LLM-MCP interface intact
-3. **Type Safety** - Maintain full Pydantic validation throughout
-4. **Performance** - Streaming should not impact response times
-5. **User Experience** - Real-time updates should feel smooth and responsive
-
-### **🔗 ARCHITECTURAL CONTEXT**
-
-This phase builds directly on:
-
-- ✅ **Phase 1-3:** Universal Agent Factory (81% code reduction)
-- ✅ **Phase 4:** Conversation History & Entity Discovery (just completed)
-- 🎯 **Phase 5:** Streaming Optimization & Frontend Modernization (current)
-- 🔮 **Phase 6:** Production Optimization & Monitoring (future)
-
-The foundation is solid - now we optimize the experience and eliminate the exploration loop issues while modernizing the frontend for better user experience.
+1. **Task #14**: Cypress baseline captures current behavior
+2. **Task #16**: Component tests validate streaming event rendering
+3. **Task #19**: React 19 patterns replace deprecated state logic
+4. **Task #22**: Live streaming demonstrates real-time updates
+5. **Task #25**: Full regression suite confirms zero functionality loss
 
 ---
 
 ## 🚀 **GET STARTED**
 
-1. **Begin with research** - Understand latest Pydantic AI streaming patterns
-2. **Implement backend streaming** - Fix exploration loops with intelligent stopping
-3. **Modernize frontend** - Replace complex components with shadcn/ui
-4. **Test integration** - Ensure streaming works end-to-end
-5. **Optimize performance** - Handle large conversations gracefully
+**IMMEDIATE FIRST ACTION:**
 
-**Remember:** The goal is to complete the backend simplification journey while creating a modern, responsive frontend that showcases the power of the simplified architecture.
+```bash
+# Start with Task #13 - shadcn/ui installation
+npx shadcn@latest init
+```
+
+**Then follow the TODO list in priority order, testing at each validation checkpoint.**
+
+Reference the **Backend-Simplification-Plan.md** for complete context and task details. You have all the backend streaming infrastructure ready - now let's build the modern frontend to showcase it!
+
+---
+
+**🎯 REMEMBER: We've achieved 81% code reduction and eliminated agent exploration loops. Phase 5.2 is about creating a beautiful, modern frontend that showcases our powerful streaming backend. Stay focused on the task matrix and maintain our architectural achievements!**
