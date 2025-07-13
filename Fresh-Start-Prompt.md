@@ -1,355 +1,290 @@
-# 🎯 Fresh Start: Phase 4 Final - FastMCP Version Compatibility Resolution
+# 🚀 Fresh Start: Phase 4 Conversation History & Entity Discovery Fix
 
-## 📋 **TLDR - Next Page Priority Actions**
+## 📋 **TLDR - Next Page**
 
-**CURRENT STATUS**: Phase 4 MCP Integration - **CRITICAL VERSION COMPATIBILITY ISSUE DISCOVERED**  
-**PRIORITY LEVEL**: 🔥 **URGENT** - FastMCP 2.10.4 Client → 2.9 Server Version Mismatch  
-**ESTIMATED TIME**: 1-2 hours  
-**SUCCESS CRITERIA**: Successful MCP client connection with version-matched FastMCP installation
+**Current Status:** Phase 4 at 95% completion - Universal Agent Factory operational, MCP integration working, but conversation history and entity discovery workflow needs proper implementation
 
-### **🎯 IMMEDIATE ACTIONS REQUIRED**
+**Critical Issues to Resolve:**
 
-1. **DOWNGRADE FASTMCP CLIENT VERSION** (Highest Priority)
+1. **Conversation History Management** - Not using proper Pydantic AI message history patterns
+2. **Entity Discovery Protocol** - Agents requesting UUIDs that don't exist because conversation context isn't maintained properly
+3. **Tool Call Interception Misconception** - Current approach is not how Pydantic AI works
 
-   - Change `pyproject.toml`: `fastmcp>=2.10.4` → `fastmcp==2.9.2`
-   - Test connection with version-matched client
-   - Verify all MCP tools work correctly
-
-2. **VALIDATE MCP INTEGRATION**
-
-   - Test `UniversalAgentFactory` with downgraded FastMCP
-   - Ensure all 5 agent types can access MCP tools
-   - Complete Phase 4 documentation
-
-3. **IMPLEMENT GRACEFUL FALLBACK**
-   - Maintain backward compatibility
-   - Add version checking and error handling
-   - Document version requirements
+**Next Logical Stage:** Phase 4 Completion - Implement proper Pydantic AI conversation history and entity discovery workflow
 
 ---
 
-## 🏗️ **PROJECT CONTEXT & ARCHITECTURE**
+## 🎯 **MISSION BRIEFING**
 
-### **Backend Simplification Plan Status**
+You are continuing the **Backend Simplification Plan** (see attached `Backend-Simplification-Plan.md`) at **Phase 4: Advanced MCP Integration**. The Universal Agent Factory has been successfully implemented with **81% code reduction** and all 5 agent types are operational, but the conversation history and entity discovery workflow needs to be implemented using proper Pydantic AI patterns.
 
-Referencing `Backend-Simplification-Plan.md` - we have achieved **95% completion** of Phase 4:
+### **🔴 CRITICAL PROBLEMS TO SOLVE**
+
+#### **Problem 1: Incorrect Conversation History Implementation**
+
+**File:** `api/agents/universal.py` (lines 150-250)
+**Issue:** The current `ConversationContext` and tool call interception approach is not how Pydantic AI handles conversation history. Pydantic AI uses `message_history` parameter with `ModelMessage` objects.
+
+#### **Problem 2: Entity Discovery Protocol Failing**
+
+**Issue:** Agents are requesting UUIDs that don't exist because they're not maintaining proper conversation context with discovered entities across multiple `agent.run()` calls.
+
+**MCP Server Logs Show:**
 
 ```
-✅ COMPLETED PHASES:
-├── Phase 1-2: Universal Agent Factory (90% code reduction)
-├── Phase 2-3: Router Consolidation (75% total reduction)
-└── Phase 4: MCP Integration (95% complete)
-
-🚨 CRITICAL BLOCKER: Phase 4 Final - FastMCP Version Compatibility
+ERROR: Entity ID '123e4567-e89b-12d3-a456-426614174000' not found in repository 'woolly'
 ```
 
-### **Current Architecture State**
+#### **Problem 3: Tool Call Interception Misconception**
 
-```mermaid
-graph TB
-    subgraph "✅ WORKING: Universal Agent System"
-        FACTORY[UniversalAgentFactory<br/>270 lines - 81% reduction]
-        AGENTS[5 Agent Types<br/>All Operational]
-        ROUTERS[Universal Router<br/>452 lines]
+**Issue:** Pydantic AI doesn't have built-in tool call interception. Tool calls are handled internally by the agent. The current approach of trying to intercept `agent.run()` is incorrect.
 
-        FACTORY --> AGENTS
-        ROUTERS --> FACTORY
-    end
+### **🎯 WHAT YOU NEED TO ACCOMPLISH**
 
-    subgraph "🚨 BROKEN: MCP Integration"
-        CLIENT[FastMCP Client 2.10.4<br/>❌ Version Mismatch]
-        SERVER[MCP Server 2.9<br/>✅ Working via Cursor]
-        TOOLS[MCP Tools<br/>Available but not accessible]
+#### **Phase 4.1: Implement Proper Conversation History (Priority 1)**
 
-        CLIENT -.->|Version Incompatible| SERVER
-        SERVER --> TOOLS
-    end
+**Target File:** `api/agents/universal.py`
+**Lines to Focus:** 150-300 (conversation context and agent execution)
 
-    FACTORY -.->|Needs Version Match| CLIENT
-
-    style CLIENT fill:#ff9999
-    style FACTORY fill:#99ff99
-```
-
----
-
-## 🔍 **TECHNICAL DIAGNOSIS**
-
-### **Root Cause Analysis**
-
-**CONFIRMED VERSION MISMATCH:**
-
-1. **MCP Server**: FastMCP 2.9 (confirmed via health check)
-2. **Client**: FastMCP 2.10.4 (from `pyproject.toml`)
-3. **Connection Error**: `"Session terminated"` - version incompatibility
-4. **Transport Issues**: Proxy patterns fail due to protocol differences
-
-### **Evidence from Investigation**
-
-```bash
-# Server Health Check Response
-FastMCP version: 2.9
-Transport: SSE (Server-Sent Events)
-Status: ✅ Running on localhost:8009
-
-# Client Configuration
-fastmcp>=2.10.4  # In pyproject.toml
-Error: "Client failed to connect: Session terminated"
-```
-
-### **FastMCP Documentation Confirms**
-
-> **"Breaking changes will only occur on minor version changes (e.g., 2.3.x to 2.4.0)"** > **"For users concerned about stability in production environments, we recommend pinning FastMCP to a specific version"**
-
----
-
-## 🎯 **SOLUTION STRATEGY**
-
-### **Phase 4 Final: Version Compatibility Resolution**
-
-#### **Step 1: FastMCP Client Downgrade**
-
-**File to Modify**: `pyproject.toml`
-
-```toml
-# BEFORE (Current - Broken)
-dependencies = [
-    "fastapi>=0.116.1",
-    "fastmcp>=2.10.4",  # ❌ Version mismatch
-    "psycopg2-binary>=2.9.10",
-    "pydantic-ai>=0.4.2",
-    "sqlalchemy>=2.0.41",
-]
-
-# AFTER (Fixed - Version Matched)
-dependencies = [
-    "fastapi>=0.116.1",
-    "fastmcp==2.9.2",  # ✅ Pin to server version
-    "psycopg2-binary>=2.9.10",
-    "pydantic-ai>=0.4.2",
-    "sqlalchemy>=2.0.41",
-]
-```
-
-**Commands to Execute**:
-
-```bash
-# 1. Update pyproject.toml (above change)
-# 2. Reinstall with pinned version
-uv sync --reinstall
-# 3. Test connection
-uv run python -c "from api.agents.universal import get_universal_factory; import asyncio; print(asyncio.run(get_universal_factory().test_mcp_connection()))"
-```
-
-#### **Step 2: Simplify MCP Client Configuration**
-
-**File to Modify**: `api/agents/universal.py`
+**Current Broken Pattern:**
 
 ```python
-# CURRENT (Complex Proxy - Remove)
-def __init__(self):
-    try:
-        backend_client = Client("http://localhost:8009")
-        proxy_server = FastMCP.as_proxy(backend_client, name="...")
-        self.mcp_client = Client(proxy_server)
-    except Exception as e:
-        # Complex error handling
+# ❌ WRONG - This is not how Pydantic AI works
+class ConversationContext:
+    conversation_history: List[Any] = Field(default_factory=list)
 
-# SIMPLIFIED (Direct Connection - Version Matched)
-def __init__(self):
-    try:
-        # Direct connection with version-matched client
-        self.mcp_client = Client("http://localhost:8009")
-        logger.info("FastMCP 2.9 client initialized successfully")
-    except Exception as e:
-        logger.error(f"MCP client initialization failed: {e}")
-        self.mcp_client = None
-
-    self.mcp_available = self.mcp_client is not None
+def _add_tool_call_interceptor(self, agent: Agent) -> None:
+    # This approach is fundamentally incorrect
+    original_run = agent.run
+    # ... intercepting agent.run is not the right pattern
 ```
 
-#### **Step 3: Update Test and Validation**
-
-**File to Modify**: `api/agents/universal.py` (test_mcp_connection method)
+**Correct Pydantic AI Pattern:**
 
 ```python
-async def test_mcp_connection(self) -> Dict[str, Any]:
-    """Test FastMCP connection with version-matched client (2.9)"""
-    if not self.mcp_client:
-        return {
-            "connection_test": "failed",
-            "error": "MCP client not initialized",
-            "version_status": "FastMCP 2.9 required"
-        }
+# ✅ CORRECT - Use message_history parameter
+from pydantic_ai.messages import ModelMessage
 
-    try:
-        async with self.mcp_client as mcp:
-            await mcp.ping()
-            tools = await mcp.list_tools()
-            resources = await mcp.list_resources()
+class ConversationContext(BaseModel):
+    repository_name: str
+    message_history: List[ModelMessage] = Field(default_factory=list)
+    discovered_entities: Dict[str, Any] = Field(default_factory=dict)
 
-            return {
-                "connection_test": "success",
-                "version_status": "FastMCP 2.9 - Version Matched",
-                "tools_available": len(tools),
-                "resources_available": len(resources),
-                "tool_names": [tool.name for tool in tools],
-            }
-    except Exception as e:
-        return {
-            "connection_test": "failed",
-            "error": str(e),
-            "version_status": "FastMCP 2.9 - Connection Failed"
-        }
+async def execute_agent_with_context(self, agent_type: AgentType, repository_name: str, user_query: str):
+    context = self.get_or_create_conversation_context(repository_name)
+
+    # Use message_history parameter - this is the correct way
+    async with agent.run_mcp_servers():
+        result = await agent.run(
+            user_query,
+            deps=dependencies,
+            message_history=context.message_history
+        )
+
+    # Store the new messages for next interaction
+    context.message_history.extend(result.new_messages())
+    return result
 ```
 
----
+#### **Phase 4.2: Entity Discovery via System Prompts (Priority 2)**
 
-## 📝 **TODO LIST FOR NEXT CONVERSATION**
+**Target File:** `api/agents/universal.py`
+**Lines to Focus:** 200-250 (system prompt enhancement)
 
-### **Phase 4 Final Completion Tasks**
-
-```markdown
-**PRIORITY 1: Version Compatibility Resolution**
-
-- [ ] Update pyproject.toml: fastmcp>=2.10.4 → fastmcp==2.9.2
-- [ ] Run uv sync --reinstall to apply version change
-- [ ] Test basic MCP connection with version-matched client
-
-**PRIORITY 2: Simplify MCP Client Configuration**
-
-- [ ] Remove complex proxy pattern from UniversalAgentFactory.**init**
-- [ ] Implement direct Client("http://localhost:8009") connection
-- [ ] Update error handling for version-matched client
-
-**PRIORITY 3: Validation and Testing**
-
-- [ ] Update test_mcp_connection method for 2.9 compatibility
-- [ ] Test all 5 agent types with MCP tools
-- [ ] Verify graceful fallback when MCP unavailable
-
-**PRIORITY 4: Documentation and Cleanup**
-
-- [ ] Update Backend-Simplification-Plan.md with Phase 4 completion
-- [ ] Document version requirements and compatibility notes
-- [ ] Clean up any remaining proxy-related code
-```
-
-### **Success Criteria Checklist**
-
-```markdown
-- [ ] FastMCP client version matches server (2.9.2)
-- [ ] MCP connection test returns "success" status
-- [ ] All MCP tools accessible from Universal Agent Factory
-- [ ] All 5 agent types can execute MCP tool calls
-- [ ] Graceful fallback when MCP server unavailable
-- [ ] Phase 4 documented as 100% complete
-```
-
----
-
-## 🔧 **IMPLEMENTATION DETAILS**
-
-### **Key Files to Modify**
-
-1. **`pyproject.toml`** (Lines 8)
-
-   - Change: `fastmcp>=2.10.4` → `fastmcp==2.9.2`
-
-2. **`api/agents/universal.py`** (Lines 70-95, 306-418)
-
-   - Simplify `__init__` method - remove proxy pattern
-   - Update `test_mcp_connection` method for 2.9 compatibility
-   - Add version checking and error handling
-
-3. **`Backend-Simplification-Plan.md`** (End of file)
-   - Add Phase 4 completion status
-   - Document version compatibility requirements
-
-### **Expected Outcomes**
+**Current Issue:**
 
 ```python
-# BEFORE (Broken)
-FastMCP proxy connection test failed: Client failed to connect: Session terminated
-
-# AFTER (Fixed)
-{
-    "connection_test": "success",
-    "version_status": "FastMCP 2.9 - Version Matched",
-    "tools_available": 15,
-    "resources_available": 8,
-    "tool_names": ["search_code", "find_entities", "get_entity_relationships", ...]
-}
+# ❌ WRONG - Trying to intercept tool calls
+def _update_context_from_tool_result(self, context, tool_name, tool_input, result):
+    # This method shouldn't exist - tool calls are internal to Pydantic AI
 ```
 
----
+**Correct Approach:**
 
-## 🚀 **NEXT STEPS EXECUTION PLAN**
+```python
+# ✅ CORRECT - Use system prompts and dependencies to guide entity discovery
+def create_agent_with_context(self, agent_type: AgentType, repository_name: str) -> Agent:
+    context = self.get_or_create_conversation_context(repository_name)
 
-### **Immediate Actions (Next 30 minutes)**
+    # Build system prompt with discovered entities
+    base_prompt = self.specializations[agent_type]
+    entity_context = self._build_entity_context(context.discovered_entities)
 
-1. **Version Downgrade**: Update `pyproject.toml` and reinstall
-2. **Simplify Configuration**: Remove proxy pattern, use direct connection
-3. **Test Connection**: Verify MCP client can connect to server
+    enhanced_system_prompt = f"""
+{base_prompt}
 
-### **Validation Phase (Next 30 minutes)**
+## Entity Discovery Protocol
 
-1. **Test All Agent Types**: Ensure MCP tools work across all 5 agents
-2. **Error Handling**: Verify graceful fallback mechanisms
-3. **Documentation**: Update completion status
+{entity_context}
 
-### **Completion Phase (Next 30 minutes)**
+IMPORTANT: When working with repositories, follow this sequence:
+1. First, use `find_entities` to discover available entities and their IDs
+2. Store discovered entity IDs in your working memory
+3. Use valid entity IDs for subsequent `get_entity_relationships` calls
+4. If you get a 404 error, use `find_entities` again to refresh your entity knowledge
 
-1. **Final Testing**: End-to-end agent execution with MCP tools
-2. **Documentation Update**: Mark Phase 4 as 100% complete
-3. **Cleanup**: Remove any remaining proxy-related code
+## Previously Discovered Entities for {repository_name}:
+{self._format_discovered_entities(context.discovered_entities)}
+"""
 
----
-
-## 🎯 **SUCCESS METRICS**
-
-- **Connection Success Rate**: 100% (from current 0%)
-- **MCP Tool Accessibility**: All tools accessible from all agent types
-- **Version Compatibility**: Client and server versions matched
-- **Phase 4 Completion**: 100% (from current 95%)
-- **Code Simplification**: Remove complex proxy patterns
-
----
-
-## 🔍 **TROUBLESHOOTING GUIDE**
-
-### **If Version Downgrade Fails**
-
-1. Clear uv cache: `uv cache clean`
-2. Force reinstall: `uv sync --reinstall --force`
-3. Check version: `uv run python -c "import fastmcp; print(fastmcp.__version__)"`
-
-### **If Connection Still Fails**
-
-1. Check server status: `curl -v http://localhost:8009/sse/`
-2. Verify transport: Ensure server uses SSE transport
-3. Check logs: Look for specific error messages
-
-### **If MCP Tools Don't Work**
-
-1. Test individual tools via Cursor interface
-2. Check tool signatures and parameters
-3. Verify agent dependencies and context
-
----
-
-## 📋 **FINAL VALIDATION CHECKLIST**
-
-```markdown
-✅ Phase 4 Final Completion Criteria:
-
-- [ ] FastMCP versions matched (client: 2.9.2, server: 2.9)
-- [ ] MCP connection test passes
-- [ ] All 5 agent types can access MCP tools
-- [ ] Universal Agent Factory fully operational
-- [ ] Graceful fallback implemented
-- [ ] Documentation updated to 100% complete
-- [ ] No remaining proxy or version compatibility code
+    return Agent(
+        model="openai:gpt-4o-mini",
+        deps_type=UniversalDependencies,
+        output_type=UniversalResult,
+        system_prompt=enhanced_system_prompt,
+        mcp_servers=[self.mcp_server] if self.mcp_available else []
+    )
 ```
 
-**🎯 GOAL**: Complete Phase 4 with 100% MCP integration success, achieving full backend simplification as outlined in the Backend-Simplification-Plan.md
+### **🔧 TECHNICAL ARCHITECTURE CONTEXT**
+
+#### **Current Universal Agent Factory Architecture:**
+
+```python
+class UniversalAgentFactory:
+    def __init__(self):
+        self.mcp_server = MCPServerStreamableHTTP(url="http://localhost:8009/sse/")
+        # ✅ This is working correctly
+
+    def create_agent(self, agent_type: AgentType) -> Agent:
+        return Agent(
+            model="openai:gpt-4o-mini",
+            deps_type=UniversalDependencies,
+            result_type=UniversalResult,
+            system_prompt=self.specializations[agent_type],
+            mcp_servers=[self.mcp_server]  # ✅ Native integration working
+        )
+```
+
+#### **Correct Conversation Context System:**
+
+```python
+class ConversationContext(BaseModel):
+    repository_name: str
+    message_history: List[ModelMessage] = Field(default_factory=list)
+    discovered_entities: Dict[str, Any] = Field(default_factory=dict)
+    last_entity_discovery: Optional[datetime] = None
+
+    class Config:
+        arbitrary_types_allowed = True
+```
+
+### **📚 REFERENCE DOCUMENTATION**
+
+#### **Pydantic AI Best Practices (from documentation research):**
+
+1. **Proper Message History Pattern:**
+
+```python
+# From Pydantic AI docs - correct conversation history
+result1 = agent.run_sync('Tell me a joke.')
+result2 = agent.run_sync('Explain?', message_history=result1.new_messages())
+# result2.all_messages() now contains the full conversation
+```
+
+2. **Message Serialization:**
+
+```python
+# From Pydantic AI docs - proper message storage
+from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic_core import to_jsonable_python
+
+# Store messages
+history = result.all_messages()
+as_python_objects = to_jsonable_python(history)
+
+# Restore messages
+restored_history = ModelMessagesTypeAdapter.validate_python(as_python_objects)
+```
+
+3. **System Prompt Enhancement:**
+
+```python
+# From Pydantic AI docs - dynamic system prompts
+@agent.system_prompt(dynamic=True)
+def system_prompt(ctx: RunContext[Dependencies]) -> str:
+    return f"Base prompt with context: {ctx.deps.context}"
+```
+
+### **🎯 SPECIFIC TODOS FOR NEXT CONVERSATION**
+
+#### **Todo 1: Remove Tool Call Interception System**
+
+- [ ] Remove `_add_tool_call_interceptor` method from `api/agents/universal.py`
+- [ ] Remove `_update_context_from_tool_result` method
+- [ ] Remove all tool call interception logic - this is not how Pydantic AI works
+
+#### **Todo 2: Implement Proper Conversation History**
+
+- [ ] Replace `ConversationContext.conversation_history: List[Any]` with `message_history: List[ModelMessage]`
+- [ ] Update `execute_agent_with_context` to use `message_history` parameter
+- [ ] Implement proper message storage using `result.new_messages()`
+- [ ] Add message serialization for persistence using `ModelMessagesTypeAdapter`
+
+#### **Todo 3: Entity Discovery via System Prompts**
+
+- [ ] Enhance system prompts to include discovered entity context
+- [ ] Implement `_build_entity_context` method to inject entity knowledge
+- [ ] Add entity discovery instructions to system prompts
+- [ ] Store discovered entities in `ConversationContext.discovered_entities`
+
+#### **Todo 4: Test Proper Conversation Flow**
+
+- [ ] Create test that demonstrates proper message history flow
+- [ ] Verify agents maintain context across multiple `agent.run()` calls
+- [ ] Test entity discovery through system prompt guidance
+- [ ] Confirm no more 404 errors in MCP server logs
+
+### **🔍 FILES TO EXAMINE AND MODIFY**
+
+#### **Primary Target File:**
+
+- `api/agents/universal.py` (lines 150-300) - Core conversation history and entity discovery logic
+
+#### **Supporting Files:**
+
+- `Backend-Simplification-Plan.md` - Overall project context and Phase 4 goals
+- `FastMCP-Client-Connection-Guide.md` - MCP integration patterns and best practices
+- `test_mcp_agent.py` - Test file for validating fixes
+
+### **🎯 EXPECTED OUTCOMES**
+
+After completing these todos, you should achieve:
+
+1. **Proper Conversation History** - Using Pydantic AI's `message_history` parameter correctly
+2. **Entity Discovery via System Prompts** - Agents guided to discover entities through enhanced prompts
+3. **No More 404 Errors** - MCP server logs show successful entity lookups
+4. **100% Phase 4 Completion** - Universal Agent Factory with full MCP integration
+
+### **🚨 CRITICAL SUCCESS CRITERIA**
+
+- [ ] Remove all tool call interception code (it's not how Pydantic AI works)
+- [ ] Implement proper `message_history` parameter usage
+- [ ] Entity discovery guided through system prompts and context injection
+- [ ] No more stale UUID errors in MCP server logs
+- [ ] All 5 agent types work with proper conversation history
+
+### **📖 ARCHITECTURAL PRINCIPLES TO FOLLOW**
+
+1. **Native Pydantic AI Patterns** - Use `message_history` parameter, not custom interception
+2. **System Prompt Enhancement** - Guide entity discovery through enhanced prompts
+3. **Type Safety Throughout** - Use `ModelMessage` for conversation history
+4. **Context via Dependencies** - Pass entity knowledge through dependencies and system prompts
+5. **Graceful Fallback** - System works even when MCP server is unavailable
+
+### **⚠️ CRITICAL MISCONCEPTIONS TO CORRECT**
+
+1. **Tool Call Interception Doesn't Exist** - Pydantic AI handles tool calls internally
+2. **Don't Intercept agent.run()** - Use `message_history` parameter instead
+3. **System Prompts Are Key** - Entity discovery should be guided through prompts, not interception
+4. **Use ModelMessage** - Not generic message parts or custom message types
+
+---
+
+## 🎯 **START HERE**
+
+Begin by examining the current tool call interception implementation in `api/agents/universal.py` around lines 200-250. **This entire approach needs to be removed** because it's not how Pydantic AI works.
+
+Instead, focus on implementing proper conversation history using the `message_history` parameter and enhancing system prompts to guide entity discovery.
+
+**Remember:** This is Phase 4 completion - the foundation is solid, we just need to implement proper Pydantic AI conversation patterns for 100% MCP integration success.

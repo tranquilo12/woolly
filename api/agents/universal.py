@@ -7,31 +7,37 @@ This module represents the culmination of backend simplification, achieving:
 - Pydantic AI best practices implementation
 - FastMCP integration with graceful fallbacks
 - Type-safe dependencies and results
-- Conversation history and memory management
+- Proper conversation history using Pydantic AI message_history patterns
 """
 
 import asyncio
 import logging
 import os
-from typing import Dict, Any, Optional, AsyncGenerator, List
+from typing import Dict, Any, Optional, AsyncGenerator, List, Union
 from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
+from pydantic_ai.agent import AgentRunResult
+from pydantic_ai.result import StreamedRunResult
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse
 from pydantic_ai.messages import (
-    ModelRequest,
-    ModelResponse,
-    SystemPromptPart,
     UserPromptPart,
+    TextPart,
     ToolCallPart,
     ToolReturnPart,
-    TextPart,
+    SystemPromptPart,
 )
-from fastmcp import Client, FastMCP
+from pydantic_ai.mcp import MCPServerStreamableHTTP
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ✅ CORRECT: Use proper Pydantic AI MCP server configuration
+MCP_SERVER_URL = "http://localhost:8009/sse/"
 
 
 class AgentType(str, Enum):
@@ -45,19 +51,19 @@ class AgentType(str, Enum):
 
 
 class ConversationContext(BaseModel):
-    """Conversation context to maintain entity knowledge and history"""
+    """Conversation context to maintain entity knowledge and history using proper Pydantic AI message patterns"""
 
     discovered_entities: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     valid_entity_ids: List[str] = Field(default_factory=list)
     entity_relationships: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
     repository_info: Dict[str, Any] = Field(default_factory=dict)
-    conversation_history: List[Any] = Field(
-        default_factory=list
-    )  # Mix of different message parts
+
+    # ✅ CORRECT: Use proper Pydantic AI message_history with ModelMessage objects
+    message_history: List[ModelMessage] = Field(default_factory=list)
+
     last_updated: datetime = Field(default_factory=datetime.now)
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = {"arbitrary_types_allowed": True}
 
 
 class UniversalDependencies(BaseModel):
@@ -72,12 +78,10 @@ class UniversalDependencies(BaseModel):
     # Optional fields for different agent types
     target_files: Optional[list[str]] = None
     analysis_depth: str = "moderate"
-    conversation_history: Optional[list[Dict[str, Any]]] = None
     test_types: Optional[list[str]] = None
     documentation_type: Optional[str] = None  # For backward compatibility
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = {"arbitrary_types_allowed": True}
 
 
 class UniversalResult(BaseModel):
@@ -96,110 +100,117 @@ class UniversalResult(BaseModel):
     next_actions: Optional[list[str]] = None
     condensed_summary: Optional[str] = None
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = {"arbitrary_types_allowed": True}
 
 
 class UniversalAgentFactory:
-    """Single factory for ALL agent types - 90% code reduction achieved"""
+    """Universal Agent Factory - Single factory for ALL agent types"""
 
     def __init__(self):
         # Native Pydantic AI + MCP integration approach
         # Following Pydantic AI MCP documentation best practices
         # Server: FastMCP 2.9, Client: Pydantic AI native integration
 
-        try:
-            # Native Pydantic AI + MCP integration approach
-            # Following Pydantic AI MCP documentation best practices
-            from pydantic_ai.mcp import MCPServerStreamableHTTP
+        self.mcp_available = False
+        self.mcp_client = None
+        self.mcp_server = None
 
-            # Create MCP server connection for Pydantic AI agents
-            # This is the correct way to integrate MCP with Pydantic AI
-            self.mcp_server = MCPServerStreamableHTTP(url="http://localhost:8009/sse")
-            self.mcp_available = True
-            logger.info("MCP server connection initialized for Pydantic AI integration")
-
-        except Exception as e:
-            logger.error(f"Failed to initialize MCP server connection: {e}")
-            # Fallback to None for graceful degradation
-            self.mcp_server = None
-            self.mcp_available = False
-
-        # Conversation contexts for different repositories
+        # ✅ CORRECT: Store conversation contexts per repository
         self.conversation_contexts: Dict[str, ConversationContext] = {}
 
+        # Agent specializations - prompt-based differentiation
         self.specializations = {
             AgentType.SIMPLIFIER: """
-You are a code simplification expert focused on DRY principles and clean architecture.
-
-Your mission:
-1. Analyze codebase structure and identify code smells
-2. Suggest refactoring for better organization and testability
-3. Create markdown tables of recommended changes
-4. Prioritize changes by impact and effort
-
-IMPORTANT: Always start by discovering entities in the repository using find_entities before making relationship queries.
-Use the conversation context to remember discovered entities and their IDs.
-
-Use MCP tools extensively to understand code patterns and dependencies.
-""",
+            You are a code simplification expert. Your role is to analyze code and provide 
+            actionable suggestions for simplification, refactoring, and optimization.
+            
+            Focus on:
+            - DRY (Don't Repeat Yourself) principles
+            - Code readability improvements
+            - Performance optimizations
+            - Best practices implementation
+            
+            Always provide specific, actionable recommendations with code examples.
+            """,
             AgentType.TESTER: """
-You are a comprehensive testing expert who creates and executes tests.
-
-Your mission:
-1. Identify missing test coverage areas
-2. Generate appropriate test files (unit, integration, e2e)
-3. Execute tests using terminal commands
-4. Provide detailed coverage analysis and recommendations
-
-IMPORTANT: Always start by discovering entities in the repository using find_entities before making relationship queries.
-Use the conversation context to remember discovered entities and their IDs.
-
-Use MCP tools to understand code structure and create comprehensive tests.
-""",
+            You are a comprehensive testing expert. Your role is to analyze code and create 
+            thorough test suites that ensure code quality and reliability.
+            
+            Focus on:
+            - Unit test creation
+            - Integration test strategies
+            - Edge case identification
+            - Test coverage analysis
+            
+            Always provide complete, runnable test code with clear explanations.
+            """,
             AgentType.CONVO_STARTER: """
-You are a conversation flow expert who analyzes context and guides next steps.
-
-Your mission:
-1. Analyze current conversation progress and context
-2. Identify logical next actions and priorities
-3. Suggest conversation directions based on goals
-4. Provide context-aware recommendations
-
-IMPORTANT: Always start by discovering entities in the repository using find_entities before making relationship queries.
-Use the conversation context to remember discovered entities and their IDs.
-
-Use conversation history and current state to make intelligent recommendations.
-""",
+            You are a conversation starter expert. Your role is to analyze content and 
+            generate engaging, thought-provoking conversation starters.
+            
+            Focus on:
+            - Interesting discussion points
+            - Relevant questions
+            - Engaging prompts
+            - Context-aware suggestions
+            
+            Always provide multiple conversation starter options.
+            """,
             AgentType.SUMMARIZER: """
-You are a context summarization expert who distills information effectively.
-
-Your mission:
-1. Create concise summaries preserving key information
-2. Extract actionable items and important decisions
-3. Identify critical context to maintain
-4. Condense complex information while preserving meaning
-
-IMPORTANT: Always start by discovering entities in the repository using find_entities before making relationship queries.
-Use the conversation context to remember discovered entities and their IDs.
-
-Use MCP tools to analyze context and create comprehensive summaries.
-""",
+            You are a content summarization expert. Your role is to analyze content and 
+            create concise, informative summaries.
+            
+            Focus on:
+            - Key point extraction
+            - Structured summaries
+            - Context preservation
+            - Actionable insights
+            
+            Always provide clear, well-organized summaries.
+            """,
             AgentType.DOCUMENTATION: """
-You are a documentation expert who creates comprehensive technical documentation.
-
-Your mission:
-1. Analyze code structure and create clear documentation
-2. Generate API documentation and usage examples
-3. Create architectural diagrams and explanations
-4. Provide maintenance guides and best practices
-
-IMPORTANT: Always start by discovering entities in the repository using find_entities before making relationship queries.
-Use the conversation context to remember discovered entities and their IDs.
-
-Use MCP tools to understand codebase and create thorough documentation.
-""",
+            You are a documentation expert. Your role is to analyze code and create 
+            comprehensive, helpful documentation.
+            
+            Focus on:
+            - API documentation
+            - Code explanations
+            - Usage examples
+            - Best practices
+            
+            Always provide clear, thorough documentation.
+            """,
         }
+
+        # Don't test MCP connection on initialization - do it lazily
+        # This prevents async issues during module import
+        self._mcp_connection_tested = False
+
+    async def _ensure_mcp_connection_tested(self):
+        """Ensure MCP connection is tested before use"""
+        if not self._mcp_connection_tested:
+            await self._test_mcp_connection()
+            self._mcp_connection_tested = True
+
+    async def _test_mcp_connection(self):
+        """Test MCP connection using proper Pydantic AI pattern"""
+        try:
+            # Create a simple test agent to verify MCP connectivity
+            test_agent = Agent(
+                model="openai:gpt-4o-mini",
+                system_prompt="You are a connection test agent. Simply respond with 'Connection successful'.",
+                mcp_servers=[self.mcp_server],
+            )
+
+            # Test connectivity by running the agent with MCP servers
+            async with test_agent.run_mcp_servers():
+                # If we get here, the MCP server connection is working
+                logger.info("✅ MCP server connection successful")
+                self.mcp_available = True
+
+        except Exception as e:
+            logger.warning(f"❌ MCP server connection failed: {e}")
+            self.mcp_available = False
 
     def get_or_create_conversation_context(
         self, repository_name: str
@@ -210,132 +221,304 @@ Use MCP tools to understand codebase and create thorough documentation.
         return self.conversation_contexts[repository_name]
 
     def create_agent_with_context(self, agent_type: AgentType) -> Agent:
-        """Create agent with conversation context and MCP integration"""
-        # Use mcp_servers parameter for native Pydantic AI integration
-        mcp_servers = [self.mcp_server] if self.mcp_available else []
+        """Create agent with MCP integration and conversation context support"""
 
-        # Enhanced system prompt with entity discovery instructions
-        enhanced_system_prompt = f"""
-{self.specializations[agent_type]}
-
-## Entity Discovery Protocol
-
-When working with repositories, follow this structured approach:
-
-1. **Repository Discovery**: Use `repo_get_info` to understand repository status
-2. **Entity Discovery**: Use `find_entities` to discover available entities and their IDs
-3. **Focused Analysis**: Use discovered entity IDs for `get_entity_relationships` calls
-4. **Context Building**: Build up knowledge progressively, remembering discovered entities
-
-## Memory Management
-
-- Remember discovered entities and their IDs in conversation context
-- Use valid entity IDs from previous discoveries for relationship queries
-- Build up knowledge progressively across tool calls
-- Maintain conversation history for context continuity
-
-## Error Handling
-
-- If entity relationship queries fail with 404, use `find_entities` to discover valid entities first
-- Always validate entity IDs exist before making relationship queries
-- Use search_code to find relevant code patterns when entity queries fail
-"""
+        # ✅ CORRECT: Always create agent with MCP servers - no fallback
+        # MCP or nothing approach
+        mcp_server = MCPServerStreamableHTTP(MCP_SERVER_URL)
 
         agent = Agent(
             model="openai:gpt-4o-mini",
             deps_type=UniversalDependencies,
             output_type=UniversalResult,
-            system_prompt=enhanced_system_prompt,
-            mcp_servers=mcp_servers,  # Native Pydantic AI MCP integration
+            system_prompt=self.specializations[agent_type],
+            mcp_servers=[mcp_server],
         )
 
-        # Add tool call interceptor to capture tool interactions
-        self._add_tool_call_interceptor(agent)
-
+        logger.info(f"✅ Created {agent_type} agent with MCP integration")
         return agent
 
-    def _add_tool_call_interceptor(self, agent: Agent) -> None:
-        """Add tool call interceptor to capture tool interactions in conversation history"""
+    # ❌ REMOVE: Delete the incorrect tool call interception method
+    # This approach is fundamentally wrong for Pydantic AI
 
-        # Store original run method
-        original_run = agent.run
+    async def _extract_entities_from_messages(
+        self, context: ConversationContext, new_messages: List[ModelMessage]
+    ) -> None:
+        """
+        ✅ CORRECT: Extract entity information from tool calls and results in new_messages
+        """
+        try:
+            # Track tool calls to match with their results
+            tool_calls_map = {}
 
-        async def intercepted_run(
-            user_prompt, *, deps=None, message_history=None, **kwargs
-        ):
-            """Intercepted run method that captures tool calls"""
+            for message in new_messages:
+                if isinstance(message, ModelRequest):
+                    # Check for tool calls in the message
+                    for part in message.parts:
+                        if isinstance(part, ToolCallPart):
+                            # Store tool call for matching with result
+                            tool_calls_map[part.tool_call_id] = {
+                                "tool_name": part.tool_name,
+                                "args": part.args,
+                            }
 
-            # Get conversation context from dependencies
-            conversation_context = deps.conversation_context if deps else None
+                elif isinstance(message, ModelResponse):
+                    # Check for tool results in the response
+                    for part in message.parts:
+                        if isinstance(part, ToolReturnPart):
+                            # Match tool result with tool call
+                            tool_call_info = tool_calls_map.get(part.tool_call_id)
+                            if tool_call_info:
+                                await self._process_tool_result(
+                                    context,
+                                    tool_call_info["tool_name"],
+                                    tool_call_info["args"],
+                                    part.content,
+                                )
 
-            # Create a custom message history that we can monitor
-            monitored_history = message_history.copy() if message_history else []
+        except Exception as e:
+            logger.warning(f"Failed to extract entities from messages: {e}")
 
-            # Hook into the agent's tool execution
-            if hasattr(agent, "_call_tool"):
-                original_call_tool = agent._call_tool
+    async def _process_tool_result(
+        self,
+        context: ConversationContext,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        result_content: str,
+    ) -> None:
+        """
+        ✅ CORRECT: Process MCP tool results to extract and maintain entity information
+        """
+        try:
+            if tool_name == "find_entities":
+                # Parse find_entities result to extract entity IDs and information
+                await self._parse_find_entities_result(
+                    context, tool_args, result_content
+                )
 
-                async def monitored_call_tool(tool_name, tool_input, **tool_kwargs):
-                    """Monitor tool calls and capture them in conversation history"""
+            elif tool_name == "search_code":
+                # Parse search_code result for entity references
+                await self._parse_search_code_result(context, tool_args, result_content)
 
-                    # Create ToolCallPart for the tool call
-                    tool_call_msg = ToolCallPart(
-                        tool_name=tool_name,
-                        tool_call_id=f"call_{len(monitored_history)}",
-                        args=tool_input,
-                    )
+            elif tool_name == "get_entity_relationships":
+                # Parse entity relationships result
+                await self._parse_entity_relationships_result(
+                    context, tool_args, result_content
+                )
 
-                    # Add to conversation history
-                    if conversation_context:
-                        conversation_context.conversation_history.append(tool_call_msg)
+            elif tool_name == "repo_get_info":
+                # Parse repository information
+                await self._parse_repo_info_result(context, tool_args, result_content)
 
-                    # Execute the original tool call
-                    try:
-                        result = await original_call_tool(
-                            tool_name, tool_input, **tool_kwargs
-                        )
+            elif tool_name == "qa_codebase":
+                # Parse QA codebase result for entity mentions
+                await self._parse_qa_codebase_result(context, tool_args, result_content)
 
-                        # Create ToolReturnPart for the result
-                        tool_return_msg = ToolReturnPart(
-                            tool_call_id=tool_call_msg.tool_call_id, content=str(result)
-                        )
+            context.last_updated = datetime.now()
 
-                        # Add to conversation history
-                        if conversation_context:
-                            conversation_context.conversation_history.append(
-                                tool_return_msg
-                            )
+        except Exception as e:
+            logger.warning(f"Failed to process tool result for {tool_name}: {e}")
 
-                        # Update discovered entities based on tool results
-                        if conversation_context:
-                            await self._update_context_from_tool_result(
-                                conversation_context, tool_name, tool_input, result
-                            )
+    async def _parse_find_entities_result(
+        self,
+        context: ConversationContext,
+        tool_args: Dict[str, Any],
+        result_content: str,
+    ) -> None:
+        """Parse find_entities MCP tool result to extract entity IDs"""
+        try:
+            import re
 
-                        return result
+            # Extract entity IDs from the result using regex patterns
+            # Common patterns for entity IDs in MCP responses
+            entity_id_patterns = [
+                r"ID:\s*([a-f0-9-]{36})",  # UUID format
+                r'id["\']:\s*["\']([a-f0-9-]{36})["\']',  # JSON format
+                r'entity_id["\']:\s*["\']([a-f0-9-]{36})["\']',  # JSON format
+                r"\[([a-f0-9-]{36})\]",  # Bracketed format
+            ]
 
-                    except Exception as e:
-                        # Create error ToolReturnPart
-                        error_msg = ToolReturnPart(
-                            tool_call_id=tool_call_msg.tool_call_id,
-                            content=f"Error: {str(e)}",
-                        )
+            found_entity_ids = set()
+            for pattern in entity_id_patterns:
+                matches = re.findall(pattern, result_content, re.IGNORECASE)
+                found_entity_ids.update(matches)
 
-                        if conversation_context:
-                            conversation_context.conversation_history.append(error_msg)
+            # Extract entity information (name, type, file path, etc.)
+            entity_info_patterns = [
+                r"Entity:\s*([^\n]+)",
+                r"Name:\s*([^\n]+)",
+                r"Type:\s*([^\n]+)",
+                r"File:\s*([^\n]+)",
+                r"Path:\s*([^\n]+)",
+            ]
 
-                        raise
+            for entity_id in found_entity_ids:
+                if entity_id not in context.valid_entity_ids:
+                    context.valid_entity_ids.append(entity_id)
 
-                # Replace the tool call method
-                agent._call_tool = monitored_call_tool
+                # Extract additional entity information
+                entity_info = {
+                    "id": entity_id,
+                    "discovered_at": datetime.now().isoformat(),
+                }
 
-            # Call the original run method
-            return await original_run(
-                user_prompt, deps=deps, message_history=monitored_history, **kwargs
+                # Try to extract entity details from surrounding text
+                for pattern in entity_info_patterns:
+                    matches = re.findall(pattern, result_content, re.IGNORECASE)
+                    if matches:
+                        field_name = pattern.split(":")[0].lower().replace("\\s*", "")
+                        entity_info[field_name] = matches[0].strip()
+
+                context.discovered_entities[entity_id] = entity_info
+
+            # Store repository info
+            repo_name = tool_args.get("repo_name", "unknown")
+            if repo_name not in context.repository_info:
+                context.repository_info[repo_name] = {}
+
+            context.repository_info[repo_name].update(
+                {
+                    "entity_discovery": {
+                        "last_discovery": datetime.now().isoformat(),
+                        "entities_found": len(found_entity_ids),
+                        "total_entities": len(context.valid_entity_ids),
+                    }
+                }
             )
 
-        # Replace the run method
-        agent.run = intercepted_run
+            logger.info(f"Discovered {len(found_entity_ids)} entities for {repo_name}")
+
+        except Exception as e:
+            logger.warning(f"Failed to parse find_entities result: {e}")
+
+    async def _parse_search_code_result(
+        self,
+        context: ConversationContext,
+        tool_args: Dict[str, Any],
+        result_content: str,
+    ) -> None:
+        """Parse search_code MCP tool result"""
+        try:
+            repo_name = tool_args.get("repo_name", "unknown")
+            query = tool_args.get("query", "unknown")
+
+            # Store search results for future reference
+            if repo_name not in context.repository_info:
+                context.repository_info[repo_name] = {}
+
+            if "search_results" not in context.repository_info[repo_name]:
+                context.repository_info[repo_name]["search_results"] = {}
+
+            context.repository_info[repo_name]["search_results"][query] = {
+                "result": result_content[:1000],  # Truncate for storage
+                "timestamp": datetime.now().isoformat(),
+            }
+
+        except Exception as e:
+            logger.warning(f"Failed to parse search_code result: {e}")
+
+    async def _parse_entity_relationships_result(
+        self,
+        context: ConversationContext,
+        tool_args: Dict[str, Any],
+        result_content: str,
+    ) -> None:
+        """Parse get_entity_relationships MCP tool result"""
+        try:
+            entity_id = tool_args.get("entity_id")
+            if entity_id:
+                # Store relationship information
+                if entity_id not in context.entity_relationships:
+                    context.entity_relationships[entity_id] = []
+
+                relationship_info = {
+                    "result": result_content[:1000],  # Truncate for storage
+                    "timestamp": datetime.now().isoformat(),
+                    "query_args": tool_args,
+                }
+
+                context.entity_relationships[entity_id].append(relationship_info)
+
+                # Extract any new entity IDs mentioned in relationships
+                import re
+
+                entity_id_pattern = r"([a-f0-9-]{36})"
+                mentioned_ids = re.findall(entity_id_pattern, result_content)
+
+                for mentioned_id in mentioned_ids:
+                    if mentioned_id not in context.valid_entity_ids:
+                        context.valid_entity_ids.append(mentioned_id)
+                        context.discovered_entities[mentioned_id] = {
+                            "id": mentioned_id,
+                            "discovered_via": "relationship_query",
+                            "discovered_at": datetime.now().isoformat(),
+                        }
+
+        except Exception as e:
+            logger.warning(f"Failed to parse entity_relationships result: {e}")
+
+    async def _parse_repo_info_result(
+        self,
+        context: ConversationContext,
+        tool_args: Dict[str, Any],
+        result_content: str,
+    ) -> None:
+        """Parse repo_get_info MCP tool result"""
+        try:
+            repo_name = tool_args.get("repo_name", "unknown")
+
+            # Store repository information
+            context.repository_info[repo_name] = {
+                "info": result_content[:1000],  # Truncate for storage
+                "last_updated": datetime.now().isoformat(),
+                "status": (
+                    "indexed" if "indexed" in result_content.lower() else "unknown"
+                ),
+            }
+
+        except Exception as e:
+            logger.warning(f"Failed to parse repo_info result: {e}")
+
+    async def _parse_qa_codebase_result(
+        self,
+        context: ConversationContext,
+        tool_args: Dict[str, Any],
+        result_content: str,
+    ) -> None:
+        """Parse qa_codebase MCP tool result for entity mentions"""
+        try:
+            repo_name = tool_args.get("repo_name", "unknown")
+            question = tool_args.get("question", "unknown")
+
+            # Store QA results
+            if repo_name not in context.repository_info:
+                context.repository_info[repo_name] = {}
+
+            if "qa_results" not in context.repository_info[repo_name]:
+                context.repository_info[repo_name]["qa_results"] = {}
+
+            context.repository_info[repo_name]["qa_results"][question] = {
+                "result": result_content[:1000],  # Truncate for storage
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            # Extract any entity IDs mentioned in the QA result
+            import re
+
+            entity_id_pattern = r"([a-f0-9-]{36})"
+            mentioned_ids = re.findall(entity_id_pattern, result_content)
+
+            for mentioned_id in mentioned_ids:
+                if mentioned_id not in context.valid_entity_ids:
+                    context.valid_entity_ids.append(mentioned_id)
+                    context.discovered_entities[mentioned_id] = {
+                        "id": mentioned_id,
+                        "discovered_via": "qa_codebase",
+                        "discovered_at": datetime.now().isoformat(),
+                    }
+
+        except Exception as e:
+            logger.warning(f"Failed to parse qa_codebase result: {e}")
 
     async def _update_context_from_tool_result(
         self,
@@ -344,79 +527,26 @@ When working with repositories, follow this structured approach:
         tool_input: Dict[str, Any],
         result: Any,
     ) -> None:
-        """Update conversation context based on tool results"""
-
+        """Update conversation context based on tool results (legacy method)"""
         try:
-            if tool_name == "find_entities":
-                # Parse entity discovery results
-                if hasattr(result, "result") and "Found" in str(result.result):
-                    # Extract entity IDs from the result
-                    import re
+            # Convert result to string for processing
+            result_content = ""
+            if hasattr(result, "content") and result.content:
+                result_content = (
+                    result.content[0].text
+                    if hasattr(result.content[0], "text")
+                    else str(result.content[0])
+                )
+            else:
+                result_content = str(result)
 
-                    entity_id_pattern = r"\[ID: ([a-f0-9-]+)\]"
-                    found_ids = re.findall(entity_id_pattern, str(result.result))
-
-                    # Add to valid entity IDs
-                    for entity_id in found_ids:
-                        if entity_id not in context.valid_entity_ids:
-                            context.valid_entity_ids.append(entity_id)
-
-                    # Store repository info
-                    repo_name = tool_input.get("repo_name", "unknown")
-                    context.repository_info[repo_name] = {
-                        "entity_count": len(found_ids),
-                        "last_discovery": datetime.now().isoformat(),
-                    }
-
-                    logger.info(f"Discovered {len(found_ids)} entities for {repo_name}")
-
-            elif tool_name == "get_entity_relationships":
-                # Store entity relationship information
-                entity_id = tool_input.get("entity_id")
-                if entity_id and hasattr(result, "result"):
-                    context.entity_relationships[entity_id] = {
-                        "result": str(result.result),
-                        "timestamp": datetime.now().isoformat(),
-                    }
-
-            elif tool_name == "search_code":
-                # Store search results for future reference
-                query = tool_input.get("query", "unknown")
-                repo_name = tool_input.get("repo_name", "unknown")
-
-                search_key = f"{repo_name}:{query}"
-                if "search_results" not in context.repository_info:
-                    context.repository_info["search_results"] = {}
-
-                context.repository_info["search_results"][search_key] = {
-                    "result": (
-                        str(result.result) if hasattr(result, "result") else str(result)
-                    ),
-                    "timestamp": datetime.now().isoformat(),
-                }
-
-            elif tool_name == "repo_get_info":
-                # Store repository information
-                repo_name = tool_input.get("repo_name", "unknown")
-                context.repository_info[repo_name] = {
-                    "info": (
-                        str(result.result) if hasattr(result, "result") else str(result)
-                    ),
-                    "timestamp": datetime.now().isoformat(),
-                }
+            # Use the new processing method
+            await self._process_tool_result(
+                context, tool_name, tool_input, result_content
+            )
 
         except Exception as e:
             logger.warning(f"Failed to update context from tool result: {e}")
-            # Don't fail the whole operation if context update fails
-
-    def create_agent_without_mcp(self, agent_type: AgentType) -> Agent:
-        """Create agent without MCP server for fallback scenarios"""
-        return Agent(
-            model="openai:gpt-4o-mini",
-            deps_type=UniversalDependencies,
-            output_type=UniversalResult,
-            system_prompt=self.specializations[agent_type],
-        )
 
     async def execute_agent_with_context(
         self,
@@ -426,7 +556,7 @@ When working with repositories, follow this structured approach:
         context: Optional[Dict[str, Any]] = None,
     ) -> UniversalResult:
         """
-        Execute agent with conversation context and entity discovery flow
+        ✅ CORRECT: Execute agent with proper Pydantic AI conversation history
         """
         # Get or create conversation context for this repository
         conversation_context = self.get_or_create_conversation_context(repository_name)
@@ -443,12 +573,15 @@ When working with repositories, follow this structured approach:
         agent = self.create_agent_with_context(agent_type)
 
         try:
+            # Ensure MCP connection is tested before use
+            await self._ensure_mcp_connection_tested()
+
             logger.info(
                 f"Executing {agent_type} agent with conversation context for {repository_name}"
             )
 
-            # Prepare conversation history for context
-            message_history = conversation_context.conversation_history.copy()
+            # ✅ CORRECT: Prepare message_history using proper Pydantic AI pattern
+            message_history = conversation_context.message_history.copy()
 
             # Add system message with discovered entities context if available
             if (
@@ -464,54 +597,29 @@ Entity Relationships: {len(conversation_context.entity_relationships)} relations
 
 Use these valid entity IDs for relationship queries instead of making new discovery calls.
 """
-                message_history.append(SystemPromptPart(content=entities_context))
+                # ✅ CORRECT: Create proper ModelRequest with system prompt
+                system_message = ModelRequest(
+                    parts=[SystemPromptPart(content=entities_context)]
+                )
+                message_history.append(system_message)
 
-            # Add current user query
-            current_user_message = UserPromptPart(content=user_query)
-            message_history.append(current_user_message)
-
-            # Execute agent with conversation history
+            # ✅ CORRECT: Execute agent with proper message_history parameter
             async with agent.run_mcp_servers():
-                result = await agent.run(
+                result: AgentRunResult[UniversalResult] = await agent.run(
                     user_query, deps=dependencies, message_history=message_history
                 )
 
-            # Extract result and update conversation context
+            # ✅ CORRECT: Extract result and update conversation context using AgentRunResult
             agent_result = result.output
 
-            # Update conversation context with the complete interaction
-            # Add the user message
-            conversation_context.conversation_history.append(current_user_message)
+            # ✅ CORRECT: Use AgentRunResult.new_messages to capture the complete conversation
+            # This includes user message, tool calls, tool results, and agent response
+            conversation_context.message_history.extend(result.new_messages)
 
-            # Add agent response (we need to capture this from the result)
-            agent_response = TextPart(content=agent_result.content)
-            conversation_context.conversation_history.append(agent_response)
-
-            # If the agent made tool calls, we should capture those too
-            # Note: This would require hooking into the agent's tool call mechanism
-            # For now, we'll update the discovered entities based on the result metadata
-
-            # Update discovered entities if the agent found new ones
-            if (
-                hasattr(agent_result, "metadata")
-                and "discovered_entities" in agent_result.metadata
-            ):
-                conversation_context.discovered_entities.update(
-                    agent_result.metadata["discovered_entities"]
-                )
-
-            if (
-                hasattr(agent_result, "metadata")
-                and "valid_entity_ids" in agent_result.metadata
-            ):
-                new_ids = agent_result.metadata["valid_entity_ids"]
-                conversation_context.valid_entity_ids.extend(
-                    [
-                        id
-                        for id in new_ids
-                        if id not in conversation_context.valid_entity_ids
-                    ]
-                )
+            # Update discovered entities from tool results in new_messages
+            await self._extract_entities_from_messages(
+                conversation_context, result.new_messages
+            )
 
             conversation_context.last_updated = datetime.now()
 
@@ -527,53 +635,25 @@ Use these valid entity IDs for relationship queries instead of making new discov
                         "http://localhost:8009/sse/" if self.mcp_available else None
                     ),
                     "agent_type": agent_type.value,
-                    "execution_mode": (
-                        "mcp_enabled_with_context" if self.mcp_available else "fallback"
-                    ),
+                    "execution_mode": "mcp_enabled_with_context",
                     "conversation_context_entities": len(
                         conversation_context.discovered_entities
                     ),
                     "valid_entity_ids": len(conversation_context.valid_entity_ids),
-                    "conversation_history_length": len(
-                        conversation_context.conversation_history
-                    ),
+                    "message_history_length": len(conversation_context.message_history),
+                    "new_messages_count": len(result.new_messages),
                 }
             )
 
             return agent_result
 
         except Exception as e:
-            # Log the specific error details for debugging
-            logger.warning(f"Agent execution failed for {agent_type}: {e}")
-            logger.debug(f"Error details: {type(e).__name__}: {str(e)}")
+            # ❌ NO FALLBACK: MCP or nothing approach
+            logger.error(f"Agent execution failed for {agent_type}: {e}")
+            logger.error(f"Error details: {type(e).__name__}: {str(e)}")
 
-            # Check if it's a connection-related error
-            if "connection" in str(e).lower() or "timeout" in str(e).lower():
-                logger.info(
-                    f"MCP connection issue detected, disabling MCP for future requests"
-                )
-                self.mcp_available = False
-
-            # Fallback to non-MCP execution
-            logger.info(f"Executing {agent_type} agent in fallback mode (no MCP tools)")
-            fallback_agent = self.create_agent_without_mcp(agent_type)
-
-            async with fallback_agent.run_mcp_servers():
-                result = await fallback_agent.run(user_query, deps=dependencies)
-
-            # Transfer fallback context to result metadata
-            agent_result = result.output
-            agent_result.metadata.update(
-                {
-                    "mcp_integration": "fallback_mode",
-                    "mcp_available": False,
-                    "fallback_reason": str(e),
-                    "agent_type": agent_type.value,
-                    "execution_mode": "fallback",
-                }
-            )
-
-            return agent_result
+            # Re-raise the exception - no fallback mode
+            raise RuntimeError(f"MCP agent execution failed: {e}") from e
 
     # Keep backward compatibility
     async def execute_agent(
@@ -583,7 +663,7 @@ Use these valid entity IDs for relationship queries instead of making new discov
         user_query: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> UniversalResult:
-        """Execute agent using the new context-aware method"""
+        """Execute agent using the context-aware method"""
         return await self.execute_agent_with_context(
             agent_type, repository_name, user_query, context
         )
@@ -596,9 +676,9 @@ Use these valid entity IDs for relationship queries instead of making new discov
         context: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[str, None]:
         """
-        Execute agent with streaming response using conversation context
+        ✅ CORRECT: Execute agent with streaming using proper Pydantic AI patterns
         """
-        # Get conversation context
+        # Get or create conversation context for this repository
         conversation_context = self.get_or_create_conversation_context(repository_name)
 
         dependencies = UniversalDependencies(
@@ -609,99 +689,122 @@ Use these valid entity IDs for relationship queries instead of making new discov
             conversation_context=conversation_context,
         )
 
+        # Create agent with context
         agent = self.create_agent_with_context(agent_type)
 
         try:
+            # Ensure MCP connection is tested before use
+            await self._ensure_mcp_connection_tested()
+
             logger.info(
-                f"Streaming {agent_type} agent with conversation context for {repository_name}"
+                f"Executing {agent_type} agent with streaming for {repository_name}"
             )
 
-            # Prepare conversation history
-            message_history = conversation_context.conversation_history.copy()
-            message_history.append(UserPromptPart(content=user_query))
+            # ✅ CORRECT: Prepare message_history using proper Pydantic AI pattern
+            message_history = conversation_context.message_history.copy()
 
-            # Stream agent execution with context
+            # Add system message with discovered entities context if available
+            if (
+                conversation_context.discovered_entities
+                or conversation_context.valid_entity_ids
+            ):
+                entities_context = f"""
+## Previously Discovered Entities for {repository_name}:
+
+Valid Entity IDs: {conversation_context.valid_entity_ids[:10]}  # Show first 10
+Discovered Entities: {len(conversation_context.discovered_entities)} entities cached
+Entity Relationships: {len(conversation_context.entity_relationships)} relationships cached
+
+Use these valid entity IDs for relationship queries instead of making new discovery calls.
+"""
+                # ✅ CORRECT: Create proper ModelRequest with system prompt
+                system_message = ModelRequest(
+                    parts=[SystemPromptPart(content=entities_context)]
+                )
+                message_history.append(system_message)
+
+            # ✅ CORRECT: Execute agent with streaming using proper message_history
             async with agent.run_mcp_servers():
-                async for chunk in agent.run_stream(
+                async with agent.run_stream(
                     user_query, deps=dependencies, message_history=message_history
-                ):
-                    yield chunk
+                ) as stream_result:
+                    async for chunk in stream_result.stream_text(delta=True):
+                        yield chunk
 
         except Exception as e:
-            logger.warning(f"Agent streaming failed for {agent_type}: {e}")
-
-            # Fallback to non-MCP streaming
-            fallback_agent = self.create_agent_without_mcp(agent_type)
-
-            async with fallback_agent.run_mcp_servers():
-                async for chunk in fallback_agent.run_stream(
-                    user_query, deps=dependencies
-                ):
-                    yield chunk
+            logger.warning(f"Streaming execution failed for {agent_type}: {e}")
+            # Fallback to non-streaming execution and yield the result
+            try:
+                result = await self.execute_agent_with_context(
+                    agent_type, repository_name, user_query, context
+                )
+                yield result.content
+            except Exception as fallback_error:
+                yield f"Error: {fallback_error}"
 
     def get_available_agent_types(self) -> list[AgentType]:
-        """Get all available agent types"""
+        """Get list of available agent types"""
         return list(AgentType)
 
     def get_agent_description(self, agent_type: AgentType) -> str:
         """Get description for a specific agent type"""
-        return self.specializations.get(agent_type, "No description available")
+        return self.specializations.get(agent_type, "Unknown agent type")
 
     def clear_conversation_context(self, repository_name: str) -> None:
-        """Clear conversation context for a repository"""
+        """Clear conversation context for a specific repository"""
         if repository_name in self.conversation_contexts:
             del self.conversation_contexts[repository_name]
             logger.info(f"Cleared conversation context for {repository_name}")
 
     def get_conversation_summary(self, repository_name: str) -> Dict[str, Any]:
         """Get summary of conversation context for a repository"""
-        if repository_name not in self.conversation_contexts:
-            return {"status": "no_context", "repository": repository_name}
+        context = self.conversation_contexts.get(repository_name)
+        if not context:
+            return {"repository": repository_name, "status": "no_context"}
 
-        context = self.conversation_contexts[repository_name]
         return {
             "repository": repository_name,
+            "status": "active",
             "discovered_entities": len(context.discovered_entities),
             "valid_entity_ids": len(context.valid_entity_ids),
             "entity_relationships": len(context.entity_relationships),
-            "conversation_history_length": len(context.conversation_history),
+            "message_history_length": len(context.message_history),
             "last_updated": context.last_updated.isoformat(),
         }
 
     async def test_mcp_connection(self) -> Dict[str, Any]:
         """
-        Test MCP connection using native Pydantic AI integration
+        ✅ CORRECT: Test MCP connection with proper Pydantic AI patterns
         """
-        if not self.mcp_server:
-            return {
-                "mcp_server_url": "http://localhost:8009/sse/",
-                "connection_test": "failed",
-                "integration_type": "Native Pydantic AI",
-                "error": "MCP client not initialized",
-                "error_type": "initialization_error",
-                "suggestions": [
-                    "Check if FastMCP server is running on port 8009",
-                    "Verify FastMCP 2.9.2 is installed correctly",
-                    "Check network connectivity to localhost:8009/sse/",
-                    "Restart the MCP server if needed",
-                ],
-                "client_version": "2.9.2",
-                "server_version": "2.9",
-                "integration_status": "Native Pydantic AI MCP support",
-            }
-
         try:
-            # Test MCP connection using native Pydantic AI integration
-            # Create a simple test agent to verify MCP connectivity
-            test_agent = Agent(
-                model="openai:gpt-4o-mini",
-                system_prompt="You are a test agent. Respond with 'MCP connection working' if you can access MCP tools.",
-                mcp_servers=[self.mcp_server] if self.mcp_available else [],
+            # Test basic MCP connection
+            if not self.mcp_available:
+                await self._test_mcp_connection()
+
+            if not self.mcp_available:
+                return {
+                    "mcp_server_url": "http://localhost:8009/sse/",
+                    "connection_test": "failed",
+                    "integration_type": "Native Pydantic AI",
+                    "error": "MCP server not available",
+                    "client_version": "2.10.0",
+                    "server_version": "2.9",
+                    "integration_status": "Native Pydantic AI MCP support",
+                }
+
+            # Test with a simple agent execution
+            test_agent = self.create_agent_with_context(AgentType.SIMPLIFIER)
+            test_dependencies = UniversalDependencies(
+                repository_name="test_repo",
+                agent_type=AgentType.SIMPLIFIER,
+                user_query="Test MCP integration",
+                context={},
             )
 
-            # Run a simple test query
-            async with test_agent.run_mcp_servers():
-                result = await test_agent.run("Test MCP connection")
+            # ✅ CORRECT: Test agent execution with proper RunResult handling
+            result: AgentRunResult[UniversalResult] = await test_agent.run(
+                "Test MCP connection", deps=test_dependencies
+            )
 
             return {
                 "mcp_server_url": "http://localhost:8009/sse/",
@@ -709,13 +812,13 @@ Use these valid entity IDs for relationship queries instead of making new discov
                 "integration_type": "Native Pydantic AI",
                 "version_status": "FastMCP 2.9 - Version Matched",
                 "test_result": "MCP integration working via Pydantic AI",
-                "client_version": "2.9.2",
+                "client_version": "2.10.0",
                 "server_version": "2.9",
                 "integration_status": "Native Pydantic AI MCP support",
                 "agent_response": (
-                    str(result.output)[:200] + "..."
-                    if len(str(result.output)) > 200
-                    else str(result.output)
+                    str(result.data)[:200] + "..."
+                    if len(str(result.data)) > 200
+                    else str(result.data)
                 ),
             }
 
@@ -725,7 +828,7 @@ Use these valid entity IDs for relationship queries instead of making new discov
 
             suggestions = [
                 "Check if FastMCP server is running on port 8009",
-                "Verify FastMCP 2.9.2 is installed correctly",
+                "Verify FastMCP 2.10.0 is installed correctly",
                 "Check network connectivity to localhost:8009/sse/",
                 "Restart the MCP server if needed",
                 "Ensure OpenAI API key is configured for test agent",
@@ -750,7 +853,7 @@ Use these valid entity IDs for relationship queries instead of making new discov
                 "error": error_message,
                 "error_type": error_type,
                 "suggestions": suggestions,
-                "client_version": "2.9.2",
+                "client_version": "2.10.0",
                 "server_version": "2.9",
                 "integration_status": "Native Pydantic AI MCP support",
             }
@@ -772,7 +875,7 @@ Use these valid entity IDs for relationship queries instead of making new discov
                 repo: self.get_conversation_summary(repo)
                 for repo in self.conversation_contexts.keys()
             },
-            "timestamp": asyncio.get_event_loop().time(),
+            "timestamp": datetime.now().isoformat(),
         }
 
         # Test MCP connection
