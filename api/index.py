@@ -24,7 +24,7 @@ import uuid
 from sqlalchemy.orm import Session
 from .utils.database import get_db
 from datetime import datetime, timezone, timedelta
-from .routers import agents, universal_agents, triage
+from .routers import agents, universal_agents, triage, streaming_poc
 from .utils.openai_client import get_openai_client
 import logging
 
@@ -35,6 +35,7 @@ app = FastAPI()
 app.include_router(agents.router, prefix="/api")
 app.include_router(universal_agents.router, prefix="/api/v1", tags=["universal-agents"])
 app.include_router(triage.router, prefix="/api/v1", tags=["triage-agents"])
+app.include_router(streaming_poc.router, tags=["streaming-poc"])
 
 client = get_openai_client(async_client=False)
 

@@ -50,6 +50,223 @@ class AgentType(str, Enum):
     DOCUMENTATION = "documentation"  # Keep existing functionality
 
 
+class ToolBudget(BaseModel):
+    """
+    Tool budget configuration for intelligent stopping criteria.
+
+    Inspired by Ray Tune stopping patterns, this provides multiple
+    mechanisms to prevent infinite agent exploration loops.
+    """
+
+    # Basic limits
+    max_tool_calls: int = Field(
+        default=10, ge=1, le=50, description="Maximum number of tool calls allowed"
+    )
+    max_depth: int = Field(
+        default=3, ge=1, le=10, description="Maximum recursion depth for tool chains"
+    )
+    time_budget_s: float = Field(
+        default=120.0, ge=1.0, le=600.0, description="Maximum execution time in seconds"
+    )
+
+    # Convergence detection
+    convergence_threshold: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description="Similarity threshold for convergence detection",
+    )
+    convergence_window: int = Field(
+        default=3,
+        ge=2,
+        le=10,
+        description="Number of responses to compare for convergence",
+    )
+
+    # Token limits (if available from usage tracking)
+    max_input_tokens: Optional[int] = Field(
+        default=50000, ge=10, description="Maximum input tokens per session"
+    )
+    max_output_tokens: Optional[int] = Field(
+        default=20000, ge=10, description="Maximum output tokens per session"
+    )
+
+    # Quality thresholds
+    min_confidence: float = Field(
+        default=0.3, ge=0.0, le=1.0, description="Minimum confidence to continue"
+    )
+
+    # Tool-specific limits
+    max_search_calls: int = Field(
+        default=5, ge=1, le=20, description="Maximum search_code calls"
+    )
+    max_qa_calls: int = Field(
+        default=3, ge=1, le=10, description="Maximum qa_codebase calls"
+    )
+    max_entity_calls: int = Field(
+        default=4, ge=1, le=15, description="Maximum find_entities calls"
+    )
+
+    def model_post_init(self, __context):
+        """Pydantic v2 post-init validation"""
+        if self.max_tool_calls < self.max_depth:
+            raise ValueError("max_tool_calls must be >= max_depth")
+
+
+class BudgetTracker(BaseModel):
+    """
+    Runtime tracking of tool budget consumption.
+
+    Tracks actual usage against ToolBudget limits and provides
+    intelligent stopping decisions.
+    """
+
+    # Runtime counters
+    tool_calls_made: int = Field(default=0)
+    current_depth: int = Field(default=0)
+    start_time: datetime = Field(default_factory=datetime.now)
+
+    # Token tracking
+    input_tokens_used: int = Field(default=0)
+    output_tokens_used: int = Field(default=0)
+
+    # Tool-specific counters
+    search_calls_made: int = Field(default=0)
+    qa_calls_made: int = Field(default=0)
+    entity_calls_made: int = Field(default=0)
+
+    # Convergence tracking
+    recent_responses: List[str] = Field(default_factory=list)
+
+    # Quality tracking
+    confidence_scores: List[float] = Field(default_factory=list)
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    def increment_tool_call(self, tool_name: str) -> None:
+        """Increment counters for a tool call"""
+        self.tool_calls_made += 1
+
+        # Track tool-specific calls
+        if tool_name == "search_code":
+            self.search_calls_made += 1
+        elif tool_name == "qa_codebase":
+            self.qa_calls_made += 1
+        elif tool_name == "find_entities":
+            self.entity_calls_made += 1
+
+    def add_response(self, response: str, confidence: float = 0.8) -> None:
+        """Add a response for convergence tracking"""
+        self.recent_responses.append(response)
+        self.confidence_scores.append(confidence)
+
+        # Keep only recent responses for convergence window
+        if len(self.recent_responses) > 10:  # Max window size
+            self.recent_responses = self.recent_responses[-10:]
+            self.confidence_scores = self.confidence_scores[-10:]
+
+    def get_elapsed_time(self) -> float:
+        """Get elapsed time in seconds"""
+        return (datetime.now() - self.start_time).total_seconds()
+
+    def should_stop(self, budget: ToolBudget) -> tuple[bool, str]:
+        """
+        Determine if execution should stop based on budget constraints.
+
+        Returns:
+            tuple[bool, str]: (should_stop, reason)
+        """
+
+        # Check basic limits
+        if self.tool_calls_made >= budget.max_tool_calls:
+            return True, f"Exceeded max tool calls ({budget.max_tool_calls})"
+
+        if self.current_depth >= budget.max_depth:
+            return True, f"Exceeded max depth ({budget.max_depth})"
+
+        if self.get_elapsed_time() >= budget.time_budget_s:
+            return True, f"Exceeded time budget ({budget.time_budget_s}s)"
+
+        # Check token limits
+        if (
+            budget.max_input_tokens
+            and self.input_tokens_used >= budget.max_input_tokens
+        ):
+            return True, f"Exceeded input token limit ({budget.max_input_tokens})"
+
+        if (
+            budget.max_output_tokens
+            and self.output_tokens_used >= budget.max_output_tokens
+        ):
+            return True, f"Exceeded output token limit ({budget.max_output_tokens})"
+
+        # Check tool-specific limits
+        if self.search_calls_made >= budget.max_search_calls:
+            return True, f"Exceeded search calls limit ({budget.max_search_calls})"
+
+        if self.qa_calls_made >= budget.max_qa_calls:
+            return True, f"Exceeded QA calls limit ({budget.max_qa_calls})"
+
+        if self.entity_calls_made >= budget.max_entity_calls:
+            return True, f"Exceeded entity calls limit ({budget.max_entity_calls})"
+
+        # Check convergence
+        if self._check_convergence(budget):
+            return True, "Responses have converged"
+
+        # Check quality threshold
+        if self.confidence_scores and len(self.confidence_scores) >= 3:
+            recent_avg_confidence = sum(self.confidence_scores[-3:]) / 3
+            if recent_avg_confidence < budget.min_confidence:
+                return True, f"Confidence below threshold ({budget.min_confidence})"
+
+        return False, ""
+
+    def _check_convergence(self, budget: ToolBudget) -> bool:
+        """Check if recent responses have converged"""
+        if len(self.recent_responses) < budget.convergence_window:
+            return False
+
+        # Simple convergence check: compare recent responses for similarity
+        recent = self.recent_responses[-budget.convergence_window :]
+
+        # Count similar responses (basic string similarity)
+        similar_count = 0
+        total_pairs = 0
+
+        for i in range(len(recent) - 1):
+            for j in range(i + 1, len(recent)):
+                similarity = self._calculate_similarity(recent[i], recent[j])
+                if similarity >= budget.convergence_threshold:
+                    similar_count += 1
+                total_pairs += 1
+
+        # If most pairs are similar, we've converged
+        if total_pairs == 0:
+            return False
+
+        convergence_ratio = similar_count / total_pairs
+        return convergence_ratio >= 0.5  # 50% of pairs should be similar
+
+    def _calculate_similarity(self, text1: str, text2: str) -> float:
+        """Calculate basic text similarity using Jaccard similarity"""
+        if not text1 or not text2:
+            return 0.0
+
+        # Normalize and tokenize
+        words1 = set(text1.lower().split())
+        words2 = set(text2.lower().split())
+
+        if not words1 or not words2:
+            return 0.0
+
+        # Jaccard similarity: intersection / union
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+
+        return len(intersection) / len(union) if union else 0.0
+
+
 class ConversationContext(BaseModel):
     """Conversation context to maintain entity knowledge and history using proper Pydantic AI message patterns"""
 
@@ -74,6 +291,10 @@ class UniversalDependencies(BaseModel):
     user_query: str
     context: Dict[str, Any] = Field(default_factory=dict)
     conversation_context: Optional[ConversationContext] = Field(default=None)
+
+    # Tool budget for intelligent stopping
+    tool_budget: ToolBudget = Field(default_factory=ToolBudget)
+    budget_tracker: BudgetTracker = Field(default_factory=BudgetTracker)
 
     # Optional fields for different agent types
     target_files: Optional[list[str]] = None
@@ -676,10 +897,32 @@ Use these valid entity IDs for relationship queries instead of making new discov
         context: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[str, None]:
         """
-        ✅ CORRECT: Execute agent with streaming using proper Pydantic AI patterns
+        ✅ ENHANCED: Execute agent with streaming using ToolBudget and ConvergenceDetector
+
+        Features:
+        - Real-time tool call and result streaming
+        - Intelligent stopping criteria via ToolBudget
+        - Convergence detection to prevent loops
+        - Vercel AI SDK v4 compatible event format
+        - Graceful error handling and fallbacks
         """
         # Get or create conversation context for this repository
         conversation_context = self.get_or_create_conversation_context(repository_name)
+
+        # Initialize tool budget and convergence detector
+        tool_budget = ToolBudget()
+        budget_tracker = BudgetTracker()
+
+        # Import and initialize convergence detector
+        from .utils.convergence import ConvergenceDetector, ConvergenceConfig
+
+        convergence_config = ConvergenceConfig(
+            similarity_threshold=tool_budget.convergence_threshold,
+            convergence_ratio=0.7,  # 70% of responses should be similar
+            min_responses=tool_budget.convergence_window,
+            use_critic_model=True,  # Enable AI critic for semantic similarity
+        )
+        convergence_detector = ConvergenceDetector(convergence_config)
 
         dependencies = UniversalDependencies(
             repository_name=repository_name,
@@ -687,6 +930,8 @@ Use these valid entity IDs for relationship queries instead of making new discov
             user_query=user_query,
             context=context or {},
             conversation_context=conversation_context,
+            tool_budget=tool_budget,
+            budget_tracker=budget_tracker,
         )
 
         # Create agent with context
@@ -697,7 +942,7 @@ Use these valid entity IDs for relationship queries instead of making new discov
             await self._ensure_mcp_connection_tested()
 
             logger.info(
-                f"Executing {agent_type} agent with streaming for {repository_name}"
+                f"Executing {agent_type} agent with enhanced streaming for {repository_name}"
             )
 
             # ✅ CORRECT: Prepare message_history using proper Pydantic AI pattern
@@ -723,24 +968,224 @@ Use these valid entity IDs for relationship queries instead of making new discov
                 )
                 message_history.append(system_message)
 
-            # ✅ CORRECT: Execute agent with streaming using proper message_history
+            # Send initial streaming event
+            yield self._format_stream_event(
+                "start",
+                {
+                    "agent_type": agent_type.value,
+                    "repository": repository_name,
+                    "tool_budget": {
+                        "max_tool_calls": tool_budget.max_tool_calls,
+                        "max_depth": tool_budget.max_depth,
+                        "time_budget_s": tool_budget.time_budget_s,
+                    },
+                },
+            )
+
+            # ✅ ENHANCED: Execute agent with streaming using proper message_history and budget tracking
             async with agent.run_mcp_servers():
                 async with agent.run_stream(
                     user_query, deps=dependencies, message_history=message_history
                 ) as stream_result:
-                    async for chunk in stream_result.stream_text(delta=True):
-                        yield chunk
+
+                    accumulated_text = ""
+
+                    # Process all stream events with intelligent stopping
+                    async for message in stream_result.new_messages():
+                        # Check budget limits before processing each message
+                        should_stop, stop_reason = budget_tracker.should_stop(
+                            tool_budget
+                        )
+                        if should_stop:
+                            yield self._format_stream_event(
+                                "budget_exceeded",
+                                {
+                                    "reason": stop_reason,
+                                    "tool_calls_made": budget_tracker.tool_calls_made,
+                                    "elapsed_time": budget_tracker.get_elapsed_time(),
+                                },
+                            )
+                            break
+
+                        # Check convergence before processing
+                        if (
+                            len(budget_tracker.recent_responses)
+                            >= tool_budget.convergence_window
+                        ):
+                            has_converged = await convergence_detector.has_converged()
+                            if has_converged:
+                                yield self._format_stream_event(
+                                    "converged",
+                                    {
+                                        "reason": "Response convergence detected",
+                                        "similarity_threshold": tool_budget.convergence_threshold,
+                                        "responses_analyzed": len(
+                                            budget_tracker.recent_responses
+                                        ),
+                                    },
+                                )
+                                break
+
+                        # Process message parts
+                        for part in message.parts:
+                            if isinstance(part, ToolCallPart):
+                                # Track tool call in budget
+                                budget_tracker.increment_tool_call(part.tool_name)
+
+                                # Stream tool call event
+                                yield self._format_stream_event(
+                                    "toolCall",
+                                    {
+                                        "id": f"tool_call_{budget_tracker.tool_calls_made}",
+                                        "name": part.tool_name,
+                                        "args": part.args,
+                                        "budget_status": {
+                                            "calls_made": budget_tracker.tool_calls_made,
+                                            "calls_remaining": tool_budget.max_tool_calls
+                                            - budget_tracker.tool_calls_made,
+                                        },
+                                    },
+                                )
+
+                            elif isinstance(part, ToolReturnPart):
+                                # Stream tool result event
+                                tool_result = str(part.content)
+                                yield self._format_stream_event(
+                                    "toolResult",
+                                    {
+                                        "id": f"tool_call_{budget_tracker.tool_calls_made}",
+                                        "result": (
+                                            tool_result[:500] + "..."
+                                            if len(tool_result) > 500
+                                            else tool_result
+                                        ),
+                                    },
+                                )
+
+                                # Add to convergence detector for analysis
+                                convergence_detector.add_response(tool_result)
+
+                            elif isinstance(part, TextPart):
+                                # Stream text delta
+                                accumulated_text += part.content
+                                yield self._format_stream_event(
+                                    "text", {"delta": part.content}
+                                )
+
+                    # Add final response to convergence tracking
+                    if accumulated_text:
+                        budget_tracker.add_response(accumulated_text)
+                        convergence_detector.add_response(accumulated_text)
+
+                    # Get final result for conversation context update
+                    try:
+                        final_result = stream_result.get_output()
+
+                        # Update conversation context with new messages
+                        conversation_context.message_history.extend(
+                            stream_result.all_messages()
+                        )
+                        conversation_context.last_updated = datetime.now()
+
+                        # Stream completion event
+                        yield self._format_stream_event(
+                            "done",
+                            {
+                                "content": (
+                                    final_result.content
+                                    if hasattr(final_result, "content")
+                                    else str(final_result)
+                                ),
+                                "metadata": (
+                                    final_result.metadata
+                                    if hasattr(final_result, "metadata")
+                                    else {}
+                                ),
+                                "budget_summary": {
+                                    "tool_calls_made": budget_tracker.tool_calls_made,
+                                    "elapsed_time": budget_tracker.get_elapsed_time(),
+                                    "convergence_detected": len(
+                                        budget_tracker.recent_responses
+                                    )
+                                    >= tool_budget.convergence_window,
+                                },
+                            },
+                        )
+
+                    except Exception as result_error:
+                        logger.warning(f"Could not get final result: {result_error}")
+                        yield self._format_stream_event(
+                            "done",
+                            {
+                                "content": accumulated_text,
+                                "metadata": {"partial_result": True},
+                                "budget_summary": {
+                                    "tool_calls_made": budget_tracker.tool_calls_made,
+                                    "elapsed_time": budget_tracker.get_elapsed_time(),
+                                },
+                            },
+                        )
 
         except Exception as e:
-            logger.warning(f"Streaming execution failed for {agent_type}: {e}")
+            logger.warning(f"Enhanced streaming execution failed for {agent_type}: {e}")
+
+            # Stream error event
+            yield self._format_stream_event(
+                "error",
+                {
+                    "message": str(e),
+                    "agent_type": agent_type.value,
+                    "fallback": "Attempting non-streaming execution",
+                },
+            )
+
             # Fallback to non-streaming execution and yield the result
             try:
                 result = await self.execute_agent_with_context(
                     agent_type, repository_name, user_query, context
                 )
-                yield result.content
+                yield self._format_stream_event("text", {"delta": result.content})
+                yield self._format_stream_event(
+                    "done",
+                    {
+                        "content": result.content,
+                        "metadata": result.metadata,
+                        "fallback": True,
+                    },
+                )
             except Exception as fallback_error:
-                yield f"Error: {fallback_error}"
+                yield self._format_stream_event(
+                    "error",
+                    {
+                        "message": f"Fallback execution failed: {fallback_error}",
+                        "fatal": True,
+                    },
+                )
+
+    def _format_stream_event(self, event_type: str, data: Dict[str, Any]) -> str:
+        """
+        Format streaming events for Vercel AI SDK v4 compatibility.
+
+        Event types:
+        - start: Streaming session started
+        - toolCall: Tool invocation
+        - toolResult: Tool execution result
+        - text: Text delta streaming
+        - budget_exceeded: Tool budget limit reached
+        - converged: Response convergence detected
+        - error: Error occurred
+        - done: Streaming completed
+        """
+        import json
+
+        event_data = {
+            "id": f"event_{datetime.now().timestamp()}",
+            "event": event_type,
+            "data": data,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        return f"data: {json.dumps(event_data)}\n\n"
 
     def get_available_agent_types(self) -> list[AgentType]:
         """Get list of available agent types"""

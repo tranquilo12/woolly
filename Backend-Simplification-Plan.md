@@ -471,12 +471,143 @@ async def legacy_generate(specialization: str, request: dict):
 - **Pydantic Graph Integration**: Complex workflow orchestration
 - **Performance Monitoring**: Advanced metrics and observability
 
-### **Phase 5: Production Optimization**
+### **Phase 5: Streaming Optimization & Frontend Modernization (IN PROGRESS)**
+
+- **Backend Streaming**: Pydantic AI streaming with tool budgets and convergence detection
+- **Frontend Modernization**: shadcn/ui migration with React 19 and real-time streaming
+- **Tool Loop Prevention**: Intelligent stopping criteria and exploration limits
+- **Real-time Visualization**: Tool call progress and entity relationship graphs
+
+### **Phase 6: Production Optimization (FUTURE)**
 
 - **Caching Layer**: Redis-based result caching
 - **Rate Limiting**: API throttling and quota management
 - **Monitoring**: Comprehensive logging and alerting
 - **Documentation**: OpenAPI spec generation and API docs
+
+---
+
+## 🎯 **PHASE 5: STREAMING OPTIMIZATION & FRONTEND MODERNIZATION**
+
+### **📋 Master Task Table**
+
+**Status:** 🚧 **IN PROGRESS** - Streaming optimization and frontend modernization
+**Date Started:** January 2025
+**Target Completion:** Q1 2025
+
+Below is the granular, checkbox-driven task matrix for **Phase 5.1 (Backend Streaming)** and **Phase 5.2 (Frontend Modernization)**.  
+Rows appear in execution order; each implementation item is immediately followed by its acceptance-test row.  
+(☐ = Pending | ✅ = Done / Pre-existing)
+
+| #                                           | Task                                                                                                                | Phase | File / Area                                   | Status | Acceptance / Test Criteria                                                 |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----- | --------------------------------------------- | ------ | -------------------------------------------------------------------------- |
+| **5.1-A Research & Design**                 |
+| 1                                           | Study latest Pydantic-AI streaming API (`agent.run_stream`, event models) using docs @ai.pydantic.dev/llms-full.txt | 5.1   | —                                             | ☐      | Written notes & reference snippets committed to `docs/Phase5-research.md`  |
+| 2                                           | Study Vercel AI SDK v4 streaming contract @ai-sdk.dev/llms.txt (event format, SSE headers)                          | 5.1   | —                                             | ☐      | Same as #1                                                                 |
+| **5.1-B Tool Budget & Convergence**         |
+| 3                                           | Create `ToolBudget` model with fields: `max_tool_calls`, `max_depth`, `convergence_threshold`, `time_budget_s`      | 5.1   | `api/agents/universal.py`                     | ☐      | Unit test asserts default values & pydantic validation                     |
+| 4                                           | Implement tests for `ToolBudget` defaults & validation                                                              | 5.1   | `tests/test_tool_budget.py`                   | ☐      | `pytest` green                                                             |
+| **5.1-C Convergence Detector**              |
+| 5                                           | Implement `ConvergenceDetector` util (tracks repeated answers / similarity over window)                             | 5.1   | `api/agents/utils/convergence.py`             | ☐      | Unit test: detector flags convergence when similarity ≥ threshold 3 times  |
+| 6                                           | Tests for `ConvergenceDetector`                                                                                     | 5.1   | `tests/test_convergence.py`                   | ☐      | `pytest` green                                                             |
+| **5.1-D Streaming Execution Pipeline**      |
+| 7                                           | Refactor `execute_agent_streaming` to use `agent.run_stream` with async context                                     | 5.1   | `api/agents/universal.py` (streaming section) | ☐      | Manual dev run streams events with tool & text deltas                      |
+| 8                                           | Emit unified event objects that match Vercel SDK spec (id, event, data JSON)                                        | 5.1   | same                                          | ☐      | `curl` / frontend viewer displays streaming text & tool events             |
+| 9                                           | Integrate `ToolBudget` & `ConvergenceDetector` into stream loop (abort when exceeded / converged)                   | 5.1   | same                                          | ☐      | Unit test simulating >max_tool_calls stops stream                          |
+| 10                                          | Graceful error & timeout handling (fallback message, stream close)                                                  | 5.1   | same                                          | ☐      | Simulated tool error returns proper `error` event; no unhandled exceptions |
+| 11                                          | End-to-end backend streaming test (mock agent + dummy tool)                                                         | 5.1   | `tests/test_streaming_backend.py`             | ☐      | Test validates event order & budgets                                       |
+| **5.1-E Documentation & Cleanup**           |
+| 12                                          | Update `Backend-Simplification-Plan.md` with Phase 5 section and diagram                                            | 5.1   | `Backend-Simplification-Plan.md`              | ✅     | PR diff shows new Phase 5 added                                            |
+| **5.2-A Frontend Infrastructure Prep**      |
+| 13                                          | Install & configure shadcn/ui with React 19 & Tailwind CSS                                                          | 5.2   | `package.json`, `tailwind.config.js`          | ☐      | `npm run dev` builds successfully                                          |
+| 14                                          | Baseline Cypress smoke test to capture current chat behaviour                                                       | 5.2   | `cypress/`                                    | ☐      | Cypress run passes                                                         |
+| **5.2-B Streaming UI Components**           |
+| 15                                          | Add `streaming-chat.tsx` using shadcn/ui primitives (Stream, Message, ToolCard)                                     | 5.2   | `components/agent-panel/`                     | ☐      | Storybook snapshot renders                                                 |
+| 16                                          | Test: rendering stream events (text, tool-call, tool-result)                                                        | 5.2   | `tests/frontend/streaming-chat.test.tsx`      | ☐      | Jest + React Testing Library green                                         |
+| 17                                          | Add `tool-call-indicator.tsx` (progress bar, spinner)                                                               | 5.2   | same                                          | ☐      | Visual doc passes                                                          |
+| **5.2-C High-Impact Component Upgrades**    |
+| 18                                          | Migrate `agent-panel.tsx` to shadcn/ui layout components                                                            | 5.2   | `components/agent-panel/agent-panel.tsx`      | ☐      | No regression in Cypress smoke tests                                       |
+| 19                                          | Replace deprecated state logic in `message-group.tsx` with React 19 hooks                                           | 5.2   | same                                          | ☐      | Unit + Cypress tests pass                                                  |
+| **5.2-D Graph Visualization**               |
+| 20                                          | Implement `entity-graph.tsx` (Mermaid or cytoscape) to visualize tool relationships                                 | 5.2   | `components/ui/`                              | ☐      | Storybook render verified                                                  |
+| 21                                          | Integrate graph into `agent-content.tsx` toggle panel                                                               | 5.2   | `components/agent-panel/`                     | ☐      | Graph toggles without layout shift                                         |
+| **5.2-E End-to-End Frontend Test & Polish** |
+| 22                                          | Wire backend SSE endpoint to frontend via Vercel AI SDK `createStream()`                                            | 5.2   | `app/chat/[id]/page.tsx`                      | ☐      | Live chat shows real-time updates                                          |
+| 23                                          | Lighthouse performance & accessibility audit                                                                        | 5.2   | —                                             | ☐      | Scores ≥ 90                                                                |
+| 24                                          | Update README & developer docs for new streaming setup                                                              | 5.2   | `README.md`, `docs/`                          | ☐      | Docs include env vars & run instructions                                   |
+| **5.2-F Regression & Acceptance Suite**     |
+| 25                                          | Full regression test (backend + frontend) via Playwright                                                            | 5.2   | `tests/e2e/`                                  | ☐      | All tests green                                                            |
+| **Completed Pre-existing Items**            |
+| 0-A                                         | Universal Agent Factory (Phase 1-3)                                                                                 | —     | `api/agents/universal.py`                     | ✅     | Verified in codebase                                                       |
+| 0-B                                         | Conversation History storage (Phase 4)                                                                              | —     | DB + models                                   | ✅     | Existing unit tests pass                                                   |
+
+### **📊 Change Index (by file / area)**
+
+1. **api/agents/universal.py**  
+   • Add `ToolBudget`, integrate `ConvergenceDetector`, rewrite streaming routine, error handling.
+2. **api/agents/utils/**  
+   • New `convergence.py` helper.
+3. **tests/**  
+   • New backend unit tests (`test_tool_budget.py`, `test_convergence.py`, `test_streaming_backend.py`).
+4. **components/agent-panel/**  
+   • Migrate `agent-panel.tsx`, `agent-content.tsx`, add `streaming-chat.tsx`, `tool-call-indicator.tsx`.
+5. **components/ui/**  
+   • Add `entity-graph.tsx`.
+6. **app/chat/[id]/page.tsx**  
+   • Hook in new streaming client with Vercel AI SDK v4.
+7. **docs & README**  
+   • Research notes, Phase 5 plan, updated setup guides.
+8. **Config & Tooling**  
+   • Tailwind & shadcn/ui setup, Cypress & Playwright additions.
+
+### **🔧 Change Complexity Assessment**
+
+Phase 5 introduces **moderate–high complexity**:
+
+- **Backend (5.1)** – Medium: confined to streaming logic and utility classes; minimal database impact.
+- **Frontend (5.2)** – Medium-High: selective but non-trivial component migrations; requires React 19 compatibility and SSE wiring.
+
+Overall, changes are **comprehensive** but contained, with clear test gates limiting regressions.
+
+### **📋 Step-by-Step Execution Plan**
+
+**Step 1/7: Research APIs & Draft PoC**
+
+_Tasks_
+
+1. Complete rows #1 & #2 (API research).
+2. Draft minimal PoC streaming endpoint returning mock events conforming to Vercel spec.
+
+_Goal_ – Solid reference notes + proof that backend can emit compatible event stream.
+
+**Next Step:** Step 2/7 – Implement `ToolBudget` model (row #3)  
+**Compatibility with next step:** Completing Step 1 provides the knowledge base and PoC needed to safely implement budget limits without rework.
+
+### **🎯 Phase 5 Success Criteria**
+
+**Backend Streaming (5.1):**
+
+- ✅ Agent exploration loops eliminated with intelligent stopping
+- ✅ Real-time streaming of tool calls and results implemented
+- ✅ Tool budgets prevent infinite exploration
+- ✅ Proper Pydantic AI streaming patterns followed
+- ✅ Error handling gracefully manages streaming failures
+
+**Frontend Modernization (5.2):**
+
+- ✅ Frontend modernized with latest shadcn/ui components
+- ✅ Real-time streaming visualization working
+- ✅ Component complexity reduced by 50%+
+- ✅ Tool call progress indicators functional
+- ✅ Entity relationship visualization implemented
+
+### **⚠️ Critical Constraints**
+
+1. **Maintain 81% Code Reduction** - Don't add unnecessary complexity
+2. **Preserve MCP Integration** - Keep working LLM-MCP interface intact
+3. **Type Safety** - Maintain full Pydantic validation throughout
+4. **Performance** - Streaming should not impact response times
+5. **User Experience** - Real-time updates should feel smooth and responsive
 
 ---
 
