@@ -1,222 +1,355 @@
-# 🎯 Fresh Start: Phase 4 MCP Connectivity Final Optimization
+# 🎯 Fresh Start: Phase 4 Final - FastMCP Version Compatibility Resolution
 
-## 📋 **TLDR - NEXT PAGE**
+## 📋 **TLDR - Next Page Priority Actions**
 
-**Current Status:** Phase 4 - MCP Session Management 95% Complete  
-**Priority:** MEDIUM - Eliminate final 400 errors and optimize performance  
-**Expected Completion:** 1-2 hours  
-**Files to Focus:** `api/agents/universal.py`, `api/agents/parallel.py`
+**CURRENT STATUS**: Phase 4 MCP Integration - **CRITICAL VERSION COMPATIBILITY ISSUE DISCOVERED**  
+**PRIORITY LEVEL**: 🔥 **URGENT** - FastMCP 2.10.4 Client → 2.9 Server Version Mismatch  
+**ESTIMATED TIME**: 1-2 hours  
+**SUCCESS CRITERIA**: Successful MCP client connection with version-matched FastMCP installation
 
-## 🎯 **MISSION BRIEFING**
+### **🎯 IMMEDIATE ACTIONS REQUIRED**
 
-You are completing the **Backend Simplification Plan** (see `Backend-Simplification-Plan.md`) which has achieved **80% code reduction** and is now in **Phase 4: Advanced MCP Integration - Final Stage**.
+1. **DOWNGRADE FASTMCP CLIENT VERSION** (Highest Priority)
 
-**Current Achievement Status:**
+   - Change `pyproject.toml`: `fastmcp>=2.10.4` → `fastmcp==2.9.2`
+   - Test connection with version-matched client
+   - Verify all MCP tools work correctly
 
-- ✅ **Phase 1-2:** Universal Agent Factory (90% code reduction)
-- ✅ **Phase 2-3:** Router Consolidation (58% reduction)
-- 🔄 **Phase 4:** MCP Session Management (95% complete)
+2. **VALIDATE MCP INTEGRATION**
 
-## 🚨 **CURRENT STATUS & REMAINING ISSUE**
+   - Test `UniversalAgentFactory` with downgraded FastMCP
+   - Ensure all 5 agent types can access MCP tools
+   - Complete Phase 4 documentation
 
-**Major Success:** MCP session management is now working excellently!
-
-**Evidence from Latest Logs:**
-
-```
-INFO:api.agents.universal:Initialized MCP session 5d7dffeb38434223a55366439fd11831 for key simplifier_89883fe2 [rate-limited]
-INFO:api.agents.universal:Session simplifier_89883fe2 verified as ready
-INFO:api.agents.universal:Executing simplifier agent with MCP tools (session: simplifier_89883fe2)
-INFO:httpx:HTTP Request: GET http://localhost:8009/sse/ "HTTP/1.1 200 OK"
-```
-
-**✅ What's Working:**
-
-- All 4 agents executing successfully with MCP tools
-- Session initialization: 100% success rate
-- Rate limiting: Working (semaphore-based, max 3 concurrent)
-- Session verification: All sessions verified as ready
-- Cleanup: Proper session cleanup after execution
-
-**⚠️ Minor Issue Remaining:**
-
-- Initial 400 Bad Request errors still occur on first connection attempt
-- Pattern: `400 → Initialize → Verify → Execute → 200 OK`
-- This is isolated to the **initial connection phase** only
-
-## 🎯 **PHASE 4 FINAL COMPLETION ROADMAP**
-
-### **Phase 4.4: Initial Connection Optimization (CURRENT PRIORITY)**
-
-**Problem:** First connection attempt gets 400 Bad Request  
-**Root Cause:** MCP server needs "warm-up" or connection handshake  
-**Solution:** Implement connection pre-warming or better error handling
-
-**Technical Approach:**
-
-```python
-# In CustomMCPServerSSE.__init__()
-async def _warm_up_connection(self):
-    """Pre-warm MCP server connection to prevent initial 400 errors"""
-    try:
-        async with httpx.AsyncClient() as client:
-            # Make a lightweight connection test
-            await client.get(self.url + "health", timeout=5.0)
-    except Exception:
-        pass  # Ignore warm-up failures
-
-# Or alternative: Retry logic for initial connection
-async def _initialize_session_with_retry(self, session_key: str, max_retries: int = 2):
-    for attempt in range(max_retries + 1):
-        try:
-            return await self._initialize_session(session_key)
-        except Exception as e:
-            if attempt < max_retries:
-                await asyncio.sleep(0.1 * (attempt + 1))  # Exponential backoff
-                continue
-            raise e
-```
-
-### **Phase 4.5: Performance Optimization**
-
-**Focus Areas:**
-
-1. **Connection Pooling:** Reuse HTTP connections
-2. **Session Caching:** Cache successful sessions longer
-3. **Monitoring:** Add metrics for connection success rates
-
-### **Phase 4.6: Production Readiness**
-
-**Final Tasks:**
-
-1. **Health Checks:** Add MCP server health monitoring
-2. **Circuit Breaker:** Implement circuit breaker pattern
-3. **Metrics:** Add connection success/failure metrics
-4. **Documentation:** Update API documentation
-
-## 📁 **KEY FILES TO MODIFY**
-
-### **Primary Files:**
-
-- `api/agents/universal.py` - CustomMCPServerSSE class (lines 71-170)
-- `api/agents/parallel.py` - Parallel execution coordination
-
-### **Secondary Files:**
-
-- `api/routers/agents.py` - Health check endpoints
-- `api/utils/database.py` - Metrics storage (if needed)
-
-## 🔧 **TECHNICAL IMPLEMENTATION GUIDE**
-
-### **Current Architecture (Working):**
-
-```python
-class CustomMCPServerSSE:
-    def __init__(self):
-        self.session_semaphore = asyncio.Semaphore(3)  # Rate limiting
-        self.initialization_delay = 0.2  # Prevent race conditions
-
-    async def _initialize_session(self, session_key: str):
-        async with self.session_semaphore:
-            await asyncio.sleep(self.initialization_delay)
-            # Create session with proper headers
-```
-
-### **Proposed Enhancement:**
-
-```python
-class CustomMCPServerSSE:
-    def __init__(self):
-        # ... existing code ...
-        self.connection_cache = {}  # Cache HTTP connections
-        self.retry_config = {"max_retries": 2, "backoff_factor": 0.1}
-
-    async def _initialize_session_with_retry(self, session_key: str):
-        """Initialize session with retry logic for 400 errors"""
-        for attempt in range(self.retry_config["max_retries"] + 1):
-            try:
-                return await self._initialize_session(session_key)
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 400 and attempt < self.retry_config["max_retries"]:
-                    delay = self.retry_config["backoff_factor"] * (2 ** attempt)
-                    await asyncio.sleep(delay)
-                    continue
-                raise
-```
-
-## 📋 **TODO LIST FOR NEXT CONVERSATION**
-
-### **Immediate Tasks (High Priority):**
-
-1. **analyze_400_errors** - Investigate the exact cause of initial 400 errors
-2. **implement_retry_logic** - Add retry mechanism for initial connection failures
-3. **test_connection_stability** - Verify retry logic eliminates 400 errors
-4. **optimize_session_timing** - Fine-tune delays and timeouts
-
-### **Secondary Tasks (Medium Priority):**
-
-5. **add_connection_caching** - Implement HTTP connection reuse
-6. **implement_health_checks** - Add MCP server health monitoring
-7. **add_metrics_collection** - Track connection success/failure rates
-8. **update_documentation** - Document the final MCP integration
-
-### **Final Tasks (Low Priority):**
-
-9. **implement_circuit_breaker** - Add circuit breaker for MCP unavailability
-10. **performance_testing** - Load test the MCP integration
-11. **production_deployment** - Prepare for production deployment
-12. **phase_4_completion** - Mark Phase 4 as complete and move to Phase 5
-
-## 🎯 **SUCCESS CRITERIA**
-
-### **Phase 4 Completion Metrics:**
-
-- ✅ **Session Success Rate:** 100% (Currently: 100%)
-- ⚠️ **Initial Connection Success:** 0% (Target: 95%+)
-- ✅ **Parallel Execution:** Working (4 agents simultaneously)
-- ✅ **Error Handling:** Graceful fallbacks implemented
-- ✅ **Code Reduction:** 80% achieved (from original implementation)
-
-### **Final Validation:**
-
-- Zero 400 Bad Request errors in logs
-- All agents executing without MCP connectivity issues
-- Performance metrics showing stable connection patterns
-- Ready for Phase 5: Frontend Integration
-
-## 🔄 **CONTEXT FROM BACKEND-SIMPLIFICATION-PLAN.MD**
-
-**Phase 4 Objectives (From Plan):**
-
-> "Advanced MCP Integration with session management, connection pooling, and error recovery patterns"
-
-**Current Status vs Plan:**
-
-- ✅ Session Management: Implemented and working
-- ✅ Connection Pooling: Implemented with semaphore-based rate limiting
-- ✅ Error Recovery: Graceful fallbacks implemented
-- ⚠️ Final Polish: Minor 400 errors need elimination
-
-**Next Phase Preview:**
-
-- **Phase 5:** Frontend Integration & UI Polish
-- **Phase 6:** Production Deployment & Monitoring
-
-## 🚀 **GETTING STARTED**
-
-1. **First Action:** Create todo list using the provided tasks above
-2. **Investigation:** Analyze the 400 error pattern in server logs
-3. **Implementation:** Add retry logic to eliminate initial connection failures
-4. **Testing:** Verify the fix works consistently
-5. **Optimization:** Fine-tune performance and add monitoring
-
-**Remember:** You're 95% complete with Phase 4! The remaining work is polish and optimization, not major architectural changes.
+3. **IMPLEMENT GRACEFUL FALLBACK**
+   - Maintain backward compatibility
+   - Add version checking and error handling
+   - Document version requirements
 
 ---
 
-**File References:**
+## 🏗️ **PROJECT CONTEXT & ARCHITECTURE**
 
-- Main Plan: `Backend-Simplification-Plan.md`
-- Implementation: `api/agents/universal.py`
-- Parallel Execution: `api/agents/parallel.py`
-- Router Integration: `api/routers/agents.py`
+### **Backend Simplification Plan Status**
+
+Referencing `Backend-Simplification-Plan.md` - we have achieved **95% completion** of Phase 4:
+
+```
+✅ COMPLETED PHASES:
+├── Phase 1-2: Universal Agent Factory (90% code reduction)
+├── Phase 2-3: Router Consolidation (75% total reduction)
+└── Phase 4: MCP Integration (95% complete)
+
+🚨 CRITICAL BLOCKER: Phase 4 Final - FastMCP Version Compatibility
+```
+
+### **Current Architecture State**
+
+```mermaid
+graph TB
+    subgraph "✅ WORKING: Universal Agent System"
+        FACTORY[UniversalAgentFactory<br/>270 lines - 81% reduction]
+        AGENTS[5 Agent Types<br/>All Operational]
+        ROUTERS[Universal Router<br/>452 lines]
+
+        FACTORY --> AGENTS
+        ROUTERS --> FACTORY
+    end
+
+    subgraph "🚨 BROKEN: MCP Integration"
+        CLIENT[FastMCP Client 2.10.4<br/>❌ Version Mismatch]
+        SERVER[MCP Server 2.9<br/>✅ Working via Cursor]
+        TOOLS[MCP Tools<br/>Available but not accessible]
+
+        CLIENT -.->|Version Incompatible| SERVER
+        SERVER --> TOOLS
+    end
+
+    FACTORY -.->|Needs Version Match| CLIENT
+
+    style CLIENT fill:#ff9999
+    style FACTORY fill:#99ff99
+```
+
+---
+
+## 🔍 **TECHNICAL DIAGNOSIS**
+
+### **Root Cause Analysis**
+
+**CONFIRMED VERSION MISMATCH:**
+
+1. **MCP Server**: FastMCP 2.9 (confirmed via health check)
+2. **Client**: FastMCP 2.10.4 (from `pyproject.toml`)
+3. **Connection Error**: `"Session terminated"` - version incompatibility
+4. **Transport Issues**: Proxy patterns fail due to protocol differences
+
+### **Evidence from Investigation**
+
+```bash
+# Server Health Check Response
+FastMCP version: 2.9
+Transport: SSE (Server-Sent Events)
+Status: ✅ Running on localhost:8009
+
+# Client Configuration
+fastmcp>=2.10.4  # In pyproject.toml
+Error: "Client failed to connect: Session terminated"
+```
+
+### **FastMCP Documentation Confirms**
+
+> **"Breaking changes will only occur on minor version changes (e.g., 2.3.x to 2.4.0)"** > **"For users concerned about stability in production environments, we recommend pinning FastMCP to a specific version"**
+
+---
+
+## 🎯 **SOLUTION STRATEGY**
+
+### **Phase 4 Final: Version Compatibility Resolution**
+
+#### **Step 1: FastMCP Client Downgrade**
+
+**File to Modify**: `pyproject.toml`
+
+```toml
+# BEFORE (Current - Broken)
+dependencies = [
+    "fastapi>=0.116.1",
+    "fastmcp>=2.10.4",  # ❌ Version mismatch
+    "psycopg2-binary>=2.9.10",
+    "pydantic-ai>=0.4.2",
+    "sqlalchemy>=2.0.41",
+]
+
+# AFTER (Fixed - Version Matched)
+dependencies = [
+    "fastapi>=0.116.1",
+    "fastmcp==2.9.2",  # ✅ Pin to server version
+    "psycopg2-binary>=2.9.10",
+    "pydantic-ai>=0.4.2",
+    "sqlalchemy>=2.0.41",
+]
+```
+
+**Commands to Execute**:
+
+```bash
+# 1. Update pyproject.toml (above change)
+# 2. Reinstall with pinned version
+uv sync --reinstall
+# 3. Test connection
+uv run python -c "from api.agents.universal import get_universal_factory; import asyncio; print(asyncio.run(get_universal_factory().test_mcp_connection()))"
+```
+
+#### **Step 2: Simplify MCP Client Configuration**
+
+**File to Modify**: `api/agents/universal.py`
+
+```python
+# CURRENT (Complex Proxy - Remove)
+def __init__(self):
+    try:
+        backend_client = Client("http://localhost:8009")
+        proxy_server = FastMCP.as_proxy(backend_client, name="...")
+        self.mcp_client = Client(proxy_server)
+    except Exception as e:
+        # Complex error handling
+
+# SIMPLIFIED (Direct Connection - Version Matched)
+def __init__(self):
+    try:
+        # Direct connection with version-matched client
+        self.mcp_client = Client("http://localhost:8009")
+        logger.info("FastMCP 2.9 client initialized successfully")
+    except Exception as e:
+        logger.error(f"MCP client initialization failed: {e}")
+        self.mcp_client = None
+
+    self.mcp_available = self.mcp_client is not None
+```
+
+#### **Step 3: Update Test and Validation**
+
+**File to Modify**: `api/agents/universal.py` (test_mcp_connection method)
+
+```python
+async def test_mcp_connection(self) -> Dict[str, Any]:
+    """Test FastMCP connection with version-matched client (2.9)"""
+    if not self.mcp_client:
+        return {
+            "connection_test": "failed",
+            "error": "MCP client not initialized",
+            "version_status": "FastMCP 2.9 required"
+        }
+
+    try:
+        async with self.mcp_client as mcp:
+            await mcp.ping()
+            tools = await mcp.list_tools()
+            resources = await mcp.list_resources()
+
+            return {
+                "connection_test": "success",
+                "version_status": "FastMCP 2.9 - Version Matched",
+                "tools_available": len(tools),
+                "resources_available": len(resources),
+                "tool_names": [tool.name for tool in tools],
+            }
+    except Exception as e:
+        return {
+            "connection_test": "failed",
+            "error": str(e),
+            "version_status": "FastMCP 2.9 - Connection Failed"
+        }
+```
+
+---
+
+## 📝 **TODO LIST FOR NEXT CONVERSATION**
+
+### **Phase 4 Final Completion Tasks**
+
+```markdown
+**PRIORITY 1: Version Compatibility Resolution**
+
+- [ ] Update pyproject.toml: fastmcp>=2.10.4 → fastmcp==2.9.2
+- [ ] Run uv sync --reinstall to apply version change
+- [ ] Test basic MCP connection with version-matched client
+
+**PRIORITY 2: Simplify MCP Client Configuration**
+
+- [ ] Remove complex proxy pattern from UniversalAgentFactory.**init**
+- [ ] Implement direct Client("http://localhost:8009") connection
+- [ ] Update error handling for version-matched client
+
+**PRIORITY 3: Validation and Testing**
+
+- [ ] Update test_mcp_connection method for 2.9 compatibility
+- [ ] Test all 5 agent types with MCP tools
+- [ ] Verify graceful fallback when MCP unavailable
+
+**PRIORITY 4: Documentation and Cleanup**
+
+- [ ] Update Backend-Simplification-Plan.md with Phase 4 completion
+- [ ] Document version requirements and compatibility notes
+- [ ] Clean up any remaining proxy-related code
+```
+
+### **Success Criteria Checklist**
+
+```markdown
+- [ ] FastMCP client version matches server (2.9.2)
+- [ ] MCP connection test returns "success" status
+- [ ] All MCP tools accessible from Universal Agent Factory
+- [ ] All 5 agent types can execute MCP tool calls
+- [ ] Graceful fallback when MCP server unavailable
+- [ ] Phase 4 documented as 100% complete
+```
+
+---
+
+## 🔧 **IMPLEMENTATION DETAILS**
+
+### **Key Files to Modify**
+
+1. **`pyproject.toml`** (Lines 8)
+
+   - Change: `fastmcp>=2.10.4` → `fastmcp==2.9.2`
+
+2. **`api/agents/universal.py`** (Lines 70-95, 306-418)
+
+   - Simplify `__init__` method - remove proxy pattern
+   - Update `test_mcp_connection` method for 2.9 compatibility
+   - Add version checking and error handling
+
+3. **`Backend-Simplification-Plan.md`** (End of file)
+   - Add Phase 4 completion status
+   - Document version compatibility requirements
+
+### **Expected Outcomes**
+
+```python
+# BEFORE (Broken)
+FastMCP proxy connection test failed: Client failed to connect: Session terminated
+
+# AFTER (Fixed)
+{
+    "connection_test": "success",
+    "version_status": "FastMCP 2.9 - Version Matched",
+    "tools_available": 15,
+    "resources_available": 8,
+    "tool_names": ["search_code", "find_entities", "get_entity_relationships", ...]
+}
+```
+
+---
+
+## 🚀 **NEXT STEPS EXECUTION PLAN**
+
+### **Immediate Actions (Next 30 minutes)**
+
+1. **Version Downgrade**: Update `pyproject.toml` and reinstall
+2. **Simplify Configuration**: Remove proxy pattern, use direct connection
+3. **Test Connection**: Verify MCP client can connect to server
+
+### **Validation Phase (Next 30 minutes)**
+
+1. **Test All Agent Types**: Ensure MCP tools work across all 5 agents
+2. **Error Handling**: Verify graceful fallback mechanisms
+3. **Documentation**: Update completion status
+
+### **Completion Phase (Next 30 minutes)**
+
+1. **Final Testing**: End-to-end agent execution with MCP tools
+2. **Documentation Update**: Mark Phase 4 as 100% complete
+3. **Cleanup**: Remove any remaining proxy-related code
+
+---
+
+## 🎯 **SUCCESS METRICS**
+
+- **Connection Success Rate**: 100% (from current 0%)
+- **MCP Tool Accessibility**: All tools accessible from all agent types
+- **Version Compatibility**: Client and server versions matched
+- **Phase 4 Completion**: 100% (from current 95%)
+- **Code Simplification**: Remove complex proxy patterns
+
+---
+
+## 🔍 **TROUBLESHOOTING GUIDE**
+
+### **If Version Downgrade Fails**
+
+1. Clear uv cache: `uv cache clean`
+2. Force reinstall: `uv sync --reinstall --force`
+3. Check version: `uv run python -c "import fastmcp; print(fastmcp.__version__)"`
+
+### **If Connection Still Fails**
+
+1. Check server status: `curl -v http://localhost:8009/sse/`
+2. Verify transport: Ensure server uses SSE transport
+3. Check logs: Look for specific error messages
+
+### **If MCP Tools Don't Work**
+
+1. Test individual tools via Cursor interface
+2. Check tool signatures and parameters
+3. Verify agent dependencies and context
+
+---
+
+## 📋 **FINAL VALIDATION CHECKLIST**
+
+```markdown
+✅ Phase 4 Final Completion Criteria:
+
+- [ ] FastMCP versions matched (client: 2.9.2, server: 2.9)
+- [ ] MCP connection test passes
+- [ ] All 5 agent types can access MCP tools
+- [ ] Universal Agent Factory fully operational
+- [ ] Graceful fallback implemented
+- [ ] Documentation updated to 100% complete
+- [ ] No remaining proxy or version compatibility code
+```
+
+**🎯 GOAL**: Complete Phase 4 with 100% MCP integration success, achieving full backend simplification as outlined in the Backend-Simplification-Plan.md
