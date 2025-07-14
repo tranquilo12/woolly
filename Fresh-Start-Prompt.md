@@ -1,292 +1,279 @@
-# 🚀 Fresh Start Prompt: Phase 5.2 Frontend Modernization
+# 🚀 Fresh Start Prompt: Phase 5.2 Frontend Modernization Continuation
 
-## 📋 **TL;DR - Next Page**
+## 🎯 **CURRENT STATUS & CONTEXT**
 
-**CURRENT STATUS:** ✅ Phase 5.1 Backend Streaming COMPLETE  
-**NEXT PRIORITY:** 🎯 Phase 5.2 Frontend Modernization (Tasks #13-25)  
-**KEY FILES:** `components/agent-panel/`, `app/chat/[id]/page.tsx`, `package.json`  
-**GOAL:** Modernize frontend with shadcn/ui + React 19 + real-time streaming
+You are continuing **Phase 5.2: Frontend Modernization** of the Backend Simplification Plan for the Woolly project. This is a comprehensive codebase analysis and streaming optimization system built with:
 
----
+- **Backend**: FastAPI + Pydantic AI + Universal Agent Factory
+- **Frontend**: Next.js 15 + React 19 + shadcn/ui + Tailwind CSS
+- **Architecture**: 81% code reduction achieved through Universal Agent patterns
 
-## 🎯 **MISSION CONTEXT**
+### **📋 COMPLETED ACHIEVEMENTS (Tasks #13-18)**
 
-You are continuing the **Backend Simplification Plan** (see `Backend-Simplification-Plan.md`) for the Woolly codebase. We have successfully completed **Phase 5.1 Backend Streaming** and are now ready to tackle **Phase 5.2 Frontend Modernization**.
+✅ **Streaming Infrastructure Complete**:
 
-### **What We've Achieved (Phase 5.1 ✅)**
+- `components/agent-panel/streaming-chat.tsx` - Real-time streaming UI with shadcn/ui
+- `components/agent-panel/tool-call-indicator.tsx` - Progress visualization components
+- `api/agents/universal.py` - Enhanced with ToolBudget & ConvergenceDetector
+- `api/agents/utils/convergence.py` - AI-powered convergence detection
+- Jest + React Testing Library setup with comprehensive test coverage
 
-- ✅ **ToolBudget Model**: Comprehensive tool call limits and convergence detection
-- ✅ **ConvergenceDetector**: AI critic + Jaccard similarity for intelligent stopping
-- ✅ **Enhanced Streaming**: Pydantic AI streaming with Vercel AI SDK v4 compatibility
-- ✅ **All Tests Passing**: 43 comprehensive tests (ToolBudget + Convergence + Streaming)
-- ✅ **Intelligent Stopping**: Prevents agent exploration loops with multi-dimensional limits
+✅ **Key Technical Implementations**:
 
-### **Critical Architecture Context**
+- Pydantic AI streaming patterns integrated with Vercel AI SDK v4
+- EventSource-based real-time streaming with proper error handling
+- Tool budget limits and convergence detection to prevent infinite loops
+- Accessibility-first component design with proper ARIA labels
+
+## 🎯 **YOUR IMMEDIATE MISSION**
+
+**PRIORITY**: Complete **Tasks #19-25** from the Phase 5.2 Master Task Table in `Backend-Simplification-Plan.md` (lines 350-400).
+
+### **📊 CRITICAL NEXT STEPS (In Order)**
+
+#### **TASK #19: Migrate agent-panel.tsx to shadcn/ui** ⚡ HIGH PRIORITY
+
+**File**: `components/agent-panel/agent-panel.tsx`
+**Goal**: Replace legacy UI components with shadcn/ui primitives
+**Acceptance**: No regression in Cypress smoke tests
+
+```tsx
+// CURRENT PATTERN (legacy):
+<div className="custom-styles">
+  <LegacyComponent />
+</div>
+
+// TARGET PATTERN (shadcn/ui):
+<Card className="modern-layout">
+  <CardHeader>
+    <CardTitle>Agent Panel</CardTitle>
+  </CardHeader>
+  <CardContent>
+    <StreamingChat repositoryName="..." agentType="..." />
+  </CardContent>
+</Card>
+```
+
+#### **TASK #20: Replace deprecated state logic in message-group.tsx** ⚡ HIGH PRIORITY
+
+**File**: `components/agent-panel/message-group.tsx`
+**Goal**: Migrate to React 19 hooks and modern state patterns
+**Acceptance**: Unit + Cypress tests pass
+
+#### **TASK #21: Implement entity-graph.tsx** 🎨 MEDIUM PRIORITY
+
+**File**: `components/ui/entity-graph.tsx`
+**Goal**: Mermaid or cytoscape visualization for tool relationships
+**Integration**: Into `components/agent-panel/agent-content.tsx` toggle panel
+
+#### **TASK #22: Wire backend SSE to frontend via Vercel AI SDK** 🔌 HIGH PRIORITY
+
+**File**: `app/chat/[id]/page.tsx`
+**Goal**: Live chat with real-time streaming updates
+**Pattern**:
+
+```tsx
+import { useChat } from "ai/react";
+
+const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat(
+  {
+    api: "/api/v1/agents/stream",
+    streamMode: "text",
+  }
+);
+```
+
+### **🏗️ ARCHITECTURE INTEGRATION POINTS**
+
+#### **1. Universal Agent Factory Integration**
+
+- **Location**: `api/agents/universal.py`
+- **Current State**: Enhanced with streaming + budget controls
+- **Integration Need**: Wire to frontend streaming components
+
+#### **2. Streaming Event Flow**
 
 ```mermaid
-graph TB
-    subgraph "✅ COMPLETED: Backend Streaming (Phase 5.1)"
-        BUDGET[ToolBudget Model]
-        CONV[ConvergenceDetector]
-        STREAM[Enhanced Streaming Pipeline]
-        BUDGET --> STREAM
-        CONV --> STREAM
-    end
-
-    subgraph "🎯 TARGET: Frontend Modernization (Phase 5.2)"
-        SHADCN[shadcn/ui Components]
-        REACT19[React 19 Patterns]
-        STREAMING_UI[Real-time Streaming UI]
-        GRAPH[Entity Graph Visualization]
-    end
-
-    STREAM --> STREAMING_UI
+graph LR
+    A[Frontend StreamingChat] --> B[FastAPI /stream endpoint]
+    B --> C[Universal Agent Factory]
+    C --> D[Pydantic AI streaming]
+    D --> E[SSE Events]
+    E --> F[Vercel AI SDK]
+    F --> A
 ```
 
----
-
-## 🎯 **IMMEDIATE NEXT STEPS (Phase 5.2)**
-
-### **Priority Task Matrix** (from Backend-Simplification-Plan.md)
-
-| Task #  | Priority        | Task Description                                              | File/Area                            | Status               |
-| ------- | --------------- | ------------------------------------------------------------- | ------------------------------------ | -------------------- |
-| **#13** | 🔥 **CRITICAL** | Install & configure shadcn/ui with React 19 & Tailwind CSS    | `package.json`, `tailwind.config.js` | ☐ **START HERE**     |
-| **#14** | 🔥 **CRITICAL** | Baseline Cypress smoke test to capture current chat behaviour | `cypress/`                           | ☐ **IMMEDIATE**      |
-| **#15** | 🚀 **HIGH**     | Add `streaming-chat.tsx` using shadcn/ui primitives           | `components/agent-panel/`            | ☐ **CORE FEATURE**   |
-| **#16** | 🚀 **HIGH**     | Test: rendering stream events (text, tool-call, tool-result)  | `tests/frontend/`                    | ☐ **VALIDATION**     |
-| **#17** | 📊 **MEDIUM**   | Add `tool-call-indicator.tsx` (progress bar, spinner)         | `components/agent-panel/`            | ☐ **UX ENHANCEMENT** |
-
-### **🎯 START HERE: Task #13 - shadcn/ui Setup**
-
-**IMMEDIATE ACTION REQUIRED:**
-
-1. **Install shadcn/ui**: `npx shadcn@latest init`
-2. **Verify React 19**: Check `package.json` for React 19 compatibility
-3. **Configure Tailwind**: Ensure shadcn/ui Tailwind integration
-4. **Test Build**: Verify `npm run dev` works with new setup
-
-**Expected Files to Modify:**
+#### **3. Component Hierarchy**
 
 ```
-package.json          # Add shadcn/ui dependencies
-components.json       # shadcn/ui configuration
-tailwind.config.js    # Updated Tailwind config
-components/ui/        # New shadcn/ui components
+app/chat/[id]/page.tsx
+├── AgentPanel (shadcn/ui migration needed)
+│   ├── StreamingChat ✅ (completed)
+│   ├── ToolCallIndicator ✅ (completed)
+│   ├── EntityGraph (task #21)
+│   └── MessageGroup (React 19 migration needed)
 ```
 
----
+## 🎯 **EXECUTION STRATEGY**
 
-## 📚 **CRITICAL CONTEXT & CONSTRAINTS**
+### **Phase 1: Component Migration (Tasks #19-20)**
 
-### **🔒 MUST PRESERVE**
+1. **Start with agent-panel.tsx migration**:
 
-- **81% Code Reduction Achievement**: Don't add unnecessary complexity
-- **MCP Integration**: Keep `mcp_shriram-prod-108_*` tools working [[memory:2924205]]
-- **Universal Agent Factory**: Maintain existing agent execution patterns
-- **Backend Streaming**: Don't break Phase 5.1 streaming implementation
+   - Replace layout components with shadcn/ui Card/CardHeader/CardContent
+   - Integrate existing StreamingChat component
+   - Maintain all existing functionality
+   - Run Cypress smoke tests for regression
 
-### **🎯 MODERNIZATION TARGETS**
+2. **Update message-group.tsx**:
+   - Replace deprecated React patterns with React 19 hooks
+   - Use `useCallback`, `useMemo`, `useTransition` for performance
+   - Maintain backward compatibility
 
-#### **Current Component Issues** (Need Fixing)
+### **Phase 2: Visualization & Integration (Tasks #21-22)**
 
-```typescript
-// ❌ CURRENT: Outdated patterns in components/agent-panel/
-// - Complex state management in agent-panel.tsx
-// - Deprecated React patterns in message-group.tsx
-// - Missing real-time streaming visualization
-// - No tool call progress indicators
+1. **Entity Graph Implementation**:
 
-// ✅ TARGET: Modern shadcn/ui patterns
-// - Clean shadcn/ui layout components
-// - React 19 hooks and patterns
-// - Real-time streaming with progress indicators
-// - Entity graph visualization
-```
+   - Choose between Mermaid.js or Cytoscape.js
+   - Create toggle panel in agent-content.tsx
+   - Integrate with MCP entity relationship data
 
-#### **Key Files Requiring Modernization**
+2. **End-to-End Streaming**:
+   - Wire Vercel AI SDK to backend SSE endpoint
+   - Test complete streaming flow
+   - Implement error boundaries and fallbacks
 
-1. **`components/agent-panel/agent-panel.tsx`** - Main panel layout (Task #18)
-2. **`components/agent-panel/message-group.tsx`** - Message rendering (Task #19)
-3. **`app/chat/[id]/page.tsx`** - Chat page with streaming integration (Task #22)
-4. **`components/agent-panel/agent-content.tsx`** - Content display with graph toggle (Task #21)
+## 📋 **TODO LIST FOR NEXT CONVERSATION**
 
-### **🔧 TECHNICAL SPECIFICATIONS**
+Create these specific todos using the `todo_write` tool:
 
-#### **Streaming Integration Requirements**
-
-```typescript
-// Backend streaming endpoint (ALREADY IMPLEMENTED ✅)
-// api/agents/universal.py -> execute_agent_streaming()
-// Emits: 'start', 'toolCall', 'toolResult', 'text', 'budget_exceeded', 'converged', 'done'
-
-// Frontend integration target (Task #22)
-// Use Vercel AI SDK v4 createStream() to connect to backend SSE
-import { createStream } from "ai";
-
-const stream = createStream({
-  url: "/api/v1/agents/execute/stream",
-  method: "POST",
-  body: {
-    /* agent request */
+```json
+[
+  {
+    "id": "task-19",
+    "content": "Migrate agent-panel.tsx to shadcn/ui layout components",
+    "status": "pending",
+    "dependencies": []
   },
-});
+  {
+    "id": "task-20",
+    "content": "Replace deprecated state logic in message-group.tsx with React 19 hooks",
+    "status": "pending",
+    "dependencies": ["task-19"]
+  },
+  {
+    "id": "task-21",
+    "content": "Implement entity-graph.tsx (Mermaid or cytoscape) to visualize tool relationships",
+    "status": "pending",
+    "dependencies": []
+  },
+  {
+    "id": "task-22",
+    "content": "Wire backend SSE endpoint to frontend via Vercel AI SDK createStream()",
+    "status": "pending",
+    "dependencies": ["task-19", "task-20"]
+  },
+  {
+    "id": "task-23",
+    "content": "Lighthouse performance & accessibility audit",
+    "status": "pending",
+    "dependencies": ["task-19", "task-20", "task-21", "task-22"]
+  }
+]
 ```
 
-#### **Component Architecture Pattern**
+## 🔧 **TECHNICAL CONSTRAINTS & REQUIREMENTS**
 
-```typescript
-// Target: Modern shadcn/ui component structure
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
+### **Must Maintain**:
 
-// Example: streaming-chat.tsx (Task #15)
-export function StreamingChat() {
+- **81% Code Reduction Achievement** - Don't add unnecessary complexity
+- **MCP Integration** - Keep working LLM-MCP interface intact [[memory:2924205]]
+- **Type Safety** - Full Pydantic validation throughout
+- **Performance** - Streaming should not impact response times
+- **Accessibility** - WCAG 2.1 AA compliance
+
+### **Key Files to Reference**:
+
+- `Backend-Simplification-Plan.md` (lines 350-400) - Master task table
+- `components/agent-panel/streaming-chat.tsx` - Completed streaming component
+- `components/agent-panel/tool-call-indicator.tsx` - Completed progress indicators
+- `jest.config.js` & `jest.setup.js` - Test infrastructure
+- `api/agents/universal.py` - Enhanced streaming backend
+
+### **Testing Requirements**:
+
+- Run `pnpm test` after each component change
+- Cypress smoke tests must pass: `pnpm run test:e2e`
+- Accessibility tests with screen readers
+- Performance benchmarks with Lighthouse
+
+## 🎯 **SUCCESS CRITERIA FOR THIS SESSION**
+
+### **Minimum Viable Progress**:
+
+1. **Task #19 Complete**: agent-panel.tsx migrated to shadcn/ui
+2. **Task #20 Complete**: message-group.tsx updated to React 19
+3. **Tests Passing**: All Jest and Cypress tests green
+4. **No Regressions**: Existing functionality preserved
+
+### **Stretch Goals**:
+
+1. **Task #21 Started**: Entity graph component foundation
+2. **Task #22 Started**: Vercel AI SDK integration begun
+3. **Performance Optimized**: Component rendering improvements
+
+## 📚 **REFERENCE ARCHITECTURE**
+
+### **Universal Agent Factory Pattern** (Completed):
+
+```python
+# api/agents/universal.py
+class UniversalAgentFactory:
+    def create_agent(self, agent_type: AgentType) -> Agent:
+        return Agent(
+            model="openai:gpt-4o-mini",
+            deps_type=UniversalDependencies,
+            result_type=UniversalResult,
+            system_prompt=self.specializations[agent_type],
+            mcp_servers=[self.mcp_server]
+        )
+```
+
+### **Streaming Integration Pattern** (Target):
+
+```tsx
+// app/chat/[id]/page.tsx
+import { useChat } from "ai/react";
+import { StreamingChat } from "@/components/agent-panel/streaming-chat";
+
+export default function ChatPage() {
+  const { messages, input, handleSubmit, isLoading } = useChat({
+    api: "/api/v1/agents/stream",
+    streamMode: "text",
+  });
+
   return (
-    <Card className="h-full">
-      <CardHeader>
-        <ToolCallIndicator /> {/* Task #17 */}
-      </CardHeader>
-      <CardContent>
-        <MessageStream />
-        <EntityGraph /> {/* Task #20 */}
-      </CardContent>
-    </Card>
+    <AgentPanel>
+      <StreamingChat
+        repositoryName={repo}
+        agentType={type}
+        onStreamComplete={handleComplete}
+      />
+    </AgentPanel>
   );
 }
 ```
 
 ---
 
-## 🧪 **TESTING STRATEGY**
+## 🚨 **CRITICAL REMINDERS**
 
-### **Test Pyramid for Phase 5.2**
+1. **Follow the user's rules** about simplicity and modularity [[memory from user_rules]]
+2. **Ask clarification questions** before starting if anything is unclear
+3. **Create todo list immediately** using the todo_write tool
+4. **Focus on surgical changes** - avoid sweeping modifications
+5. **Test after each change** - maintain quality throughout
 
-```
-┌─────────────────────────────────────┐
-│ E2E Tests (Task #25)                │  ← Playwright full regression
-├─────────────────────────────────────┤
-│ Integration Tests (Task #22)        │  ← SSE + Frontend integration
-├─────────────────────────────────────┤
-│ Component Tests (Tasks #16, #19)    │  ← Jest + React Testing Library
-├─────────────────────────────────────┤
-│ Smoke Tests (Task #14)              │  ← Cypress baseline capture
-└─────────────────────────────────────┘
-```
+**START HERE**: Begin with Task #19 (agent-panel.tsx migration) and work systematically through the task list. The foundation is solid - now we're building the user interface that brings it all together.
 
-### **Critical Test Requirements**
-
-- **Task #14**: Cypress smoke test to capture current behavior BEFORE changes
-- **Task #16**: Component tests for streaming event rendering
-- **Task #25**: Full regression suite to ensure no functionality lost
-
----
-
-## 📋 **TODO LIST FOR NEXT CONVERSATION**
-
-**PRIORITY ORDER (Execute in sequence):**
-
-### **🔥 Phase 5.2-A: Infrastructure Prep (Tasks #13-14)**
-
-- [ ] **Task #13**: Install shadcn/ui, verify React 19, configure Tailwind
-- [ ] **Task #14**: Create Cypress baseline smoke tests for current chat behavior
-- [ ] **Validation**: `npm run dev` builds successfully, Cypress runs pass
-
-### **🚀 Phase 5.2-B: Core Streaming Components (Tasks #15-17)**
-
-- [ ] **Task #15**: Implement `streaming-chat.tsx` with shadcn/ui primitives
-- [ ] **Task #16**: Add component tests for stream event rendering
-- [ ] **Task #17**: Create `tool-call-indicator.tsx` with progress visualization
-- [ ] **Validation**: Storybook renders, Jest tests pass
-
-### **📊 Phase 5.2-C: Component Migration (Tasks #18-19)**
-
-- [ ] **Task #18**: Migrate `agent-panel.tsx` to shadcn/ui layout
-- [ ] **Task #19**: Modernize `message-group.tsx` with React 19 patterns
-- [ ] **Validation**: No regression in Cypress smoke tests
-
-### **🎨 Phase 5.2-D: Advanced Features (Tasks #20-21)**
-
-- [ ] **Task #20**: Implement `entity-graph.tsx` visualization
-- [ ] **Task #21**: Integrate graph toggle into `agent-content.tsx`
-- [ ] **Validation**: Graph renders without layout shift
-
-### **🔌 Phase 5.2-E: Integration & Polish (Tasks #22-25)**
-
-- [ ] **Task #22**: Wire backend SSE to frontend via Vercel AI SDK
-- [ ] **Task #23**: Lighthouse performance audit (≥90 scores)
-- [ ] **Task #24**: Update documentation and README
-- [ ] **Task #25**: Full Playwright regression suite
-- [ ] **Validation**: Live streaming works, all tests pass
-
----
-
-## 🔍 **DEBUGGING & VALIDATION COMMANDS**
-
-### **Quick Health Checks**
-
-```bash
-# Verify current setup
-npm run dev                    # Should build successfully
-npm run test                   # Current tests should pass
-npm run build                  # Production build check
-
-# After shadcn/ui installation (Task #13)
-npx shadcn@latest add button   # Test shadcn/ui installation
-npm run dev                    # Verify no build errors
-
-# After Cypress setup (Task #14)
-npx cypress run                # Baseline smoke tests
-
-# After streaming integration (Task #22)
-curl -N http://localhost:3000/api/v1/agents/execute/stream  # Test SSE endpoint
-```
-
-### **Key Files to Monitor**
-
-- `package.json` - Dependencies and scripts
-- `tailwind.config.js` - Tailwind + shadcn/ui integration
-- `components/ui/` - Generated shadcn/ui components
-- `components/agent-panel/` - Core components being modernized
-- `app/chat/[id]/page.tsx` - Main chat interface
-
----
-
-## 🎯 **SUCCESS CRITERIA**
-
-### **Phase 5.2 Completion Metrics**
-
-- ✅ **Frontend Modernized**: shadcn/ui + React 19 patterns implemented
-- ✅ **Real-time Streaming**: Live tool call and result visualization
-- ✅ **Component Simplification**: 50%+ reduction in component complexity
-- ✅ **Performance**: Lighthouse scores ≥90 (performance, accessibility)
-- ✅ **Zero Regressions**: All existing functionality preserved
-- ✅ **Visual Polish**: Tool call indicators and entity graph working
-
-### **Quality Gates**
-
-1. **Task #14**: Cypress baseline captures current behavior
-2. **Task #16**: Component tests validate streaming event rendering
-3. **Task #19**: React 19 patterns replace deprecated state logic
-4. **Task #22**: Live streaming demonstrates real-time updates
-5. **Task #25**: Full regression suite confirms zero functionality loss
-
----
-
-## 🚀 **GET STARTED**
-
-**IMMEDIATE FIRST ACTION:**
-
-```bash
-# Start with Task #13 - shadcn/ui installation
-npx shadcn@latest init
-```
-
-**Then follow the TODO list in priority order, testing at each validation checkpoint.**
-
-Reference the **Backend-Simplification-Plan.md** for complete context and task details. You have all the backend streaming infrastructure ready - now let's build the modern frontend to showcase it!
-
----
-
-**🎯 REMEMBER: We've achieved 81% code reduction and eliminated agent exploration loops. Phase 5.2 is about creating a beautiful, modern frontend that showcases our powerful streaming backend. Stay focused on the task matrix and maintain our architectural achievements!**
+**Remember**: You have access to a powerful MCP server for codebase analysis. Use the `mcp_shriram-prod-108_*` tools to understand the codebase deeply before making changes.

@@ -6,6 +6,7 @@ import { Suspense, memo, useRef, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { usePathname } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { useRepositoryStatus } from "@/hooks/use-repository-status";
 import { useSystemPrompt } from "@/hooks/use-system-prompt";
 import { AvailableRepository } from "@/lib/constants";
@@ -137,8 +138,8 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 		const safeAgentId = String(props.agent_id);
 
 		return (
-			<div className={cn(
-				"agent-panel w-full h-full border-l bg-background",
+			<Card className={cn(
+				"agent-panel w-full h-full border-l",
 				!isOpen && "invisible w-0",
 				isMaximized && "agent-panel-maximized"
 			)}>
@@ -156,13 +157,13 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 						/>
 					)}
 				</Suspense>
-			</div>
+			</Card>
 		);
 	}
 
 	// Otherwise, render the full panel with repository selection
 	return (
-		<div
+		<Card
 			ref={panelRef}
 			className={cn(
 				"h-full w-full",
@@ -173,14 +174,14 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 			)}
 		>
 			<div className="flex flex-col w-full h-full">
-				<div className="flex flex-col space-y-4 p-4 border-b border-border/50">
+				<CardHeader className="flex flex-col space-y-4 p-4 border-b border-border/50">
 					<div className="flex items-center justify-between gap-4">
 						<div className="flex items-center gap-4">
 							<div className="flex items-center gap-2">
 								<div className="flex items-center justify-center h-8 w-8 rounded-md bg-primary/10">
 									<Bot className="h-5 w-5 text-primary" />
 								</div>
-								<h2 className="text-lg font-semibold">AI Assistant</h2>
+								<CardTitle className="text-lg">AI Assistant</CardTitle>
 							</div>
 
 							<Select
@@ -243,8 +244,18 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 								</TabsTrigger>
 								<TabsTrigger value="mermaid">Diagrams</TabsTrigger>
 							</TabsList>
+						</Tabs>
+					)}
+				</CardHeader>
 
-							<TabsContent value="documentation" className="flex-1 mt-0 h-[calc(100vh-240px)]">
+				<CardContent className="flex-1 p-0">
+					{selectedRepo ? (
+						<Tabs
+							defaultValue={activeTab}
+							className="h-full"
+							onValueChange={(value) => setActiveTab(value as 'documentation' | 'mermaid')}
+						>
+							<TabsContent value="documentation" className="flex-1 mt-0 h-full">
 								{activeTab === 'documentation' && (
 									<Suspense fallback={<PanelSkeleton />}>
 										{selectedRepo && (
@@ -258,7 +269,7 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 									</Suspense>
 								)}
 							</TabsContent>
-							<TabsContent value="mermaid" className="flex-1 mt-0 h-[calc(100vh-240px)]">
+							<TabsContent value="mermaid" className="flex-1 mt-0 h-full">
 								{activeTab === 'mermaid' && (
 									<Suspense fallback={<PanelSkeleton />}>
 										{selectedRepo && (
@@ -270,17 +281,15 @@ export const AgentPanel = memo(function AgentPanel(props: AgentPanelProps) {
 								)}
 							</TabsContent>
 						</Tabs>
+					) : (
+						<div className="flex flex-col items-center justify-center flex-1 p-6 text-muted-foreground">
+							<Bot className="h-12 w-12 mb-4 opacity-50" />
+							<p className="text-sm">Select a repository to begin</p>
+						</div>
 					)}
-				</div>
-
-				{!selectedRepo && (
-					<div className="flex flex-col items-center justify-center flex-1 p-6 text-muted-foreground">
-						<Bot className="h-12 w-12 mb-4 opacity-50" />
-						<p className="text-sm">Select a repository to begin</p>
-					</div>
-				)}
+				</CardContent>
 			</div>
-		</div>
+		</Card>
 	);
 });
 
