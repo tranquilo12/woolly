@@ -1,4 +1,4 @@
-import { AVAILABLE_REPOSITORIES, AvailableRepository } from './constants';
+import { AvailableRepository } from './constants';
 
 export interface RepositoryCommand {
 	type: 'repository';
@@ -24,11 +24,8 @@ export function parseRepositoryCommand(input: string): RepositoryCommand | null 
 	const [, repoName] = commandMatch;
 	console.log('📦 Extracted repository:', { repoName });
 
-	// Validate if the extracted repository name is in the available repositories
-	if (!AVAILABLE_REPOSITORIES.includes(repoName as AvailableRepository)) {
-		console.log('❌ Invalid repository name');
-		return null;
-	}
+	// Repository validation will be handled by the MCP server
+	// No need to validate against hardcoded list
 
 	// Remove the @repo mention and clean up the query
 	const query = input

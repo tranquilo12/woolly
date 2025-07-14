@@ -1,428 +1,132 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
-import { INDEXER_BASE_URL, AVAILABLE_REPOSITORIES, AvailableRepository } from '@/lib/constants';
+import { BACKEND_URL, Repository } from '@/lib/constants';
 import { debounce } from 'lodash';
 
-export interface Repository {
-	name: string;
-	needs_indexing: boolean;
-	indexing_status?: string;
-	changed_files?: string[];
-	last_indexed?: number;
-	indexed_files?: number;
-	total_files?: number;
-	watch_enabled?: boolean;
-	processed_count?: number;
-	progress?: number;
-	message?: string;
-	current_file?: string;
-	file_stats?: {
-		current?: {
-			total_lines: number;
-			processed_lines: number;
-			total_tokens: number;
-			processed_tokens: number;
-			total_bytes?: number;
-			processed_bytes?: number;
-			status: string;
-		};
-		processed?: Array<{
-			path: string;
-			stats: {
-				total_lines: number;
-				processed_lines: number;
-				total_tokens: number;
-				processed_tokens: number;
-				total_bytes?: number;
-				processed_bytes?: number;
-				status: string;
-			};
-		}>;
-	};
-	stats?: RepositoryStats;
-	language?: string;
-	path?: string;
-	index_stats?: {
-		total_chunks: number;
-		collection: string;
-		has_index: boolean;
-	};
-}
-
-export interface IndexingStatus {
-	repository: string;
-	status: string;
-	message: string;
-	progress?: number;
-	current_file?: string;
-	processed_count?: number;
-	total_files?: number;
-	file_stats?: Repository['file_stats'];
-}
-
-export interface RepositoryMap {
-	name: string;
-	total_files: number;
-	languages: string[];
-	symbols: {
-		classes: number;
-		functions: number;
-		interfaces: number;
-	};
-}
-
-export interface GitDiffOptions {
-	repo_name: string;
-	from_commit?: string;
-	to_commit?: string;
-	file_paths?: string[];
-	ignore_whitespace?: boolean;
-	context_lines?: number;
-}
-
-export interface RepositoryStats {
-	repository: string;
-	total_points: number;
-	collection: string;
-	indexing_status: string;
-}
-
-export interface RepositorySearchResult {
-	content: string;
-	chunk_type: string;
-	file_path: string;
-	start_line: number[];
-	end_line: number[];
-	score: number;
-	repository: string;
-}
-
-export interface SearchRepositoryRequest {
-	query: string;
-	limit?: number;
-	threshold?: number;
-	file_paths?: string[];
-	chunk_types?: string[];
+interface RepositoryResponse {
+	success: boolean;
+	repositories: Repository[];
+	total_repositories: number;
+	total_chunks: number;
+	error?: string;
 }
 
 export function useRepositoryStatus() {
 	const [repositories, setRepositories] = useState<Repository[]>([]);
-	const [isLoading, setIsLoading] = useState(false);
-	const [activeSSEConnections, setActiveSSEConnections] = useState<{ [key: string]: EventSource }>({});
-	const [indexingProgress, setIndexingProgress] = useState<{ [key: string]: number }>({});
-	const [currentStatus, setCurrentStatus] = useState<{ [key: string]: string }>({});
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
+	const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-	// Fetch repository statuses for all known repos
-	const fetchAllRepositories = useCallback(async () => {
-		setIsLoading(true);
+	const fetchRepositories = useCallback(async () => {
 		try {
-			const summaries = await Promise.all(
-				AVAILABLE_REPOSITORIES.map(async (repoName) => {
-					const response = await fetch(`${INDEXER_BASE_URL}/indexer/status/${repoName}`, {
-						headers: {
-							'Cache-Control': 'max-age=60', // Cache for 1 minute
-						}
-					});
-					if (!response.ok) throw new Error(`Failed to fetch status for ${repoName}`);
-					const status = await response.json();
+			setLoading(true);
+			setError(null);
 
-					return {
-						name: repoName,
-						needs_indexing: status.status === 'not_indexed',
-						indexing_status: status.status,
-						current_file: status.current_file,
-						total_files: status.total_files,
-						processed_count: status.processed_count,
-						processed_files: status.processed_files || [],
-						progress: status.total_files
-							? (status.processed_count / status.total_files) * 100
-							: 0,
-						status:
-							status.status === 'in_progress'
-								? 'indexing'
-								: status.status === 'error'
-									? 'error'
-									: 'idle',
-						message: status.message,
-					};
-				})
-			);
+			const response = await fetch('/api/mcp/repositories');
+			const data: RepositoryResponse = await response.json();
 
-			setRepositories(summaries as Repository[]);
-		} catch (error) {
-			console.error('Failed to fetch repositories:', error);
-			toast.error('Failed to load repositories');
+			if (!response.ok || !data.success) {
+				throw new Error(data.error || 'Failed to fetch repositories');
+			}
+
+			setRepositories(data.repositories);
+			setLastUpdated(new Date());
+		} catch (err) {
+			const errorMessage = err instanceof Error ? err.message : 'Failed to fetch repositories';
+			setError(errorMessage);
+			toast.error(`Repository Status Error: ${errorMessage}`);
 		} finally {
-			setIsLoading(false);
+			setLoading(false);
 		}
-	}, []); // Added empty dependencies array as second argument
-
-	// Add memoization for state updates and optimize SSE connections
-	const debouncedSetRepositories = useMemo(
-		() => debounce((updateFn: (prev: Repository[]) => Repository[]) => {
-			setRepositories(updateFn);
-		}, 100),
-		[] // Empty deps since this should be stable
-	);
-
-	// Add memoization for state updates
-	const updateRepository = useCallback((repoName: string, updates: Partial<Repository>) => {
-		setRepositories(prev =>
-			prev.map(repo =>
-				repo.name === repoName
-					? { ...repo, ...updates }
-					: repo
-			)
-		);
 	}, []);
 
-	// Optimize event handler creation
-	const createEventHandler = useCallback((repoName: string) => (event: MessageEvent) => {
-		const data = JSON.parse(event.data);
-
-		// Use requestAnimationFrame to batch updates
-		requestAnimationFrame(() => {
-			updateRepository(repoName, {
-				indexing_status: data.status,
-				current_file: data.current_file,
-				total_files: data.total_files,
-				processed_count: data.processed_count,
-				progress: data.total_files ? (data.processed_count / data.total_files) * 100 : 0,
-				file_stats: data.file_stats,
-				message: data.message,
-				watch_enabled: true
-			});
-		});
-	}, [updateRepository]);
-
-	// Subscribe to SSE for a given repository
-	const subscribeToStatus = useCallback(
-		async (repoName: AvailableRepository) => {
-			if (activeSSEConnections[repoName]) {
-				activeSSEConnections[repoName].close();
-			}
-
-			const eventSource = new EventSource(
-				`${INDEXER_BASE_URL}/indexer/sse?repo=${repoName}`
-			);
-
-			eventSource.addEventListener("indexing_status", createEventHandler(repoName));
-
-			eventSource.onerror = () => {
-				eventSource.close();
-				setActiveSSEConnections((prev) => {
-					const next = { ...prev };
-					delete next[repoName];
-					return next;
-				});
-			};
-
-			setActiveSSEConnections((prev) => ({
-				...prev,
-				[repoName]: eventSource
-			}));
-		},
-		[activeSSEConnections, createEventHandler]
+	const debouncedFetch = useMemo(
+		() => debounce(fetchRepositories, 300),
+		[fetchRepositories]
 	);
 
-	// Start indexing for a given repository and automatically subscribe to SSE
-	const startIndexing = useCallback(
-		async (repoName: AvailableRepository, force: boolean = false) => {
-			try {
-				// Close any existing SSE connection first
-				if (activeSSEConnections[repoName]) {
-					activeSSEConnections[repoName].close();
-				}
-
-				const response = await fetch(`${INDEXER_BASE_URL}/indexer/${repoName}${force ? '?force=true' : ''}`, {
-					method: 'POST',
-				});
-
-				if (!response.ok) {
-					const errorData = await response.json();
-					throw new Error(errorData.detail || 'Failed to start indexing');
-				}
-
-				// Subscribe to status updates after re-start
-				subscribeToStatus(repoName);
-
-				const data = await response.json();
-				toast.success(data.message || `Started ${force ? 'force ' : ''}indexing ${repoName}`);
-
-				// Update repository status
-				setRepositories((prev) =>
-					prev.map((repo) =>
-						repo.name === repoName
-							? {
-								...repo,
-								indexing_status: 'in_progress',
-								progress: 0,
-								current_file: undefined,
-								processed_count: 0,
-								total_files: undefined,
-								file_stats: undefined
-							}
-							: repo
-					)
-				);
-			} catch (error) {
-				console.error('Failed to start indexing:', error);
-				toast.error(
-					`Failed to start indexing ${repoName}: ${error instanceof Error ? error.message : 'Unknown error'}`
-				);
-			}
-		},
-		[subscribeToStatus, setRepositories, activeSSEConnections]
-	);
-
-	// Cleanup SSE on unmount
 	useEffect(() => {
-		const connections = activeSSEConnections;
+		fetchRepositories();
+
+		// Poll for updates every 30 seconds
+		const interval = setInterval(fetchRepositories, 30000);
 
 		return () => {
-			Object.entries(connections).forEach(([repoName, eventSource]) => {
-				console.log(`Cleaning up SSE connection for ${repoName}`);
-				eventSource.close();
-			});
+			clearInterval(interval);
+			debouncedFetch.cancel();
 		};
-	}, [activeSSEConnections]);
+	}, [fetchRepositories, debouncedFetch]);
 
-	// ▶ Automatically fetch repositories on initial mount
-	useEffect(() => {
-		fetchAllRepositories().catch((error) => {
-			console.error('Initial fetch repositories call failed:', error);
-		});
-	}, [fetchAllRepositories]);
+	const refreshRepositories = useCallback(() => {
+		debouncedFetch();
+	}, [debouncedFetch]);
 
-	// Additional hooks for retrieving data
-	const getRepositoryMap = useCallback(async (repoName: string): Promise<RepositoryMap> => {
+	const startIndexing = useCallback(async (repositoryName: string) => {
 		try {
-			const response = await fetch(`${INDEXER_BASE_URL}/repo-map/${repoName}`);
-			if (!response.ok) throw new Error('Failed to fetch repository map');
-			return await response.json();
-		} catch (error) {
-			console.error('Failed to fetch repository map:', error);
-			toast.error('Failed to load repository structure');
-			throw error;
-		}
-	}, []);
-
-	const getRepositorySummary = useCallback(async (repoName: string) => {
-		try {
-			const response = await fetch(`${INDEXER_BASE_URL}/repo-map/${repoName}/summary`);
-			if (!response.ok) throw new Error('Failed to fetch repository summary');
-			return await response.json();
-		} catch (error) {
-			console.error('Failed to fetch repository summary:', error);
-			toast.error('Failed to load repository summary');
-			throw error;
-		}
-	}, []);
-
-	const getGitDiff = useCallback(async (options: GitDiffOptions) => {
-		try {
-			const response = await fetch(`${INDEXER_BASE_URL}/git/diff`, {
+			const response = await fetch('/api/mcp/repositories', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
 				},
-				body: JSON.stringify(options),
+				body: JSON.stringify({
+					action: 'start_indexing',
+					repository_name: repositoryName,
+				}),
 			});
-			if (!response.ok) throw new Error('Failed to fetch git diff');
+
 			const data = await response.json();
-			return data.diff;
-		} catch (error) {
-			console.error('Failed to fetch git diff:', error);
-			toast.error('Failed to load git diff');
-			throw error;
-		}
-	}, []);
 
-	const deleteIndex = useCallback(async (repoName: AvailableRepository) => {
-		try {
-			const response = await fetch(`${INDEXER_BASE_URL}/indexer/${repoName}`, {
-				method: 'DELETE',
-			});
-
-			if (!response.ok) {
-				const errorData = await response.json();
-				throw new Error(errorData.detail || 'Failed to delete index');
+			if (!response.ok || !data.success) {
+				throw new Error(data.error || 'Failed to start indexing');
 			}
 
-			toast.success(`Deleted index for ${repoName}`);
+			toast.success(`Indexing started for ${repositoryName}`);
 
-			// Update repository status
-			setRepositories((prev) =>
-				prev.map((repo) =>
-					repo.name === repoName
-						? {
-							...repo,
-							indexing_status: 'not_indexed',
-							progress: 0,
-							current_file: undefined,
-							processed_count: 0,
-							total_files: undefined,
-							file_stats: undefined
-						}
-						: repo
-				)
-			);
-		} catch (error) {
-			console.error('Failed to delete index:', error);
-			toast.error(
-				`Failed to delete index for ${repoName}: ${error instanceof Error ? error.message : 'Unknown error'}`
-			);
+			// Refresh repositories after starting indexing
+			setTimeout(refreshRepositories, 1000);
+
+			return data;
+		} catch (err) {
+			const errorMessage = err instanceof Error ? err.message : 'Failed to start indexing';
+			toast.error(`Indexing Error: ${errorMessage}`);
+			throw err;
 		}
-	}, [setRepositories]);
+	}, [refreshRepositories]);
 
-	const getRepositoryStats = useCallback(async (repoName: AvailableRepository) => {
-		try {
-			const response = await fetch(`${INDEXER_BASE_URL}/indexer/${repoName}/stats`);
-			if (!response.ok) throw new Error('Failed to fetch repository statistics');
-			return await response.json();
-		} catch (error) {
-			console.error('Failed to fetch repository statistics:', error);
-			toast.error('Failed to load repository statistics');
-			throw error;
-		}
-	}, []);
+	const repositoryStats = useMemo(() => {
+		const total = repositories.length;
+		const indexed = repositories.filter(repo => repo.indexing_status === 'completed').length;
+		const indexing = repositories.filter(repo => repo.indexing_status === 'indexing').length;
+		const totalChunks = repositories.reduce((sum, repo) => sum + (repo.indexed_files || 0), 0);
 
-	const searchRepository = useCallback(async (repoName: AvailableRepository, options: SearchRepositoryRequest) => {
-		const response = await fetch(`${INDEXER_BASE_URL}/indexer/${repoName}/search`, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify(options),
-		});
+		return {
+			total,
+			indexed,
+			indexing,
+			needsIndexing: total - indexed - indexing,
+			totalChunks,
+			completionRate: total > 0 ? (indexed / total) * 100 : 0
+		};
+	}, [repositories]);
 
-		if (!response.ok) {
-			const errorData = await response.json();
-			throw new Error(errorData.detail || 'Failed to search repository');
-		}
+	const getRepositoryByName = useCallback((name: string) => {
+		return repositories.find(repo => repo.name === name);
+	}, [repositories]);
 
-		return response.json();
-	}, []);
+	const isRepositoryIndexed = useCallback((name: string) => {
+		const repo = getRepositoryByName(name);
+		return repo?.indexing_status === 'completed';
+	}, [getRepositoryByName]);
 
 	return {
 		repositories,
-		setRepositories,
-		isLoading,
-		setIsLoading,
-		activeSSEConnections,
-		setActiveSSEConnections,
-		getRepositoryMap,
-		getRepositorySummary,
-		getGitDiff,
-		fetchAllRepositories,
+		loading,
+		error,
+		lastUpdated,
+		repositoryStats,
+		refreshRepositories,
 		startIndexing,
-		subscribeToStatus,
-		indexingProgress,
-		setIndexingProgress,
-		currentStatus,
-		setCurrentStatus,
-		deleteIndex,
-		getRepositoryStats,
-		searchRepository,
+		getRepositoryByName,
+		isRepositoryIndexed,
 	};
 } 

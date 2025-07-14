@@ -21,7 +21,7 @@ import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { useSidebar } from "./sidebar-provider";
 import { PreviewAttachment } from "./preview-attachment";
-import { AVAILABLE_REPOSITORIES, AvailableRepository } from "@/lib/constants";
+import { AvailableRepository } from "@/lib/constants";
 import { parseRepositoryCommand } from "@/lib/commands";
 import { RepositorySearchResult, SearchRepositoryRequest } from "@/hooks/use-repository-status";
 import { RepositoryMentionMenu } from "./repository-mention-menu";
@@ -360,9 +360,8 @@ export function MultimodalInput({
   };
 
   const handleMenuNavigation = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const filteredRepos = AVAILABLE_REPOSITORIES.filter(repo =>
-      repo.toLowerCase().includes(mentionSearchTerm.toLowerCase())
-    );
+    // Repository filtering will be handled by the RepositoryMentionMenu component
+    const filteredRepos: string[] = [];
 
     if (event.key === "ArrowUp") {
       event.preventDefault();

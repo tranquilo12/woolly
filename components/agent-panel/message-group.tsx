@@ -1,35 +1,35 @@
-import { Badge } from "../ui/badge";
-import { cn } from "@/lib/utils";
-import { MessageGroup } from "@/types/agent-messages";
-import { DocumentationMessage } from "../documentation/DocumentationMessage";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { motion } from "framer-motion";
 import { MessageWithModel } from "../chat";
-import { Loader2 } from "lucide-react";
 import { forwardRef, useCallback, useMemo, useTransition } from "react";
 
 interface AgentMessageGroupProps {
-	group: MessageGroup;
+	group: {
+		messages: any[];
+		step_index: number;
+		completed?: boolean;
+	};
 	currentStep: number;
-	onStepClick: (step: number) => void;
+	onStepClick?: (stepIndex: number) => void;
 	isLoading?: boolean;
 }
 
 export const AgentMessageGroup = forwardRef<HTMLDivElement, AgentMessageGroupProps>(
 	function AgentMessageGroup({ group, currentStep, onStepClick, isLoading = false }, ref) {
-		// Early return for invalid group data
-		if (!group?.messages?.length) {
-			return null;
-		}
-
+		// ALL HOOKS MUST BE CALLED FIRST - NO CONDITIONAL RETURNS BEFORE HOOKS
 		// React 19 pattern: Use useTransition for non-urgent UI updates
 		const [isPending, startTransition] = useTransition();
 
 		// Optimized final message computation with useMemo
 		const finalMessage = useMemo(() => {
+			if (!group?.messages?.length) return null;
+
 			return group.messages.reduce<any>((latest, current) => {
 				// If the current message has a final_result tool invocation, it's the final message
 				const hasFinalResult = current.tool_invocations?.some(
-					tool => tool.toolName === 'final_result' && (tool.state === 'result' || tool.state === undefined)
+					(tool: any) => tool.toolName === 'final_result' && (tool.state === 'result' || tool.state === undefined)
 				);
 
 				if (hasFinalResult) {
@@ -43,12 +43,12 @@ export const AgentMessageGroup = forwardRef<HTMLDivElement, AgentMessageGroupPro
 
 				return latest;
 			}, null);
-		}, [group.messages]);
+		}, [group?.messages]);
 
 		// Memoized loading state check
 		const isCurrentlyLoading = useMemo(() =>
-			isLoading && group.step_index === currentStep,
-			[isLoading, group.step_index, currentStep]
+			isLoading && group?.step_index === currentStep,
+			[isLoading, group?.step_index, currentStep]
 		);
 
 		// Optimized message preparation with useMemo
@@ -59,49 +59,54 @@ export const AgentMessageGroup = forwardRef<HTMLDivElement, AgentMessageGroupPro
 			return {
 				...finalMessage,
 				tool_invocations: toolInvocations,
-				toolInvocations: toolInvocations,
-				model: finalMessage.model || 'gpt-4o-mini',
-				data: { dbId: finalMessage.id },
 				role: finalMessage.role as "assistant" | "user" | "system"
 			};
 		}, [finalMessage]);
 
 		// Optimized step click handler with useCallback
 		const handleStepClick = useCallback(() => {
-			if (group.step_index !== undefined) {
-				// Use startTransition for non-urgent navigation updates
+			if (onStepClick && group?.step_index !== undefined) {
 				startTransition(() => {
-					onStepClick(group.step_index!);
+					onStepClick(group.step_index);
 				});
 			}
-		}, [group.step_index, onStepClick, startTransition]);
+		}, [onStepClick, group?.step_index, startTransition]);
 
-		// Memoized badge variant calculation
+		// Optimized badge variant computation with useMemo
 		const badgeVariant = useMemo(() => {
-			if (isCurrentlyLoading) return "outline";
-			return group.completed ? "secondary" : "default";
-		}, [isCurrentlyLoading, group.completed]);
+			return isCurrentlyLoading ? "default" : "secondary";
+		}, [isCurrentlyLoading]);
 
-		// Memoized badge content
+		// Optimized badge content computation with useMemo
 		const badgeContent = useMemo(() => {
 			if (isCurrentlyLoading) {
 				return (
 					<div className="flex items-center gap-1">
-						<Loader2 className="h-3 w-3 animate-spin" />
-						<span>Processing</span>
+						<div className="w-2 h-2 bg-current rounded-full animate-pulse" />
+						<span>Processing...</span>
 					</div>
 				);
 			}
-			return group.completed ? "Completed" : "In Progress";
-		}, [isCurrentlyLoading, group.completed]);
+			return `Step ${(group?.step_index || 0) + 1}`;
+		}, [isCurrentlyLoading, group?.step_index]);
 
-		// Memoized step display
+		// Optimized step display computation with useMemo
 		const stepDisplay = useMemo(() => {
-			const stepNumber = group.step_index !== undefined ? group.step_index + 1 : 1;
+			const stepNumber = group?.step_index !== undefined ? group.step_index + 1 : 1;
 			return `Step ${stepNumber}`;
-		}, [group.step_index]);
+		}, [group?.step_index]);
 
-		// Early return if no final message after processing
+		// Status display computation with useMemo
+		const statusDisplay = useMemo(() => {
+			if (isCurrentlyLoading) return "Processing...";
+			return group?.completed ? "Completed" : "In Progress";
+		}, [isCurrentlyLoading, group?.completed]);
+
+		// NOW SAFE TO DO CONDITIONAL RETURNS AFTER ALL HOOKS
+		if (!group?.messages?.length) {
+			return null;
+		}
+
 		if (!messageWithModel) {
 			return null;
 		}
@@ -109,79 +114,49 @@ export const AgentMessageGroup = forwardRef<HTMLDivElement, AgentMessageGroupPro
 		return (
 			<motion.div
 				ref={ref}
-				layout
 				initial={{ opacity: 0, y: 20 }}
 				animate={{ opacity: 1, y: 0 }}
-				exit={{ opacity: 0, y: -20 }}
-				className="space-y-4 p-6"
-				id={`message-group-${group.step_index}`}
-				role="article"
-				aria-label={`${stepDisplay} - ${group.step_title || 'Agent response'}`}
+				transition={{ duration: 0.3 }}
+				className="mb-4"
 			>
-				<div className={cn(
-					"mb-6 border rounded-lg overflow-hidden transition-all duration-300",
-					isCurrentlyLoading && "border-primary/30 shadow-sm",
-					isPending && "opacity-75" // Visual feedback during transitions
-				)}>
-					<div
-						className={cn(
-							"p-4 flex justify-between items-center border-b cursor-pointer",
-							"hover:bg-muted/50 transition-colors",
-							isCurrentlyLoading ? "bg-primary/5" : "bg-muted"
-						)}
-						onClick={handleStepClick}
-						role="button"
-						tabIndex={0}
-						aria-label={`Navigate to ${stepDisplay}`}
-						onKeyDown={(e) => {
-							if (e.key === 'Enter' || e.key === ' ') {
-								e.preventDefault();
-								handleStepClick();
-							}
-						}}
-					>
-						<div className="flex items-center gap-3">
-							<h3 className="text-sm font-medium">
-								{stepDisplay}
-							</h3>
-							{group.step_title && (
+				<Card className="border-l-4 border-l-blue-500">
+					<CardContent className="p-4">
+						<div className="flex items-center justify-between mb-3">
+							<div className="flex items-center gap-2">
+								<Badge variant={badgeVariant}>
+									{badgeContent}
+								</Badge>
 								<span className="text-sm text-muted-foreground">
-									- {group.step_title}
+									{statusDisplay}
 								</span>
+							</div>
+							{onStepClick && (
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={handleStepClick}
+									disabled={isPending}
+								>
+									{isPending ? "Loading..." : "View Details"}
+								</Button>
 							)}
 						</div>
-						<Badge variant={badgeVariant}>
-							{badgeContent}
-						</Badge>
-					</div>
 
-					<div className={cn(
-						"p-6 space-y-4",
-						isCurrentlyLoading && "bg-primary/5 bg-opacity-5"
-					)}>
-						{isCurrentlyLoading ? (
-							<div
-								className="flex items-center justify-center py-4"
-								role="status"
-								aria-live="polite"
-								aria-label="Generating content"
-							>
-								<div className="flex flex-col items-center gap-2">
-									<Loader2 className="h-6 w-6 animate-spin text-primary" />
-									<p className="text-sm text-muted-foreground">Generating content...</p>
+						<div className="space-y-2">
+							{messageWithModel.content && (
+								<div className="text-sm">
+									{messageWithModel.content}
 								</div>
-							</div>
-						) : (
-							<DocumentationMessage
-								message={messageWithModel}
-								className={cn(
-									"p-4 rounded-lg transition-colors",
-									messageWithModel.role === "assistant" ? "bg-muted" : "bg-background"
-								)}
-							/>
-						)}
-					</div>
-				</div>
+							)}
+
+							{messageWithModel.tool_invocations && messageWithModel.tool_invocations.length > 0 && (
+								<div className="text-xs text-muted-foreground">
+									Tools used: {messageWithModel.tool_invocations.map((t: any) => t.toolName).join(', ')}
+								</div>
+							)}
+						</div>
+					</CardContent>
+				</Card>
 			</motion.div>
 		);
 	}
