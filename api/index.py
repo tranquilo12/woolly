@@ -18,6 +18,8 @@ from .utils.models import (
     Agent,
     build_tool_call_partial,
     build_tool_call_result,
+    build_text_stream,
+    build_end_of_stream_message,
     is_complete_json,
 )
 import uuid
@@ -348,7 +350,7 @@ def stream_text(
             else:
                 content = choice.delta.content or ""
                 content_buffer += content
-                yield f"0:{json.dumps(content)}\n"
+                yield build_text_stream(content)
 
         if chunk.choices == []:
             usage = chunk.usage
@@ -356,11 +358,11 @@ def stream_text(
             completion_tokens = usage.completion_tokens
             final_usage = usage
 
-            yield 'e:{{"finishReason":"{reason}","usage":{{"promptTokens":{prompt},"completionTokens":{completion},"totalTokens":{total}}},"isContinued":false}}\n'.format(
-                reason="stop",
-                prompt=prompt_tokens,
-                completion=completion_tokens,
-                total=prompt_tokens + completion_tokens,
+            yield build_end_of_stream_message(
+                finish_reason="stop",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                is_continued=False,
             )
 
     # After the stream is complete
@@ -629,7 +631,7 @@ async def chat(
                 db=db,
                 message_id=assistant_message.id,
             ),
-            headers={"x-vercel-ai-data-stream": "v1"},
+            media_type="text/plain",
         )
     except Exception as e:
         print("Unexpected error:", str(e))
@@ -671,9 +673,9 @@ async def handle_chat_legacy(
 
     try:
         response = StreamingResponse(
-            stream_text(openai_messages, protocol, model=request.model)
+            stream_text(openai_messages, protocol, model=request.model),
+            media_type="text/plain",
         )
-        response.headers["x-vercel-ai-data-stream"] = "v1"
         return response
     except Exception as e:
         logging.error(f"Error in legacy chat endpoint: {str(e)}")

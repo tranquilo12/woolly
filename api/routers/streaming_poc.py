@@ -22,7 +22,7 @@ class StreamRequest(BaseModel):
 
 
 def sse_event(event_type: str, data: dict) -> str:
-    """Format data as Server-Sent Event compatible with Vercel AI SDK v4."""
+    """Format data as Server-Sent Event compatible with AI SDK V5."""
     event_data = {"type": event_type, **data}
     return f"data: {json.dumps(event_data)}\n\n"
 
@@ -100,9 +100,9 @@ async def mock_agent_stream(prompt: str) -> AsyncGenerator[str, None]:
     final_chunks = [
         "\n\nThe analysis is complete. ",
         "The code follows best practices ",
-        "and is well-documented with proper error handling."
+        "and is well-documented with proper error handling.",
     ]
-    
+
     for chunk in final_chunks:
         yield sse_event("text", {"delta": chunk})
         await asyncio.sleep(0.3)

@@ -1,358 +1,284 @@
-# 🚀 Fresh Start Prompt: Phase 5.3 Frontend-Backend Alignment & Component Cleanup
+# Fresh Start Prompt: Phase 5.4 - Proper useChat Implementation & Multi-Chat Support
 
 ## 🎯 **CURRENT STATUS & CONTEXT**
 
-You are beginning **Phase 5.3: Frontend-Backend Alignment** of the Backend Simplification Plan for the Woolly project. This is a comprehensive codebase analysis and streaming optimization system built with:
+**Project:** Woolly - Comprehensive codebase analysis and streaming optimization system  
+**Architecture:** FastAPI + Pydantic AI + Universal Agent Factory (backend) + Next.js 15 + React 19 + shadcn/ui (frontend)  
+**Achievement:** 81% code reduction through Universal Agent patterns  
+**Current Phase:** Phase 5.4 - Proper useChat Implementation & Multi-Chat Support  
+**Previous Phase Status:** ✅ Phase 5.3 Complete - Frontend-Backend Alignment & Component Cleanup
 
-- **Backend**: FastAPI + Pydantic AI + Universal Agent Factory
-- **Frontend**: Next.js 15 + React 19 + shadcn/ui + Tailwind CSS
-- **Architecture**: 81% code reduction achieved through Universal Agent patterns
+## 📋 **CRITICAL ISSUE IDENTIFIED**
 
-### **📋 COMPLETED ACHIEVEMENTS (Phase 5.2: Tasks #19-20)**
+We've veered from the original plan of using native `useChat` methods properly. The current implementation:
 
-✅ **Component Modernization Complete**:
+- ❌ Removed `/app/api/chat/[id]/route.ts` which is needed for multiple conversations
+- ❌ Created a single `/api/chat` route that doesn't follow Vercel AI SDK patterns
+- ❌ Not utilizing full `useChat` functionality for conversation management
+- ❌ Missing proper chat routing to backend Universal Agent Factory
 
-- `components/agent-panel/agent-panel.tsx` - Migrated to shadcn/ui Card layout
-- `components/agent-panel/message-group.tsx` - React 19 hooks modernization
-- `components/agent-panel/streaming-chat.tsx` - Real-time streaming UI with shadcn/ui
-- `components/agent-panel/tool-call-indicator.tsx` - Progress visualization components
+## 🎯 **PHASE 5.4 OBJECTIVES**
 
-✅ **Technical Infrastructure**:
+### **Primary Goal:** Implement proper `useChat` functionality with multiple conversation support
 
-- React 19 performance optimizations (useCallback, useMemo, useTransition)
-- shadcn/ui design system integration throughout
-- Enhanced accessibility with proper ARIA labels
-- TypeScript compilation successful with no production errors
+**Reference Documentation:**
 
-## 🚨 **CRITICAL PROBLEM IDENTIFIED**
+- Vercel AI SDK: https://ai-sdk.dev/llms.txt
+- Pydantic AI: https://ai.pydantic.dev/llms-full.txt
+- Backend Plan: `Backend-Simplification-Plan.md` Phase 5 Section
 
-**FRONTEND-BACKEND MISALIGNMENT**: The frontend currently displays components like "Database connection" and other MCP server details that don't align with the actual backend endpoints. The frontend needs comprehensive cleanup to show only components connected to our new Universal Agent Factory endpoints.
+### **Key Requirements:**
 
-## 🎯 **YOUR IMMEDIATE MISSION**
+1. **Proper useChat Routes**: Implement all standard useChat API routes
+2. **Multi-Chat Support**: Enable multiple simultaneous conversations
+3. **Backend Integration**: Route all useChat calls to Universal Agent Factory
+4. **Streaming Support**: Maintain real-time streaming capabilities
+5. **Conversation Persistence**: Store and retrieve chat history
 
-**PRIORITY**: Complete **Phase 5.3 Frontend-Backend Alignment** as outlined in `Backend-Simplification-Plan.md` (lines 401-450).
+## 🔧 **TECHNICAL IMPLEMENTATION PLAN**
 
-### **📊 CRITICAL NEXT STEPS (In Order)**
+### **Step 1: Restore & Implement Proper useChat API Routes**
 
-#### **TASK #24: Frontend Component Audit & Cleanup** ⚡ URGENT PRIORITY
+**Files to Create/Modify:**
 
-**Goal**: Remove non-functional components and align frontend with actual backend capabilities
-**Files to Audit**:
-
-- `components/agent-panel/` - Remove MCP display components not connected to backend
-- `components/repository-*` - Verify repository management components work with actual endpoints
-- `components/indexing-*` - Ensure indexing components connect to real MCP server endpoints
-- `app/chat/[id]/page.tsx` - Verify chat functionality aligns with Universal Agent Factory
-
-**Acceptance Criteria**:
-
-- All displayed components must have working backend endpoints
-- Remove any "Database connection" or mock MCP server status displays
-- Maintain only functional streaming chat and agent panel components
-
-#### **TASK #25: Backend Endpoint Verification** ⚡ HIGH PRIORITY
-
-**Goal**: Comprehensive analysis of actual backend endpoints vs frontend expectations
-**Analysis Required**:
-
-```bash
-# Verify actual backend endpoints
-curl -X GET http://localhost:8000/docs  # FastAPI OpenAPI docs
-curl -X GET http://localhost:8000/api/v1/agents/  # Universal Agent endpoints
+```
+app/api/chat/route.ts           - Main chat endpoint (POST)
+app/api/chat/[id]/route.ts      - Individual chat operations (GET, PUT, DELETE)
+app/api/chat/[id]/messages/route.ts - Message operations within chat
 ```
 
-**Files to Review**:
+**Implementation Pattern (from ai-sdk.dev):**
 
-- `api/routers/agents.py` - Actual available endpoints
-- `api/routers/universal_agents.py` - Universal Agent Factory endpoints
-- `lib/api/` - Frontend API client alignment
+```typescript
+// app/api/chat/route.ts
+import { openai } from "@ai-sdk/openai";
+import { streamText, convertToModelMessages } from "ai";
 
-#### **TASK #26: MCP Server Integration Cleanup** 🔌 HIGH PRIORITY
+export async function POST(req: Request) {
+  const { messages, chatId } = await req.json();
 
-**Goal**: Ensure MCP server integration works properly with frontend components
-**Current Issue**: Frontend shows MCP server details but may not be connected to actual MCP functionality
+  // Route to backend Universal Agent Factory
+  const result = streamText({
+    model: openai("gpt-4o-mini"),
+    messages: convertToModelMessages(messages),
+    // Custom backend integration here
+  });
 
-**Files to Check**:
+  return result.toUIMessageStreamResponse();
+}
+```
 
-- `components/indexing-status-panel.tsx` - Should connect to real MCP indexing
-- `components/repository-list.tsx` - Should show actual indexed repositories
-- `hooks/use-repository-status.ts` - Should fetch real repository data
+### **Step 2: Backend Universal Agent Factory Integration**
 
-#### **TASK #27: Vercel AI SDK Integration** 🎨 MEDIUM PRIORITY
+**Files to Modify:**
 
-**Goal**: Complete end-to-end streaming integration
-**Pattern Implementation**:
+```
+app/api/chat/route.ts           - Main integration point
+lib/api/backend-client.ts       - Backend communication layer
+```
 
-```tsx
-// app/chat/[id]/page.tsx
-import { useChat } from "ai/react";
+**Integration Pattern:**
 
-const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat(
+```typescript
+// Route useChat calls to backend Universal Agent Factory
+const backendResponse = await fetch(
+  `${BACKEND_URL}/api/v1/agents/execute/streaming`,
   {
-    api: "/api/v1/agents/universal/stream",
-    streamMode: "text",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      agent_type: "UNIVERSAL",
+      repository_name: "current-repo",
+      user_query: lastMessage.content,
+      conversation_history: previousMessages,
+    }),
   }
 );
 ```
 
-### **🏗️ ARCHITECTURE ALIGNMENT REQUIREMENTS**
+### **Step 3: Multi-Chat Conversation Management**
 
-#### **1. Verify Universal Agent Factory Endpoints**
-
-**Current Backend Structure** (from `api/agents/universal.py`):
-
-```python
-class UniversalAgentFactory:
-    def create_agent(self, agent_type: AgentType) -> Agent:
-        return Agent(
-            model="openai:gpt-4o-mini",
-            deps_type=UniversalDependencies,
-            result_type=UniversalResult,
-            system_prompt=self.specializations[agent_type],
-            mcp_servers=[self.mcp_server]  # MCP integration
-        )
-```
-
-**Frontend Must Align With**:
-
-- Only show agent types that exist in backend
-- Only display MCP server status if actually connected
-- Remove any mock or placeholder components
-
-#### **2. MCP Server Reality Check**
-
-**Current MCP Integration** [[memory:2924205]]:
-
-- Must use provided MCP client via cursor MCP tools
-- No direct HTTP calls or curl to MCP server
-- Frontend should reflect actual MCP server capabilities
-
-**Frontend Components to Verify**:
+**Files to Modify:**
 
 ```
-components/indexing-status-panel.tsx - Real MCP indexing status?
-components/repository-list.tsx - Real repository data?
-components/static-repository-stats.tsx - Real stats or mock?
+app/chat/[id]/page.tsx          - Individual chat page
+components/chat.tsx             - Main chat component
+hooks/use-chats.ts              - Chat management hook
 ```
 
-#### **3. Component Hierarchy Cleanup**
+**useChat Integration:**
 
-**CURRENT (potentially misaligned)**:
-
-```
-app/chat/[id]/page.tsx
-├── AgentPanel ✅ (modernized)
-│   ├── StreamingChat ✅ (working)
-│   ├── ToolCallIndicator ✅ (working)
-│   ├── MessageGroup ✅ (modernized)
-│   └── ??? (MCP status displays - need verification)
-├── RepositoryList ??? (connected to real data?)
-├── IndexingStatusPanel ??? (real MCP indexing?)
-└── DatabaseConnection ??? (should this exist?)
-```
-
-**TARGET (aligned)**:
-
-```
-app/chat/[id]/page.tsx
-├── AgentPanel ✅ (verified working)
-│   ├── StreamingChat ✅ (connected to Universal Agent)
-│   ├── ToolCallIndicator ✅ (real progress)
-│   └── MessageGroup ✅ (real message data)
-├── RepositorySection (only if MCP server connected)
-└── IndexingStatus (only if real indexing active)
-```
-
-## 🔧 **EXECUTION STRATEGY**
-
-### **Phase 1: Discovery & Analysis (30 minutes)**
-
-1. **Backend Endpoint Discovery**:
-
-   ```bash
-   # Start backend and analyze actual endpoints
-   cd /Users/shriramsunder/Projects/Parational/woolly
-   python -m uvicorn main:app --reload --port 8000
-   curl -X GET http://localhost:8000/docs | jq '.'
-   ```
-
-2. **MCP Server Status Verification**:
-
-   - Use cursor MCP tools to check actual MCP server connection
-   - Verify which repositories are actually indexed
-   - Check if MCP server is responding to queries
-
-3. **Frontend Component Audit**:
-   - List all components in `components/` directory
-   - Identify which components display backend data
-   - Mark components as "working", "broken", or "mock"
-
-### **Phase 2: Cleanup & Alignment (45 minutes)**
-
-1. **Remove Non-Functional Components**:
-
-   - Delete or disable components that don't connect to real backend
-   - Remove mock MCP server status displays
-   - Clean up repository components if MCP server not connected
-
-2. **Fix Broken Integrations**:
-
-   - Update API calls to match actual backend endpoints
-   - Fix repository listing if MCP server is working
-   - Ensure indexing status reflects real indexing state
-
-3. **Vercel AI SDK Integration**:
-   - Wire `useChat` hook to Universal Agent Factory endpoints
-   - Test end-to-end streaming functionality
-   - Implement proper error handling for disconnected services
-
-### **Phase 3: Testing & Validation (15 minutes)**
-
-1. **Functional Testing**:
-
-   - Verify all displayed components work with real backend
-   - Test streaming chat with Universal Agent Factory
-   - Validate MCP server integration (if connected)
-
-2. **Performance Testing**:
-   - Run Lighthouse audit on cleaned-up frontend
-   - Verify no broken API calls or 404 errors
-   - Test responsive design with actual data
-
-## 📋 **TODO LIST FOR IMMEDIATE EXECUTION**
-
-Create these specific todos using the `todo_write` tool:
-
-```json
-[
-  {
-    "id": "task-24",
-    "content": "Frontend component audit: Remove non-functional MCP display components",
-    "status": "pending",
-    "dependencies": []
+```typescript
+// Proper useChat usage with conversation ID
+const { messages, input, handleInputChange, handleSubmit } = useChat({
+  id: chatId,
+  api: "/api/chat",
+  initialMessages: existingMessages,
+  onFinish: (message) => {
+    // Handle message completion
   },
-  {
-    "id": "task-25",
-    "content": "Backend endpoint verification: Analyze actual vs expected API endpoints",
-    "status": "pending",
-    "dependencies": []
-  },
-  {
-    "id": "task-26",
-    "content": "MCP server integration cleanup: Verify real MCP functionality",
-    "status": "pending",
-    "dependencies": ["task-24"]
-  },
-  {
-    "id": "task-27",
-    "content": "Complete Vercel AI SDK integration with Universal Agent Factory",
-    "status": "pending",
-    "dependencies": ["task-25", "task-26"]
-  },
-  {
-    "id": "task-28",
-    "content": "End-to-end testing: Verify all components work with real backend",
-    "status": "pending",
-    "dependencies": ["task-24", "task-25", "task-26", "task-27"]
-  }
-]
+});
 ```
 
-## 🚨 **CRITICAL ANALYSIS REQUIRED**
+### **Step 4: Conversation Persistence & History**
 
-### **1. MCP Server Reality Check**
+**Files to Modify:**
 
-**QUESTION**: Is the MCP server actually running and indexed?
-**INVESTIGATION**:
-
-- Use `mcp_shriram-prod-108_repo_list_indexed` to check indexed repositories
-- Use `mcp_shriram-prod-108_health_check` to verify MCP server health
-- Check if repository indexing is actually working
-
-### **2. Backend Endpoint Alignment**
-
-**QUESTION**: Do frontend API calls match actual backend endpoints?
-**INVESTIGATION**:
-
-- Compare `lib/api/` client code with actual FastAPI routes
-- Verify Universal Agent Factory endpoints are exposed
-- Check if streaming endpoints are properly configured
-
-### **3. Component Functionality Audit**
-
-**QUESTION**: Which components display real data vs mock data?
-**INVESTIGATION**:
-
-- `components/repository-list.tsx` - Real repository data?
-- `components/indexing-status-panel.tsx` - Real indexing status?
-- `components/static-repository-stats.tsx` - Real stats or placeholder?
-
-## 🎯 **SUCCESS CRITERIA FOR THIS SESSION**
-
-### **Minimum Viable Progress**:
-
-1. **Complete component audit** - Know which components work vs broken
-2. **Backend endpoint verification** - Understand actual API surface
-3. **MCP server status confirmed** - Know if MCP integration is working
-4. **Remove non-functional components** - Clean frontend of broken parts
-
-### **Stretch Goals**:
-
-1. **Vercel AI SDK integration complete** - End-to-end streaming working
-2. **All components functional** - No broken or mock components displayed
-3. **Performance optimized** - Fast, responsive UI with real data
-
-## 🔍 **DIAGNOSTIC COMMANDS TO RUN FIRST**
-
-```bash
-# 1. Check if backend is running
-curl -I http://localhost:8000/health || echo "Backend not running"
-
-# 2. List actual API endpoints
-curl -s http://localhost:8000/docs | grep -i "path"
-
-# 3. Test MCP server connection
-# Use cursor MCP tools: mcp_shriram-prod-108_health_check
-
-# 4. Check frontend build status
-pnpm run build --dry-run
-
-# 5. Verify repository indexing
-# Use cursor MCP tools: mcp_shriram-prod-108_repo_list_indexed
+```
+app/api/chat/[id]/route.ts      - CRUD operations for chats
+lib/api/chat-storage.ts         - Chat persistence layer
 ```
 
-## 📚 **KEY FILES TO REFERENCE**
+**Database Integration:**
 
-### **Backend Reality**:
+```typescript
+// Use existing database models for chat persistence
+// Reference: migrations/011e9d15d3e8_add_chat_and_message_tables.py
+```
 
-- `Backend-Simplification-Plan.md` (lines 401-450) - Phase 5.3 requirements
-- `api/agents/universal.py` - Universal Agent Factory implementation
-- `api/routers/agents.py` - Actual API endpoints
-- `main.py` - FastAPI app configuration
+## 📊 **DETAILED TASK BREAKDOWN**
 
-### **Frontend Components to Audit**:
+### **Phase 5.4-A: API Route Structure**
 
-- `components/agent-panel/` - Core agent components (✅ working)
-- `components/repository-*` - Repository management (❓ needs verification)
-- `components/indexing-*` - Indexing status (❓ needs verification)
-- `app/chat/[id]/page.tsx` - Main chat interface (❓ needs backend alignment)
+- [ ] **Task 1**: Create proper `app/api/chat/route.ts` with POST method
+- [ ] **Task 2**: Restore `app/api/chat/[id]/route.ts` with GET/PUT/DELETE methods
+- [ ] **Task 3**: Add `app/api/chat/[id]/messages/route.ts` for message operations
+- [ ] **Task 4**: Test all routes with proper useChat integration
 
-### **Integration Points**:
+### **Phase 5.4-B: Backend Integration**
 
-- `lib/api/` - Frontend API client
-- `hooks/use-repository-status.ts` - Repository data fetching
-- `types/` - TypeScript type definitions
+- [ ] **Task 5**: Create `lib/api/backend-client.ts` for Universal Agent Factory communication
+- [ ] **Task 6**: Implement streaming response forwarding from backend
+- [ ] **Task 7**: Add conversation history management
+- [ ] **Task 8**: Test end-to-end backend integration
+
+### **Phase 5.4-C: Frontend useChat Implementation**
+
+- [ ] **Task 9**: Update `components/chat.tsx` to use proper useChat patterns
+- [ ] **Task 10**: Implement multi-chat support in `app/chat/[id]/page.tsx`
+- [ ] **Task 11**: Update `hooks/use-chats.ts` for conversation management
+- [ ] **Task 12**: Test multi-chat functionality
+
+### **Phase 5.4-D: Conversation Persistence**
+
+- [ ] **Task 13**: Implement chat CRUD operations using existing database
+- [ ] **Task 14**: Add conversation history retrieval
+- [ ] **Task 15**: Test conversation persistence across sessions
+- [ ] **Task 16**: Verify database integration with existing models
+
+## 🚨 **CRITICAL CONSTRAINTS & REQUIREMENTS**
+
+### **Must Maintain:**
+
+1. **81% Code Reduction Achievement** - Don't add unnecessary complexity
+2. **MCP Integration** - Keep working LLM-MCP interface intact [[memory:3011103]]
+3. **Universal Agent Factory** - All requests must route through backend
+4. **Streaming Capabilities** - Real-time responses must continue working
+5. **shadcn/ui Components** - Use existing component library
+
+### **Must Use MCP Client Tools:**
+
+- Use provided MCP client via cursor MCP tools, not direct HTTP calls [[memory:2924205]]
+- Access MCP server functionality through exposed tools only
+
+### **Architecture Alignment:**
+
+- Follow Backend-Simplification-Plan.md Phase 5 specifications
+- Maintain Universal Agent Factory as single source of truth
+- Preserve existing database schema and models
+- Keep frontend-backend separation clean
+
+## 🎯 **SUCCESS CRITERIA**
+
+### **Functional Requirements:**
+
+- [ ] Multiple chat conversations work simultaneously
+- [ ] useChat hook properly manages conversation state
+- [ ] All useChat methods (messages, input, handleSubmit) function correctly
+- [ ] Conversation history persists across sessions
+- [ ] Streaming responses work in real-time
+- [ ] Backend Universal Agent Factory receives all requests
+
+### **Technical Requirements:**
+
+- [ ] All API routes follow Vercel AI SDK patterns
+- [ ] TypeScript types are properly maintained
+- [ ] React 19 hooks work without violations
+- [ ] Database operations use existing models
+- [ ] Error handling is graceful and informative
+
+## 📁 **KEY FILES TO FOCUS ON**
+
+### **High Priority (Must Change):**
+
+```
+app/api/chat/route.ts              - Main chat endpoint
+app/api/chat/[id]/route.ts         - Individual chat operations
+app/chat/[id]/page.tsx             - Chat page component
+components/chat.tsx                - Main chat component
+lib/api/backend-client.ts          - Backend communication
+```
+
+### **Medium Priority (May Change):**
+
+```
+hooks/use-chats.ts                 - Chat management
+types/agent-messages.ts            - Type definitions
+components/chat-context.tsx        - Chat context provider
+```
+
+### **Reference Files (Don't Change):**
+
+```
+Backend-Simplification-Plan.md     - Master plan reference
+api/agents/universal.py            - Backend Universal Agent Factory
+migrations/011e9d15d3e8_*.py       - Database schema
+```
+
+## 🔄 **NEXT STEPS FOR IMPLEMENTATION**
+
+### **Immediate Actions:**
+
+1. **Analyze Current State**: Review existing `/api/chat/route.ts` implementation
+2. **Study AI SDK Patterns**: Reference ai-sdk.dev documentation for proper patterns
+3. **Plan API Structure**: Design proper useChat-compatible API routes
+4. **Create Todo List**: Generate specific, actionable todo items for implementation
+
+### **Implementation Order:**
+
+1. **API Routes First**: Establish proper endpoint structure
+2. **Backend Integration**: Connect to Universal Agent Factory
+3. **Frontend Updates**: Implement proper useChat usage
+4. **Testing & Validation**: Verify multi-chat functionality
+
+## 🎯 **TODO GENERATION INSTRUCTIONS**
+
+**For the next conversation, create a todo list with these specific tasks:**
+
+1. **API Route Analysis**: Review current `/api/chat/route.ts` and identify gaps
+2. **useChat Pattern Research**: Study Vercel AI SDK documentation for proper implementation
+3. **Backend Integration Planning**: Design connection to Universal Agent Factory
+4. **Multi-Chat Architecture**: Plan conversation management system
+5. **Database Integration**: Verify existing chat/message models compatibility
+6. **Implementation Roadmap**: Create step-by-step implementation plan
+7. **Testing Strategy**: Plan validation approach for multi-chat functionality
+
+**Each todo should be:**
+
+- Specific and actionable
+- Have clear dependencies
+- Include acceptance criteria
+- Reference relevant files and documentation
+- Support the overall Phase 5.4 objectives
+
+## 📚 **REFERENCE DOCUMENTATION**
+
+- **Vercel AI SDK**: https://ai-sdk.dev/llms.txt
+- **Pydantic AI**: https://ai.pydantic.dev/llms-full.txt
+- **Backend Plan**: Backend-Simplification-Plan.md (Phase 5 section)
+- **Database Schema**: migrations/011e9d15d3e8_add_chat_and_message_tables.py
+- **Universal Agent Factory**: api/agents/universal.py
 
 ---
 
-## 🚨 **CRITICAL REMINDERS**
-
-1. **MCP Server Integration** - Must use cursor MCP tools, not direct HTTP [[memory:2924205]]
-2. **Simplicity Priority** - Remove broken components rather than fix complex issues
-3. **Backend-First Approach** - Frontend should reflect actual backend capabilities
-4. **No Mock Data** - All displayed information must be real and functional
-5. **Performance Focus** - Clean, fast UI with working components only
-
-**START HERE**: Begin with Task #24 (component audit) using the MCP tools to understand what's actually working, then systematically align the frontend with backend reality.
-
-**Remember**: The goal is a clean, functional frontend that accurately reflects the powerful Universal Agent Factory backend we've built. Remove anything that doesn't work - simplicity over complexity.
+**🎯 Current Priority: Implement proper useChat functionality with multiple conversation support while maintaining all existing achievements and architectural principles.**

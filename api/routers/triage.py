@@ -279,7 +279,14 @@ async def execute_triage_streaming(request: TriageRequest):
 
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
 
-        return StreamingResponse(generate_triage_stream(), media_type="text/plain")
+        return StreamingResponse(
+            generate_triage_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
 
     except Exception as e:
         logger.error(f"Triage streaming failed: {e}")

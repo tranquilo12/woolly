@@ -260,11 +260,10 @@ async def execute_agents_streaming(
 
     return StreamingResponse(
         stream_agent_results(),
-        media_type="text/plain",
+        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "Content-Type": "text/event-stream",
         },
     )
 
@@ -303,11 +302,10 @@ async def execute_single_agent(
 
             return StreamingResponse(
                 stream_single_agent(),
-                media_type="text/plain",
+                media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
-                    "Content-Type": "text/event-stream",
                 },
             )
         else:
