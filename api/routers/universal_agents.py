@@ -26,6 +26,9 @@ from ..routers.agents import save_agent_message
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Get factory instance for streaming
+factory = get_universal_factory()
+
 
 class UniversalRequest(BaseModel):
     """Single request model for all agent operations"""
@@ -200,10 +203,14 @@ async def execute_agents_streaming(
         )
 
     async def stream_agent_results():
-        """Generate streaming response with proper SSE formatting"""
+        """Generate streaming response with AI SDK V5 formatting"""
+        from api.utils.models import build_text_stream, build_end_of_stream_message
+
         try:
-            # Send initial status
-            yield f"data: {json.dumps({'status': 'started', 'agent_count': len(request.agent_types)})}\n\n"
+            # Send initial status as text
+            yield build_text_stream(
+                f"🚀 Starting execution of {len(request.agent_types)} agents...\n\n"
+            )
 
             # Stream results from parallel agents
             async for result in parallel_manager.stream_parallel_agents(
@@ -212,55 +219,83 @@ async def execute_agents_streaming(
                 agent_types=request.agent_types,
                 context=request.context,
             ):
-                yield f"data: {json.dumps(result)}\n\n"
-
-                # Save completed results to database
-                if (
-                    request.chat_id
-                    and request.agent_id
-                    and result.get("type") == "agent_stream"
-                    and result.get("data", {}).get("type") == "final_result"
+                # The parallel manager now returns V5-formatted events directly
+                # Check if it's a structured result that needs conversion
+                if isinstance(result, dict) and result.get("type") == "agent_stream":
+                    # Convert agent stream events to V5 text format
+                    content = result.get("content", "")
+                    if content:
+                        yield build_text_stream(content)
+                elif (
+                    isinstance(result, dict) and result.get("type") == "agent_complete"
                 ):
-                    final_result = result["data"]["result"]
-                    content = (
-                        final_result.get("content", str(final_result))
-                        if isinstance(final_result, dict)
-                        else str(final_result)
-                    )
+                    # Handle completion events
+                    agent_type = result.get("agent_type", "unknown")
+                    yield build_text_stream(f"\n✅ {agent_type} analysis completed\n\n")
 
-                    # Save asynchronously to avoid blocking the stream
-                    import asyncio
-
-                    asyncio.create_task(
-                        save_agent_message(
-                            chat_id=request.chat_id,
-                            content=content,
-                            role="assistant",
-                            model="universal-agent-system",
-                            db=db,
-                            agent_id=request.agent_id,
-                            repository=request.repository_name,
-                            message_type="streaming_agent_result",
-                            tool_invocations=[
-                                {
-                                    "type": "streaming_agent",
-                                    "agent_type": result["agent_type"],
-                                    "timestamp": result["timestamp"],
-                                }
-                            ],
+                    # Save completed results to database
+                    if request.chat_id and request.agent_id:
+                        final_result = result.get("result", {})
+                        content = (
+                            final_result.get("content", str(final_result))
+                            if isinstance(final_result, dict)
+                            else str(final_result)
                         )
-                    )
 
-            # Send completion status
-            yield f"data: {json.dumps({'status': 'all_completed'})}\n\n"
+                        # Save asynchronously to avoid blocking the stream
+                        import asyncio
+
+                        asyncio.create_task(
+                            save_agent_message(
+                                chat_id=request.chat_id,
+                                content=content,
+                                role="assistant",
+                                model="universal-agent-system",
+                                db=db,
+                                agent_id=request.agent_id,
+                                repository=request.repository_name,
+                                message_type="streaming_agent_result",
+                                tool_invocations=[
+                                    {
+                                        "type": "streaming_agent",
+                                        "agent_type": result["agent_type"],
+                                        "timestamp": result["timestamp"],
+                                    }
+                                ],
+                            )
+                        )
+                elif isinstance(result, dict) and result.get("type") == "agent_error":
+                    # Handle error events
+                    agent_type = result.get("agent_type", "unknown")
+                    error_msg = result.get("error", "Unknown error")
+                    yield build_text_stream(
+                        f"\n❌ {agent_type} failed: {error_msg}\n\n"
+                    )
+                elif isinstance(result, str):
+                    # Direct string result (already V5 formatted)
+                    yield result
+
+            # Send completion status using V5 end-of-stream format
+            yield build_end_of_stream_message(
+                finish_reason="stop",
+                prompt_tokens=len(request.agent_types) * 50,  # Rough estimate
+                completion_tokens=200,  # Rough estimate
+                is_continued=False,
+            )
 
         except Exception as e:
             logger.error(f"Streaming execution failed: {e}")
-            yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+            yield build_text_stream(f"\n❌ Streaming execution failed: {str(e)}\n\n")
+            yield build_end_of_stream_message(
+                finish_reason="error",
+                prompt_tokens=0,
+                completion_tokens=0,
+                is_continued=False,
+            )
 
     return StreamingResponse(
         stream_agent_results(),
-        media_type="text/event-stream",
+        media_type="text/plain",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
@@ -280,29 +315,51 @@ async def execute_single_agent(
 
     try:
         if request.enable_streaming:
-            # Streaming single agent execution following Pydantic AI best practices
+            # Streaming single agent execution with AI SDK V5 format
             async def stream_single_agent():
-                try:
-                    yield f"data: {json.dumps({'status': 'started', 'agent_type': request.agent_type.value})}\n\n"
+                from api.utils.models import (
+                    build_text_stream,
+                    build_end_of_stream_message,
+                )
 
-                    # Use the parallel manager's single execution method for consistency
-                    result = await parallel_manager._execute_single_agent(
+                try:
+                    yield build_text_stream(
+                        f"🚀 Starting {request.agent_type.value} agent...\n\n"
+                    )
+
+                    # Use the universal factory's streaming method for real-time updates
+                    async for chunk in factory.execute_agent_streaming(
                         agent_type=request.agent_type,
                         repository_name=request.repository_name,
                         user_query=request.user_query,
                         context=request.context,
-                    )
+                    ):
+                        # The factory now returns V5-formatted chunks directly
+                        yield chunk
 
-                    # Yield the final result
-                    yield f"data: {json.dumps({'status': 'completed', 'result': result.model_dump()})}\n\n"
+                    # Send completion
+                    yield build_end_of_stream_message(
+                        finish_reason="stop",
+                        prompt_tokens=50,  # Rough estimate
+                        completion_tokens=100,  # Rough estimate
+                        is_continued=False,
+                    )
 
                 except Exception as e:
                     logger.error(f"Single agent streaming failed: {e}")
-                    yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+                    yield build_text_stream(
+                        f"\n❌ Single agent execution failed: {str(e)}\n\n"
+                    )
+                    yield build_end_of_stream_message(
+                        finish_reason="error",
+                        prompt_tokens=0,
+                        completion_tokens=0,
+                        is_continued=False,
+                    )
 
             return StreamingResponse(
                 stream_single_agent(),
-                media_type="text/event-stream",
+                media_type="text/plain",
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",

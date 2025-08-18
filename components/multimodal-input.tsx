@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChatRequestOptions, type CreateMessage, type Message, type Attachment } from "ai";
+import { type ChatRequestOptions, type ModelMessage } from "ai";
 import type React from "react";
 import {
   useRef,
@@ -45,10 +45,10 @@ interface MultimodalInputProps {
   setInput: (value: string) => void;
   isLoading: boolean;
   stop: () => void;
-  messages: Array<Message>;
-  setMessages: Dispatch<SetStateAction<Array<Message>>>;
+  messages: Array<ModelMessage>;
+  setMessages: Dispatch<SetStateAction<Array<ModelMessage>>>;
   append: (
-    message: Message | CreateMessage,
+    message: ModelMessage,
     chatRequestOptions?: ChatRequestOptions,
   ) => Promise<string | null | undefined>;
   handleSubmit: (

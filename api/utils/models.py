@@ -53,7 +53,15 @@ class ToolCallResult(BaseModel):
 def build_tool_call_partial(tool_call_id: str, tool_name: str, args: dict) -> str:
     """
     Return a serialized JSON string for partial tool calls in AI SDK V5 format.
-    V5 uses the same '9:...' format but with updated structure.
+    V5 uses the '9:...' format for tool call streaming.
+
+    Args:
+        tool_call_id: Unique identifier for the tool call
+        tool_name: Name of the tool being called
+        args: Arguments passed to the tool
+
+    Returns:
+        V5 formatted string: "9:{...}\n"
     """
     obj = {
         "toolCallId": tool_call_id,
@@ -61,7 +69,7 @@ def build_tool_call_partial(tool_call_id: str, tool_name: str, args: dict) -> st
         "args": args,
         "state": "partial-call",
     }
-    res = json.dumps(obj)
+    res = json.dumps(obj, ensure_ascii=False)
     return f"9:{res}\n"
 
 
@@ -70,7 +78,16 @@ def build_tool_call_result(
 ) -> str:
     """
     Return a serialized JSON string for tool call results in AI SDK V5 format.
-    V5 uses the same 'a:...' format but with updated structure.
+    V5 uses the 'a:...' format for tool result streaming.
+
+    Args:
+        tool_call_id: Unique identifier for the tool call
+        tool_name: Name of the tool that was called
+        args: Arguments that were passed to the tool
+        result: Result returned by the tool execution
+
+    Returns:
+        V5 formatted string: "a:{...}\n"
     """
     obj = {
         "toolCallId": tool_call_id,
@@ -79,7 +96,7 @@ def build_tool_call_result(
         "state": "result",
         "result": result,
     }
-    res = json.dumps(obj)
+    res = json.dumps(obj, ensure_ascii=False)
     return f"a:{res}\n"
 
 
@@ -91,7 +108,16 @@ def build_end_of_stream_message(
 ) -> str:
     """
     Return a serialized JSON string for end-of-stream messages in AI SDK V5 format.
-    V5 requires totalTokens in usage and updated formatting.
+    V5 uses the 'e:...' format and requires totalTokens in usage statistics.
+
+    Args:
+        finish_reason: Reason for stream completion ("stop", "error", "length", etc.)
+        prompt_tokens: Number of tokens in the input prompt
+        completion_tokens: Number of tokens in the generated completion
+        is_continued: Whether the stream will continue (for multi-part responses)
+
+    Returns:
+        V5 formatted string: "e:{...}\n"
     """
     total_tokens = prompt_tokens + completion_tokens
     obj = EndOfStreamMessage(
@@ -110,9 +136,15 @@ def build_end_of_stream_message(
 def build_text_stream(content: str) -> str:
     """
     Return a serialized JSON string for text content in AI SDK V5 format.
-    V5 uses the same '0:...' format for text streaming.
+    V5 uses the '0:...' format for text content streaming.
+
+    Args:
+        content: Text content to stream to the client
+
+    Returns:
+        V5 formatted string: '0:"content"\n'
     """
-    return f"0:{json.dumps(content)}\n"
+    return f"0:{json.dumps(content, ensure_ascii=False)}\n"
 
 
 def is_complete_json(json_str: str) -> bool:

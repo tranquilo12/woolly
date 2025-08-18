@@ -1,8 +1,11 @@
 #!/bin/sh
 
+# Ensure virtual environment is activated
+export PATH="/app/.venv/bin:$PATH"
+
 # Run database migrations
 echo "Running database migrations..."
-alembic upgrade head
+python -m alembic upgrade head
 
 # Start the FastAPI application
 echo "Starting FastAPI application..."

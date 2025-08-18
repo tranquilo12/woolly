@@ -184,24 +184,18 @@ class OptimizedParallelManager:
 
         # Create streaming tasks for each agent
         async def stream_single_agent(agent_type: AgentType):
-            """Stream execution of a single agent"""
+            """Stream execution of a single agent with V5 format pass-through"""
             task_id = str(uuid.uuid4())
 
             try:
-                # Stream agent execution
+                # Stream agent execution - pass through V5 formatted chunks directly
                 async for chunk in self.factory.execute_agent_streaming(
                     agent_type, repository_name, user_query, context
                 ):
-                    yield {
-                        "type": "agent_stream",
-                        "session_id": session_id,
-                        "task_id": task_id,
-                        "agent_type": agent_type.value,
-                        "content": chunk,
-                        "timestamp": datetime.now().isoformat(),
-                    }
+                    # The factory returns V5-formatted strings, pass them through directly
+                    yield chunk
 
-                # Get final result
+                # Get final result for session tracking
                 final_result = await self._execute_single_agent(
                     agent_type, repository_name, user_query, context
                 )
@@ -210,7 +204,7 @@ class OptimizedParallelManager:
                 self.active_sessions[session_id]["completed_agents"] += 1
                 self.active_sessions[session_id]["results"][task_id] = final_result
 
-                # Yield completion event
+                # Yield completion event as structured data for the router to handle
                 yield {
                     "type": "agent_complete",
                     "session_id": session_id,
@@ -222,6 +216,7 @@ class OptimizedParallelManager:
 
             except Exception as e:
                 logger.error(f"Streaming agent {agent_type} failed: {e}")
+                # Yield error event as structured data for the router to handle
                 yield {
                     "type": "agent_error",
                     "session_id": session_id,

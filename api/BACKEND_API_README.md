@@ -10,7 +10,7 @@ This is a comprehensive guide to the Woolly Backend API, a sophisticated FastAPI
 - **Database**: PostgreSQL with SQLAlchemy ORM
 - **AI Integration**: OpenAI GPT models with Pydantic AI framework
 - **Agent System**: Universal agent factory pattern with specialized AI agents
-- **Streaming**: Real-time Server-Sent Events (SSE) compatible with AI SDK V5
+- **Streaming**: Real-time streaming compatible with AI SDK V5 format
 - **Tools**: Python code execution, MCP tool integration
 
 ## 🔧 Technology Stack
@@ -261,6 +261,7 @@ Main chat endpoint with streaming response support.
 - End stream: `e:{"finishReason":"stop","usage":{"promptTokens":100,"completionTokens":200,"totalTokens":300},"isContinued":false}`
 
 **V5 Improvements:**
+
 - Removed V4-specific headers (`x-vercel-ai-data-stream`)
 - Added `totalTokens` to usage statistics
 - Cleaner streaming response format
@@ -736,28 +737,35 @@ Mock streaming endpoint for testing AI SDK V5 compatibility.
 
 #### `GET /api/streaming/test`
 
-Test SSE format validation.
+Test V5 format validation and examples.
 
 **Response:**
 
 ```json
 {
-  "example_events": [
-    { "type": "text", "delta": "Hello" },
-    {
-      "type": "toolCall",
-      "id": "test_1",
-      "name": "test_tool",
-      "args": { "param": "value" }
+  "examples": {
+    "text_streaming": {
+      "description": "Text content streaming",
+      "format": "0:\"content\"",
+      "example": "0:\"Hello from AI SDK V5!\""
     },
-    {
-      "type": "toolResult",
-      "id": "test_1",
-      "result": "Tool executed successfully"
+    "tool_call": {
+      "description": "Tool invocation (partial call)",
+      "format": "9:{...}",
+      "example": "9:{\"toolCallId\":\"test_1\",\"toolName\":\"search_code\",\"args\":{\"query\":\"auth\"},\"state\":\"partial-call\"}"
     },
-    { "type": "done" }
-  ],
-  "sse_format_example": "data: {\"type\": \"text\", \"delta\": \"Hello\"}\\n\\n"
+    "tool_result": {
+      "description": "Tool execution result",
+      "format": "a:{...}",
+      "example": "a:{\"toolCallId\":\"test_1\",\"toolName\":\"search_code\",\"args\":{\"query\":\"auth\"},\"state\":\"result\",\"result\":{\"matches\":5}}"
+    },
+    "end_of_stream": {
+      "description": "Stream completion with usage stats",
+      "format": "e:{...}",
+      "example": "e:{\"finishReason\":\"stop\",\"usage\":{\"promptTokens\":25,\"completionTokens\":150,\"totalTokens\":175},\"isContinued\":false}"
+    }
+  },
+  "migration_status": "✅ All streaming endpoints upgraded to V5"
 }
 ```
 
@@ -861,7 +869,7 @@ The API currently operates without authentication for development purposes. In p
 
 - All chat endpoints support real-time streaming
 - **Upgraded to AI SDK V5 compatibility**
-- Server-Sent Events (SSE) protocol
+- AI SDK V5 streaming protocol
 - Automatic token usage tracking with `totalTokens`
 - Removed legacy V4 headers for cleaner responses
 
@@ -889,23 +897,56 @@ The Woolly Backend API has been **fully upgraded** from Vercel AI SDK V4 to **AI
 ### Key V5 Improvements
 
 #### **Streaming Response Format**
+
 - ✅ **Removed V4 Headers**: No more `x-vercel-ai-data-stream: v1` headers
 - ✅ **Enhanced Usage Stats**: Added `totalTokens` to all usage responses
 - ✅ **Cleaner Format**: Standardized streaming response structure
 - ✅ **Better Tool Calls**: Improved tool call and result formatting
 
 #### **Updated Endpoints**
-- ✅ **Main Chat**: `/api/chat/{chat_id}` - Full V5 compatibility
-- ✅ **Legacy Chat**: `/api/chat` - V5 compatible
-- ✅ **Universal Agents**: `/api/v1/agents/execute/streaming` - V5 SSE format
-- ✅ **Triage Streaming**: `/api/v1/triage/execute/streaming` - V5 SSE format
-- ✅ **Streaming POC**: `/api/streaming/mock` - V5 compatible
+
+- ✅ **Main Chat**: `/api/chat/{chat_id}` - Full V5 compatibility with proper headers
+- ✅ **Legacy Chat**: `/api/chat` - V5 compatible with proper headers
+- ✅ **Universal Agents**: `/api/v1/agents/execute/streaming` - True V5 format (not SSE)
+- ✅ **Single Agent**: `/api/v1/agents/execute/single` - V5 streaming support
+- ✅ **Triage Streaming**: `/api/v1/triage/execute/streaming` - True V5 format (not SSE)
+- ✅ **Streaming POC**: `/api/streaming/mock` - V5 demo with actual format examples
 
 #### **Technical Changes**
-- ✅ **Core Functions**: Updated `build_tool_call_*` functions for V5
-- ✅ **Response Headers**: Removed V4-specific headers, added proper media types
-- ✅ **Token Counting**: Enhanced with `totalTokens` calculation
-- ✅ **Error Handling**: Maintained robust error handling throughout
+
+- ✅ **Core Functions**: Enhanced `build_tool_call_*` functions with V5 documentation and Unicode support
+- ✅ **Media Types**: Changed from `text/event-stream` to `text/plain` for V5 compatibility
+- ✅ **Response Headers**: Added consistent caching headers across all streaming endpoints
+- ✅ **Token Counting**: All endpoints include `totalTokens` in usage statistics
+- ✅ **Format Consistency**: Unified V5 format across chat, agent, and triage streaming
+- ✅ **Error Handling**: V5-compatible error responses with proper end-of-stream messages
+
+### V5 Streaming Format
+
+#### **Format Specification**
+
+AI SDK V5 uses a simple line-based format where each line starts with a format code:
+
+```
+0:"text content"                    # Text streaming
+9:{"toolCallId":"id",...}          # Tool call (partial)
+a:{"toolCallId":"id",...}          # Tool result
+e:{"finishReason":"stop",...}      # End of stream
+```
+
+#### **Example V5 Stream**
+
+```
+0:"🔍 Analyzing your code...\n\n"
+9:{"toolCallId":"call_1","toolName":"search_code","args":{"query":"auth"},"state":"partial-call"}
+a:{"toolCallId":"call_1","toolName":"search_code","args":{"query":"auth"},"state":"result","result":{"matches":5}}
+0:"Found 5 authentication-related files.\n\n"
+e:{"finishReason":"stop","usage":{"promptTokens":25,"completionTokens":150,"totalTokens":175},"isContinued":false}
+```
+
+#### **Testing V5 Format**
+
+Use `/api/streaming/test` to see actual V5 format examples and validate frontend integration.
 
 ### Migration Benefits
 
@@ -914,6 +955,7 @@ The Woolly Backend API has been **fully upgraded** from Vercel AI SDK V4 to **AI
 3. **Better Performance**: Streamlined response format
 4. **Enhanced Monitoring**: Improved token usage tracking
 5. **Consistent Format**: Standardized across all streaming endpoints
+6. **Better Debugging**: Clear format examples and test endpoints
 
 ### Backward Compatibility
 
@@ -943,7 +985,19 @@ curl -X POST "http://localhost/api/v1/agents/execute/streaming" \
 curl -X POST "http://localhost/api/streaming/mock" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "test V5 streaming"}' --no-buffer
+
+# Test V5 format validation
+curl -X GET "http://localhost/api/streaming/test"
 ```
+
+#### **Expected V5 Output**
+
+All streaming endpoints now return the V5 format:
+
+- **Media Type**: `text/plain` (not `text/event-stream`)
+- **Format**: Line-based with format codes (`0:`, `9:`, `a:`, `e:`)
+- **Headers**: Include `Cache-Control: no-cache` and `Connection: keep-alive`
+- **Token Counting**: All usage objects include `totalTokens`
 
 ---
 

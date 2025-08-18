@@ -185,8 +185,17 @@ async def execute_triage_streaming(request: TriageRequest):
     try:
 
         async def generate_triage_stream():
+            """Generate AI SDK V5 compatible streaming response"""
+            from api.utils.models import (
+                build_text_stream,
+                build_end_of_stream_message,
+            )
+            from ..agents.universal import get_universal_factory
+
             # First, analyze the query
-            yield f"data: {json.dumps({'type': 'analysis_start', 'message': 'Analyzing query...'})}\n\n"
+            yield build_text_stream(
+                "🔍 Analyzing query and determining best approach...\n\n"
+            )
 
             # Get triage decision
             from ..agents.triage import TriageDependencies
@@ -200,88 +209,114 @@ async def execute_triage_streaming(request: TriageRequest):
             triage_result = await triage_agent.agent.run(request.user_query, deps=deps)
             triage_data = triage_result.data
 
-            # Send triage decision
-            yield f"data: {json.dumps({
-                'type': 'triage_decision',
-                'decision': triage_data.decision.value,
-                'reasoning': triage_data.reasoning,
-                'confidence': triage_data.confidence,
-                'recommended_agents': [agent.value for agent in triage_data.recommended_agents]
-            })}\n\n"
+            # Send triage decision as text
+            decision_text = f"🎯 **Triage Decision**: {triage_data.decision.value}\n"
+            decision_text += f"**Reasoning**: {triage_data.reasoning}\n"
+            decision_text += f"**Confidence**: {triage_data.confidence:.2f}\n"
+            if triage_data.recommended_agents:
+                agents_list = ", ".join(
+                    [agent.value for agent in triage_data.recommended_agents]
+                )
+                decision_text += f"**Recommended Agents**: {agents_list}\n\n"
+            else:
+                decision_text += "\n"
+
+            yield build_text_stream(decision_text)
 
             # Execute based on decision
             if triage_data.decision == TriageDecision.DIRECT_RESPONSE:
-                yield f"data: {json.dumps({
-                    'type': 'direct_response',
-                    'content': triage_data.direct_response
-                })}\n\n"
+                yield build_text_stream(
+                    f"💬 **Direct Response**:\n{triage_data.direct_response}\n\n"
+                )
 
             else:
-                yield f"data: {json.dumps({'type': 'agent_execution_start', 'message': 'Executing specialist agents...'})}\n\n"
+                yield build_text_stream("🚀 Executing specialist agents...\n\n")
+
+                # Get universal factory for consistent agent execution
+                factory = get_universal_factory()
 
                 # Execute the appropriate agent(s)
                 if triage_data.decision == TriageDecision.MULTI_AGENT:
                     for agent_type in triage_data.recommended_agents:
-                        yield f"data: {json.dumps({
-                            'type': 'agent_start',
-                            'agent': agent_type.value
-                        })}\n\n"
+                        yield build_text_stream(
+                            f"▶️ Starting {agent_type.value} agent...\n\n"
+                        )
 
                         try:
-                            result = await triage_agent._execute_specialist_agent(
-                                deps,
-                                agent_type,
-                                request.user_query,
-                                triage_data.context_for_agents,
+                            # Use the universal factory's streaming method for consistency
+                            async for chunk in factory.execute_agent_streaming(
+                                agent_type=agent_type,
+                                repository_name=request.repository_name,
+                                user_query=request.user_query,
+                                context=triage_data.context_for_agents,
+                            ):
+                                # Pass through V5-formatted chunks directly
+                                yield chunk
+
+                            yield build_text_stream(
+                                f"✅ {agent_type.value} agent completed\n\n"
                             )
 
-                            yield f"data: {json.dumps({
-                                'type': 'agent_result',
-                                'agent': agent_type.value,
-                                'content': result
-                            })}\n\n"
-
                         except Exception as e:
-                            yield f"data: {json.dumps({
-                                'type': 'agent_error',
-                                'agent': agent_type.value,
-                                'error': str(e)
-                            })}\n\n"
+                            yield build_text_stream(
+                                f"❌ {agent_type.value} agent failed: {str(e)}\n\n"
+                            )
 
                 else:
                     # Single agent execution
                     agent_type = AgentType(triage_data.decision.value)
-                    yield f"data: {json.dumps({
-                        'type': 'agent_start',
-                        'agent': agent_type.value
-                    })}\n\n"
+                    yield build_text_stream(
+                        f"▶️ Starting {agent_type.value} agent...\n\n"
+                    )
 
                     try:
-                        result = await triage_agent._execute_specialist_agent(
-                            deps,
-                            agent_type,
-                            request.user_query,
-                            triage_data.context_for_agents,
+                        # Use the universal factory's streaming method for consistency
+                        async for chunk in factory.execute_agent_streaming(
+                            agent_type=agent_type,
+                            repository_name=request.repository_name,
+                            user_query=request.user_query,
+                            context=triage_data.context_for_agents,
+                        ):
+                            # Pass through V5-formatted chunks directly
+                            yield chunk
+
+                        yield build_text_stream(
+                            f"✅ {agent_type.value} agent completed\n\n"
                         )
 
-                        yield f"data: {json.dumps({
-                            'type': 'agent_result',
-                            'agent': agent_type.value,
-                            'content': result
-                        })}\n\n"
-
                     except Exception as e:
-                        yield f"data: {json.dumps({
-                            'type': 'agent_error',
-                            'agent': agent_type.value,
-                            'error': str(e)
-                        })}\n\n"
+                        yield build_text_stream(
+                            f"❌ {agent_type.value} agent failed: {str(e)}\n\n"
+                        )
 
-            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            # Send completion using V5 end-of-stream format
+            yield build_end_of_stream_message(
+                finish_reason="stop",
+                prompt_tokens=100,  # Rough estimate for triage analysis
+                completion_tokens=300,  # Rough estimate for agent results
+                is_continued=False,
+            )
+
+        async def error_wrapped_stream():
+            """Wrap the stream with V5-compatible error handling"""
+            from api.utils.models import build_text_stream, build_end_of_stream_message
+
+            try:
+                async for chunk in generate_triage_stream():
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Triage streaming failed: {e}")
+                yield build_text_stream(f"\n❌ Triage execution failed: {str(e)}\n\n")
+                yield build_end_of_stream_message(
+                    finish_reason="error",
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    is_continued=False,
+                )
 
         return StreamingResponse(
-            generate_triage_stream(),
-            media_type="text/event-stream",
+            error_wrapped_stream(),
+            media_type="text/plain",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
@@ -289,9 +324,9 @@ async def execute_triage_streaming(request: TriageRequest):
         )
 
     except Exception as e:
-        logger.error(f"Triage streaming failed: {e}")
+        logger.error(f"Triage streaming setup failed: {e}")
         raise HTTPException(
-            status_code=500, detail=f"Triage streaming failed: {str(e)}"
+            status_code=500, detail=f"Triage streaming setup failed: {str(e)}"
         )
 
 

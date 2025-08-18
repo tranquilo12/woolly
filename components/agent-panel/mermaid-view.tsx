@@ -8,7 +8,8 @@ import { useSystemPrompt } from '@/hooks/use-system-prompt';
 import { useState, useEffect } from 'react';
 import { AvailableRepository } from '@/lib/constants';
 import { Loader2, Bot } from 'lucide-react';
-import { useChat } from 'ai/react';
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
 import { Message } from 'ai';
 import { toast } from 'sonner';
 
@@ -84,12 +85,14 @@ export function MermaidView({ selectedRepo }: MermaidViewProps) {
 		isLoading,
 		stop
 	} = useChat({
-		api: `/api/agents/${safeAgentId}/chat`,
+		transport: new DefaultChatTransport({
+			api: `/api/agents/${safeAgentId}/chat`,
+			body: {
+				repository: selectedRepo,
+				system_prompt: systemPrompt,
+			},
+		}),
 		id: `mermaid-${selectedRepo}`,
-		body: {
-			repository: selectedRepo,
-			system_prompt: systemPrompt,
-		},
 		onError: () => {
 			toast.error('Failed to generate diagram');
 		}

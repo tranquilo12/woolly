@@ -8,7 +8,8 @@ import { AvailableRepository } from "@/lib/constants";
 import { ToolInvocation } from '@ai-sdk/ui-utils';
 import { useQuery } from '@tanstack/react-query';
 import { Message } from "ai";
-import { useChat } from 'ai/react';
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
 import { Play, Loader2, Square, Settings, ChevronUp, ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useState, useMemo, useRef, ReactNode } from 'react';
 import { DocumentationResult, isCodeDocumentation, isComponentAnalysis, isDevelopmentGuide, isMaintenanceOps, isSystemOverview } from '../../types/documentation';
@@ -122,17 +123,19 @@ export function DocumentationView({ repo_name, agent_id, file_paths, chat_id }: 
 		append,
 		messages: chatMessages,
 	} = useChat({
+		transport: new DefaultChatTransport({
+			api: '/api/chat',
+			body: {
+				agent_id: localAgentId,
+				repo_name: repo_name,
+				file_paths: file_paths,
+				chat_id: chat_id,
+				strategy: selectedStrategy,
+				pipeline_id: selectedStrategy
+			}
+		}),
 		id: chat_id,
-		api: '/api/chat',
 		initialMessages: [],
-		body: {
-			agent_id: localAgentId,
-			repo_name: repo_name,
-			file_paths: file_paths,
-			chat_id: chat_id,
-			strategy: selectedStrategy,
-			pipeline_id: selectedStrategy
-		}
 	});
 
 	const [state, setState] = useState<DocumentationState>({

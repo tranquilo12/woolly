@@ -632,6 +632,10 @@ async def chat(
                 message_id=assistant_message.id,
             ),
             media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
         )
     except Exception as e:
         print("Unexpected error:", str(e))
@@ -675,6 +679,10 @@ async def handle_chat_legacy(
         response = StreamingResponse(
             stream_text(openai_messages, protocol, model=request.model),
             media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
         )
         return response
     except Exception as e:

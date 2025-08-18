@@ -823,8 +823,17 @@ Use these valid entity IDs for relationship queries instead of making new discov
                 )
                 message_history.append(system_message)
 
-            # ✅ CORRECT: Execute agent with proper message_history parameter
-            async with agent.run_mcp_servers():
+            # ✅ ENHANCED: Execute agent with MCP fallback handling
+            try:
+                async with agent.run_mcp_servers():
+                    result = await agent.run(
+                        user_query, deps=dependencies, message_history=message_history
+                    )
+            except Exception as mcp_error:
+                logger.warning(
+                    f"MCP server unavailable, running without MCP tools: {mcp_error}"
+                )
+                # Fallback: Run agent without MCP servers
                 result = await agent.run(
                     user_query, deps=dependencies, message_history=message_history
                 )
@@ -981,149 +990,180 @@ Use these valid entity IDs for relationship queries instead of making new discov
                 },
             )
 
-            # ✅ ENHANCED: Execute agent with streaming using proper message_history and budget tracking
-            async with agent.run_mcp_servers():
-                async with agent.run_stream(
-                    user_query, deps=dependencies, message_history=message_history
-                ) as stream_result:
+            # ✅ ENHANCED: Execute agent with streaming and MCP fallback handling
+            try:
+                async with agent.run_mcp_servers():
+                    async with agent.run_stream(
+                        user_query, deps=dependencies, message_history=message_history
+                    ) as stream_result:
 
-                    accumulated_text = ""
+                        accumulated_text = ""
 
-                    # Process all stream events with intelligent stopping
-                    async for message in stream_result.new_messages():
-                        # Check budget limits before processing each message
-                        should_stop, stop_reason = budget_tracker.should_stop(
-                            tool_budget
-                        )
-                        if should_stop:
-                            yield self._format_stream_event(
-                                "budget_exceeded",
-                                {
-                                    "reason": stop_reason,
-                                    "tool_calls_made": budget_tracker.tool_calls_made,
-                                    "elapsed_time": budget_tracker.get_elapsed_time(),
-                                },
+                        # Process all stream events with intelligent stopping
+                        async for message in stream_result.new_messages():
+                            # Check budget limits before processing each message
+                            should_stop, stop_reason = budget_tracker.should_stop(
+                                tool_budget
                             )
-                            break
-
-                        # Check convergence before processing
-                        if (
-                            len(budget_tracker.recent_responses)
-                            >= tool_budget.convergence_window
-                        ):
-                            has_converged = await convergence_detector.has_converged()
-                            if has_converged:
+                            if should_stop:
                                 yield self._format_stream_event(
-                                    "converged",
+                                    "budget_exceeded",
                                     {
-                                        "reason": "Response convergence detected",
-                                        "similarity_threshold": tool_budget.convergence_threshold,
-                                        "responses_analyzed": len(
-                                            budget_tracker.recent_responses
-                                        ),
+                                        "reason": stop_reason,
+                                        "tool_calls_made": budget_tracker.tool_calls_made,
+                                        "elapsed_time": budget_tracker.get_elapsed_time(),
                                     },
                                 )
                                 break
 
-                        # Process message parts
-                        for part in message.parts:
-                            if isinstance(part, ToolCallPart):
-                                # Track tool call in budget
-                                budget_tracker.increment_tool_call(part.tool_name)
-
-                                # Stream tool call event
-                                yield self._format_stream_event(
-                                    "toolCall",
-                                    {
-                                        "id": f"tool_call_{budget_tracker.tool_calls_made}",
-                                        "name": part.tool_name,
-                                        "args": part.args,
-                                        "budget_status": {
-                                            "calls_made": budget_tracker.tool_calls_made,
-                                            "calls_remaining": tool_budget.max_tool_calls
-                                            - budget_tracker.tool_calls_made,
+                            # Check convergence before processing
+                            if (
+                                len(budget_tracker.recent_responses)
+                                >= tool_budget.convergence_window
+                            ):
+                                has_converged = (
+                                    await convergence_detector.has_converged()
+                                )
+                                if has_converged:
+                                    yield self._format_stream_event(
+                                        "converged",
+                                        {
+                                            "reason": "Response convergence detected",
+                                            "similarity_threshold": tool_budget.convergence_threshold,
+                                            "responses_analyzed": len(
+                                                budget_tracker.recent_responses
+                                            ),
                                         },
-                                    },
-                                )
-
-                            elif isinstance(part, ToolReturnPart):
-                                # Stream tool result event
-                                tool_result = str(part.content)
-                                yield self._format_stream_event(
-                                    "toolResult",
-                                    {
-                                        "id": f"tool_call_{budget_tracker.tool_calls_made}",
-                                        "result": (
-                                            tool_result[:500] + "..."
-                                            if len(tool_result) > 500
-                                            else tool_result
-                                        ),
-                                    },
-                                )
-
-                                # Add to convergence detector for analysis
-                                convergence_detector.add_response(tool_result)
-
-                            elif isinstance(part, TextPart):
-                                # Stream text delta
-                                accumulated_text += part.content
-                                yield self._format_stream_event(
-                                    "text", {"delta": part.content}
-                                )
-
-                    # Add final response to convergence tracking
-                    if accumulated_text:
-                        budget_tracker.add_response(accumulated_text)
-                        convergence_detector.add_response(accumulated_text)
-
-                    # Get final result for conversation context update
-                    try:
-                        final_result = stream_result.get_output()
-
-                        # Update conversation context with new messages
-                        conversation_context.message_history.extend(
-                            stream_result.all_messages()
-                        )
-                        conversation_context.last_updated = datetime.now()
-
-                        # Stream completion event
-                        yield self._format_stream_event(
-                            "done",
-                            {
-                                "content": (
-                                    final_result.content
-                                    if hasattr(final_result, "content")
-                                    else str(final_result)
-                                ),
-                                "metadata": (
-                                    final_result.metadata
-                                    if hasattr(final_result, "metadata")
-                                    else {}
-                                ),
-                                "budget_summary": {
-                                    "tool_calls_made": budget_tracker.tool_calls_made,
-                                    "elapsed_time": budget_tracker.get_elapsed_time(),
-                                    "convergence_detected": len(
-                                        budget_tracker.recent_responses
                                     )
-                                    >= tool_budget.convergence_window,
-                                },
-                            },
-                        )
+                                    break
 
-                    except Exception as result_error:
-                        logger.warning(f"Could not get final result: {result_error}")
-                        yield self._format_stream_event(
-                            "done",
-                            {
-                                "content": accumulated_text,
-                                "metadata": {"partial_result": True},
-                                "budget_summary": {
-                                    "tool_calls_made": budget_tracker.tool_calls_made,
-                                    "elapsed_time": budget_tracker.get_elapsed_time(),
+                            # Process message parts
+                            for part in message.parts:
+                                if isinstance(part, ToolCallPart):
+                                    # Track tool call in budget
+                                    budget_tracker.increment_tool_call(part.tool_name)
+
+                                    # Stream tool call event
+                                    yield self._format_stream_event(
+                                        "toolCall",
+                                        {
+                                            "id": f"tool_call_{budget_tracker.tool_calls_made}",
+                                            "name": part.tool_name,
+                                            "args": part.args,
+                                            "budget_status": {
+                                                "calls_made": budget_tracker.tool_calls_made,
+                                                "calls_remaining": tool_budget.max_tool_calls
+                                                - budget_tracker.tool_calls_made,
+                                            },
+                                        },
+                                    )
+
+                                elif isinstance(part, ToolReturnPart):
+                                    # Stream tool result event
+                                    tool_result = str(part.content)
+                                    yield self._format_stream_event(
+                                        "toolResult",
+                                        {
+                                            "id": f"tool_call_{budget_tracker.tool_calls_made}",
+                                            "result": (
+                                                tool_result[:500] + "..."
+                                                if len(tool_result) > 500
+                                                else tool_result
+                                            ),
+                                        },
+                                    )
+
+                                    # Add to convergence detector for analysis
+                                    convergence_detector.add_response(tool_result)
+
+                                elif isinstance(part, TextPart):
+                                    # Stream text delta
+                                    accumulated_text += part.content
+                                    yield self._format_stream_event(
+                                        "text", {"delta": part.content}
+                                    )
+
+                        # Add final response to convergence tracking
+                        if accumulated_text:
+                            budget_tracker.add_response(accumulated_text)
+                            convergence_detector.add_response(accumulated_text)
+
+                        # Get final result for conversation context update
+                        try:
+                            final_result = stream_result.get_output()
+
+                            # Update conversation context with new messages
+                            conversation_context.message_history.extend(
+                                stream_result.all_messages()
+                            )
+                            conversation_context.last_updated = datetime.now()
+
+                            # Stream completion event
+                            yield self._format_stream_event(
+                                "done",
+                                {
+                                    "content": (
+                                        final_result.content
+                                        if hasattr(final_result, "content")
+                                        else str(final_result)
+                                    ),
+                                    "metadata": (
+                                        final_result.metadata
+                                        if hasattr(final_result, "metadata")
+                                        else {}
+                                    ),
+                                    "budget_summary": {
+                                        "tool_calls_made": budget_tracker.tool_calls_made,
+                                        "elapsed_time": budget_tracker.get_elapsed_time(),
+                                        "convergence_detected": len(
+                                            budget_tracker.recent_responses
+                                        )
+                                        >= tool_budget.convergence_window,
+                                    },
                                 },
-                            },
-                        )
+                            )
+
+                        except Exception as result_error:
+                            logger.warning(
+                                f"Could not get final result: {result_error}"
+                            )
+                            yield self._format_stream_event(
+                                "done",
+                                {
+                                    "content": accumulated_text,
+                                    "metadata": {"partial_result": True},
+                                    "budget_summary": {
+                                        "tool_calls_made": budget_tracker.tool_calls_made,
+                                        "elapsed_time": budget_tracker.get_elapsed_time(),
+                                    },
+                                },
+                            )
+
+            except Exception as mcp_error:
+                logger.warning(
+                    f"MCP server unavailable for streaming, running without MCP tools: {mcp_error}"
+                )
+                # Fallback: Stream a simple response without MCP
+                yield self._format_stream_event(
+                    "text",
+                    {
+                        "delta": f"⚠️ MCP server unavailable. Providing basic response for {agent_type.value} agent.\n\n"
+                    },
+                )
+                yield self._format_stream_event(
+                    "text",
+                    {
+                        "delta": f"I'm a {agent_type.value} agent, but I need MCP server connection to access codebase tools. Please check the MCP server status.\n\n"
+                    },
+                )
+                yield self._format_stream_event(
+                    "done",
+                    {
+                        "content": f"MCP server unavailable for {agent_type.value} agent",
+                        "metadata": {"mcp_fallback": True},
+                        "budget_summary": {"tool_calls_made": 0, "elapsed_time": 0},
+                    },
+                )
 
         except Exception as e:
             logger.warning(f"Enhanced streaming execution failed for {agent_type}: {e}")
@@ -1163,28 +1203,77 @@ Use these valid entity IDs for relationship queries instead of making new discov
 
     def _format_stream_event(self, event_type: str, data: Dict[str, Any]) -> str:
         """
-        Format streaming events for Vercel AI SDK v4 compatibility.
+        Format streaming events for AI SDK V5 compatibility.
 
         Event types:
-        - start: Streaming session started
-        - toolCall: Tool invocation
-        - toolResult: Tool execution result
-        - text: Text delta streaming
-        - budget_exceeded: Tool budget limit reached
-        - converged: Response convergence detected
-        - error: Error occurred
-        - done: Streaming completed
+        - start: Streaming session started (as text)
+        - toolCall: Tool invocation (V5 format)
+        - toolResult: Tool execution result (V5 format)
+        - text: Text delta streaming (V5 format)
+        - budget_exceeded: Budget limit reached (as text)
+        - converged: Response convergence detected (as text)
+        - error: Error occurred (as text)
+        - done: Streaming completed (as end-of-stream)
         """
+        from api.utils.models import (
+            build_text_stream,
+            build_tool_call_partial,
+            build_tool_call_result,
+            build_end_of_stream_message,
+        )
         import json
 
-        event_data = {
-            "id": f"event_{datetime.now().timestamp()}",
-            "event": event_type,
-            "data": data,
-            "timestamp": datetime.now().isoformat(),
-        }
+        if event_type == "text":
+            # Use V5 text streaming format
+            return build_text_stream(data.get("delta", ""))
 
-        return f"data: {json.dumps(event_data)}\n\n"
+        elif event_type == "toolCall":
+            # Use V5 tool call format
+            return build_tool_call_partial(
+                tool_call_id=data.get("id", "unknown"),
+                tool_name=data.get("name", "unknown"),
+                args=data.get("args", {}),
+            )
+
+        elif event_type == "toolResult":
+            # Use V5 tool result format
+            return build_tool_call_result(
+                tool_call_id=data.get("id", "unknown"),
+                tool_name="",  # Tool name not available in result context
+                args={},
+                result={"content": data.get("result", "")},
+            )
+
+        elif event_type == "done":
+            # Use V5 end-of-stream format
+            return build_end_of_stream_message(
+                finish_reason="stop",
+                prompt_tokens=data.get("budget_summary", {}).get("tool_calls_made", 0)
+                * 10,  # Estimate
+                completion_tokens=len(data.get("content", ""))
+                // 4,  # Rough token estimate
+                is_continued=False,
+            )
+
+        else:
+            # For other events (start, budget_exceeded, converged, error), send as text
+            status_message = ""
+            if event_type == "start":
+                status_message = (
+                    f"🚀 Starting {data.get('agent_type', 'agent')} analysis..."
+                )
+            elif event_type == "budget_exceeded":
+                status_message = (
+                    f"⚠️ Tool budget exceeded: {data.get('reason', 'Unknown reason')}"
+                )
+            elif event_type == "converged":
+                status_message = f"✅ Analysis converged: {data.get('reason', 'Response stabilized')}"
+            elif event_type == "error":
+                status_message = f"❌ Error: {data.get('message', 'Unknown error')}"
+            else:
+                status_message = f"ℹ️ {event_type}: {json.dumps(data)}"
+
+            return build_text_stream(status_message + "\n\n")
 
     def get_available_agent_types(self) -> list[AgentType]:
         """Get list of available agent types"""

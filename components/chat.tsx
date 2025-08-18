@@ -1,7 +1,8 @@
 "use client";
 
-import { useChat } from "ai/react";
-import { ChatRequestOptions, CreateMessage, LanguageModelUsage, Message } from "ai";
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport, ToolContent } from 'ai';
+import { ChatRequestOptions, LanguageModelUsage, ModelMessage } from "ai";
 import { MultimodalInput } from "./multimodal-input";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useState, useEffect, memo, useCallback, SetStateAction, Dispatch } from "react";
@@ -129,16 +130,16 @@ interface ChatProps {
 }
 
 interface ChatMessageProps {
-  message: MessageWithModel;
+  message: ModelMessage;
   chatId: string | undefined;
-  onEditComplete: (message: MessageWithModel) => void;
+  onEditComplete: (message: ModelMessage) => void;
   onModelChange: (model: string, messageId: string) => void;
   isFirstUserMessage?: boolean;
   isOrphaned?: boolean;
   onDelete?: () => void;
 }
 
-export interface MessageWithModel extends Message {
+export interface MessageWithModel extends ModelMessage {
   model?: string;
   prompt_tokens?: number;
   completion_tokens?: number;
@@ -152,28 +153,30 @@ export interface MessageWithModel extends Message {
   pipeline_id?: string;
 }
 
-export function toMessage(messageWithModel: MessageWithModel): Message {
-  const { model, tool_invocations, toolInvocations, ...messageProps } = messageWithModel;
+export function toMessage(messageWithModel: MessageWithModel): ModelMessage {
+  const { model, toolInvocations, id, ...messageProps } = messageWithModel;
   return {
     ...messageProps,
-    toolInvocations: tool_invocations || toolInvocations
+    toolInvocations: toolInvocations || [],
+    id: messageWithModel.id,
   };
 }
 
 export function toMessageWithModel(
-  message: Message,
+  message: ModelMessage,
   usage: LanguageModelUsage | null,
   model: string = 'gpt-4o'
 ): MessageWithModel {
   return {
     ...message,
     model,
-    prompt_tokens: usage?.promptTokens,
-    completion_tokens: usage?.completionTokens,
+    prompt_tokens: usage?.inputTokens,
+    completion_tokens: usage?.outputTokens,
     total_tokens: usage?.totalTokens,
-    toolInvocations: (message.toolInvocations) as ExtendedToolCall[],
     data: { dbId: message.id },
-    messageType: (message as MessageWithModel).messageType
+    messageType: (message as MessageWithModel).messageType,
+    agentId: (message as MessageWithModel).agentId,
+    pipeline_id: (message as MessageWithModel).pipeline_id,
   };
 }
 
@@ -419,7 +422,9 @@ export function Chat({ chatId }: ChatProps) {
     setMessages,
     isLoading: isChatLoading,
   } = useChat({
-    api: "/api/chat", // Simplified - single endpoint
+    transport: new DefaultChatTransport({
+      api: '/api/chat',
+    }),
     id: chatId,
     initialMessages: initialMessages.map(toMessage),
     onToolCall: async (tool) => {
