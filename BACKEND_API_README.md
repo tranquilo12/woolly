@@ -10,7 +10,7 @@ This is a comprehensive guide to the Woolly Backend API, a sophisticated FastAPI
 - **Database**: PostgreSQL with SQLAlchemy ORM
 - **AI Integration**: OpenAI GPT models with Pydantic AI framework
 - **Agent System**: Universal agent factory pattern with specialized AI agents
-- **Streaming**: Real-time Server-Sent Events (SSE) compatible with Vercel AI SDK v4
+- **Streaming**: Real-time Server-Sent Events (SSE) compatible with AI SDK V5
 - **Tools**: Python code execution, MCP tool integration
 
 ## 🔧 Technology Stack
@@ -253,12 +253,18 @@ Main chat endpoint with streaming response support.
 }
 ```
 
-**Response:** Streaming response with Vercel AI SDK v4 compatible format:
+**Response:** Streaming response with AI SDK V5 compatible format:
 
 - Text chunks: `0:"text content"`
 - Tool calls: `9:{"toolCallId":"id","toolName":"name","args":{},"state":"partial-call"}`
 - Tool results: `a:{"toolCallId":"id","result":{},"state":"result"}`
-- End stream: `e:{"finishReason":"stop","usage":{"promptTokens":100,"completionTokens":200}}`
+- End stream: `e:{"finishReason":"stop","usage":{"promptTokens":100,"completionTokens":200,"totalTokens":300},"isContinued":false}`
+
+**V5 Improvements:**
+- Removed V4-specific headers (`x-vercel-ai-data-stream`)
+- Added `totalTokens` to usage statistics
+- Cleaner streaming response format
+- Enhanced tool call structure
 
 ### Legacy Chat Endpoint
 
@@ -716,7 +722,7 @@ Get triage system statistics.
 
 #### `POST /api/streaming/mock`
 
-Mock streaming endpoint for testing Vercel AI SDK v4 compatibility.
+Mock streaming endpoint for testing AI SDK V5 compatibility.
 
 **Request Body:**
 
@@ -854,9 +860,10 @@ The API currently operates without authentication for development purposes. In p
 ### Streaming Support
 
 - All chat endpoints support real-time streaming
-- Compatible with Vercel AI SDK v4
+- **Upgraded to AI SDK V5 compatibility**
 - Server-Sent Events (SSE) protocol
-- Automatic token usage tracking
+- Automatic token usage tracking with `totalTokens`
+- Removed legacy V4 headers for cleaner responses
 
 ### Resource Management
 
@@ -870,6 +877,73 @@ The API currently operates without authentication for development purposes. In p
 - Indexed queries for chat and message retrieval
 - Proper foreign key relationships
 - Efficient message grouping and filtering
+
+---
+
+## 🔄 AI SDK V5 Upgrade
+
+### What Changed
+
+The Woolly Backend API has been **fully upgraded** from Vercel AI SDK V4 to **AI SDK V5** format. This upgrade ensures compatibility with modern AI SDK frontends while maintaining all existing functionality.
+
+### Key V5 Improvements
+
+#### **Streaming Response Format**
+- ✅ **Removed V4 Headers**: No more `x-vercel-ai-data-stream: v1` headers
+- ✅ **Enhanced Usage Stats**: Added `totalTokens` to all usage responses
+- ✅ **Cleaner Format**: Standardized streaming response structure
+- ✅ **Better Tool Calls**: Improved tool call and result formatting
+
+#### **Updated Endpoints**
+- ✅ **Main Chat**: `/api/chat/{chat_id}` - Full V5 compatibility
+- ✅ **Legacy Chat**: `/api/chat` - V5 compatible
+- ✅ **Universal Agents**: `/api/v1/agents/execute/streaming` - V5 SSE format
+- ✅ **Triage Streaming**: `/api/v1/triage/execute/streaming` - V5 SSE format
+- ✅ **Streaming POC**: `/api/streaming/mock` - V5 compatible
+
+#### **Technical Changes**
+- ✅ **Core Functions**: Updated `build_tool_call_*` functions for V5
+- ✅ **Response Headers**: Removed V4-specific headers, added proper media types
+- ✅ **Token Counting**: Enhanced with `totalTokens` calculation
+- ✅ **Error Handling**: Maintained robust error handling throughout
+
+### Migration Benefits
+
+1. **Future-Proof**: Compatible with latest AI SDK versions
+2. **Cleaner Code**: Removed legacy V4 dependencies
+3. **Better Performance**: Streamlined response format
+4. **Enhanced Monitoring**: Improved token usage tracking
+5. **Consistent Format**: Standardized across all streaming endpoints
+
+### Backward Compatibility
+
+⚠️ **Breaking Change**: This upgrade removes V4 compatibility. Ensure your frontend is using AI SDK V5 before deploying.
+
+### Testing V5 Endpoints
+
+```bash
+# Test main chat streaming (V5)
+curl -X POST "http://localhost/api/chat/{chat_id}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "Hello V5!", "id": "test-1"}],
+    "model": "gpt-4o"
+  }' --no-buffer
+
+# Test agent streaming (V5)
+curl -X POST "http://localhost/api/v1/agents/execute/streaming" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repository_name": "woolly",
+    "user_query": "test V5 agents",
+    "agent_types": ["documentation"]
+  }' --no-buffer
+
+# Test streaming POC (V5)
+curl -X POST "http://localhost/api/streaming/mock" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "test V5 streaming"}' --no-buffer
+```
 
 ---
 
