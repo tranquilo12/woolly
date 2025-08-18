@@ -1,8 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Repository } from "@/hooks/use-repository-status";
-import { AvailableRepository } from "@/lib/constants";
+import { Repository, AvailableRepository } from "@/lib/constants";
 
 interface RepositoryItemProps {
 	repository: Repository;

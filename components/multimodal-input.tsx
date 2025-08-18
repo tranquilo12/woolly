@@ -23,7 +23,18 @@ import { useSidebar } from "./sidebar-provider";
 import { PreviewAttachment } from "./preview-attachment";
 import { AvailableRepository } from "@/lib/constants";
 import { parseRepositoryCommand } from "@/lib/commands";
-import { RepositorySearchResult, SearchRepositoryRequest } from "@/hooks/use-repository-status";
+// Define types locally since they don't exist in the hook yet
+type RepositorySearchResult = {
+  file_path: string;
+  content: string;
+  language?: string;
+};
+
+type SearchRepositoryRequest = {
+  query: string;
+  limit?: number;
+  threshold?: number;
+};
 import { RepositoryMentionMenu } from "./repository-mention-menu";
 import { ModelSelector } from "./model-selector";
 import { useAgentPanel } from "./agent-panel/agent-provider";

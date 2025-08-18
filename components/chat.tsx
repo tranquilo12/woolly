@@ -373,9 +373,9 @@ export function Chat({ chatId }: ChatProps) {
   } = useRepositoryStatus();
 
   // Simple search function for now
-  const searchRepository = useCallback(async (query: string) => {
+  const searchRepository = useCallback(async (repoName: any, query: any) => {
     // This would be implemented later if needed
-    return [];
+    return { results: [] };
   }, []);
 
   // Fetch messages only when chatId changes

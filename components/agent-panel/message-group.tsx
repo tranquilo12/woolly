@@ -8,7 +8,7 @@ import { forwardRef, useCallback, useMemo, useTransition } from "react";
 interface AgentMessageGroupProps {
 	group: {
 		messages: any[];
-		step_index: number;
+		step_index?: number;
 		completed?: boolean;
 	};
 	currentStep: number;
@@ -67,7 +67,7 @@ export const AgentMessageGroup = forwardRef<HTMLDivElement, AgentMessageGroupPro
 		const handleStepClick = useCallback(() => {
 			if (onStepClick && group?.step_index !== undefined) {
 				startTransition(() => {
-					onStepClick(group.step_index);
+					onStepClick(group.step_index!);
 				});
 			}
 		}, [onStepClick, group?.step_index, startTransition]);

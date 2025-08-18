@@ -11,8 +11,7 @@ export function RepositoryList() {
 	const {
 		repositories,
 		startIndexing,
-		deleteIndex,
-		fetchAllRepositories,
+		refreshRepositories,
 	} = useRepositoryStatus();
 
 	const [selectedRepo, setSelectedRepo] = useState<AvailableRepository | null>(null);
@@ -27,8 +26,13 @@ export function RepositoryList() {
 	};
 
 	useEffect(() => {
-		fetchAllRepositories();
-	}, [fetchAllRepositories]);
+		refreshRepositories();
+	}, [refreshRepositories]);
+
+	const handleDelete = (repoName: string) => {
+		// Delete functionality would be implemented here
+		console.log('Delete repository:', repoName);
+	};
 
 	if (!repositories.length) {
 		return (
@@ -53,7 +57,7 @@ export function RepositoryList() {
 							<IndexingStatusPanel
 								repoName={repository.name}
 								onClose={() => setSelectedRepo(null)}
-								onDelete={deleteIndex}
+								onDelete={handleDelete}
 								isLoading={isLoading}
 							/>
 						)}

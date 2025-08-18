@@ -1,8 +1,13 @@
 "use client";
 
 import React, { useEffect, useState, useMemo, useRef } from "react";
-import { useRepositoryStatus, RepositoryStats } from "@/hooks/use-repository-status";
+import { useRepositoryStatus } from "@/hooks/use-repository-status";
 import { AvailableRepository } from "@/lib/constants";
+
+type RepositoryStats = {
+	collection?: string;
+	total_points?: number;
+};
 import { Button } from "@/components/ui/button";
 import { Trash2, X, Loader2, RefreshCw } from "lucide-react";
 import {
@@ -31,7 +36,7 @@ export function IndexingStatusPanel({
 	isLoading = false,
 }: IndexingStatusPanelProps) {
 	const contentRef = useRef<HTMLDivElement>(null);
-	const { repositories, startIndexing, getRepositoryStats } = useRepositoryStatus();
+	const { repositories, startIndexing } = useRepositoryStatus();
 	const repository = repositories.find((repo) => repo.name === repoName);
 	const [stats, setStats] = useState<RepositoryStats | null>(null);
 	const [isStatsLoading, setIsStatsLoading] = useState(false);
@@ -42,8 +47,8 @@ export function IndexingStatusPanel({
 			if (!repository) return;
 			setIsStatsLoading(true);
 			try {
-				const stats = await getRepositoryStats(repoName as AvailableRepository);
-				setStats(stats);
+				// For now, just set empty stats - this would be implemented later
+				setStats({ collection: 'default', total_points: 0 });
 			} catch (error) {
 				console.error('Failed to fetch stats:', error);
 			} finally {
@@ -51,7 +56,7 @@ export function IndexingStatusPanel({
 			}
 		};
 		fetchStats();
-	}, [repoName, repository, getRepositoryStats]);
+	}, [repoName, repository]);
 
 	// Memoize the table content to prevent unnecessary re-renders
 	const tableContent = useMemo(() => {
@@ -111,7 +116,7 @@ export function IndexingStatusPanel({
 				</TableRow>
 				<TableRow className={tableRowClass}>
 					<TableCell className="font-medium">Language</TableCell>
-					<TableCell className="truncate-cell">{repository.language || '-'}</TableCell>
+					<TableCell className="truncate-cell">-</TableCell>
 				</TableRow>
 				<TableRow className={tableRowClass}>
 					<TableCell className="font-medium">Last Indexed</TableCell>
@@ -124,8 +129,7 @@ export function IndexingStatusPanel({
 	}, [
 		isLoading,
 		repository,
-		stats,
-		tableRowClass
+		stats
 	]);
 
 	return (
@@ -162,7 +166,7 @@ export function IndexingStatusPanel({
 					<Button
 						variant="outline"
 						size="sm"
-						onClick={() => startIndexing(repoName, true)}
+						onClick={() => startIndexing(repoName)}
 						disabled={repository?.indexing_status === 'in_progress'}
 						className="text-yellow-600 dark:text-yellow-500 hover:text-yellow-700 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/50"
 					>

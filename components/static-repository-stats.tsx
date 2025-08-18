@@ -1,6 +1,10 @@
-import { Repository } from "@/hooks/use-repository-status";
+import { Repository } from "@/lib/constants";
 import { TableCell, TableRow } from "./ui/table";
-import { RepositoryStats } from "@/hooks/use-repository-status";
+
+type RepositoryStats = {
+	collection?: string;
+	total_points?: number;
+};
 
 interface StaticRepositoryStatsProps {
 	stats: RepositoryStats | null;
@@ -14,7 +18,7 @@ export function StaticRepositoryStats({ stats, repository }: StaticRepositorySta
 				<>
 					<TableRow>
 						<TableCell className="font-medium">Total Points</TableCell>
-						<TableCell className="truncate">{stats.total_points.toLocaleString()}</TableCell>
+						<TableCell className="truncate">{stats.total_points?.toLocaleString() || '-'}</TableCell>
 					</TableRow>
 					<TableRow>
 						<TableCell className="font-medium">Collection</TableCell>
@@ -22,12 +26,7 @@ export function StaticRepositoryStats({ stats, repository }: StaticRepositorySta
 					</TableRow>
 				</>
 			)}
-			{repository?.language && (
-				<TableRow>
-					<TableCell className="font-medium">Language</TableCell>
-					<TableCell className="truncate">{repository.language}</TableCell>
-				</TableRow>
-			)}
+
 			{repository?.last_indexed && (
 				<TableRow>
 					<TableCell className="font-medium">Last Indexed</TableCell>
