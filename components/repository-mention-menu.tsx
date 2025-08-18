@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
-import { AvailableRepository, AVAILABLE_REPOSITORIES } from "@/lib/constants";
+import { AvailableRepository } from "@/lib/constants";
+import { useRepositoryStatus } from "@/hooks/use-repository-status";
 import { cn } from "@/lib/utils";
 
 interface RepositoryMentionMenuProps {
@@ -21,11 +22,13 @@ export function RepositoryMentionMenu({
 	position,
 	selectedIndex,
 }: RepositoryMentionMenuProps) {
+	const { repositories } = useRepositoryStatus();
+
 	if (!isOpen) return null;
 
-	const filteredRepos = AVAILABLE_REPOSITORIES.filter(repo =>
-		repo.toLowerCase().includes(searchTerm.toLowerCase())
-	);
+	const filteredRepos = repositories
+		.map(repo => repo.name)
+		.filter(repo => repo.toLowerCase().includes(searchTerm.toLowerCase()));
 
 	return (
 		<motion.div

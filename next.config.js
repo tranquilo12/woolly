@@ -4,7 +4,7 @@ const nextConfig = {
     // Get the API URL from environment variable or use a default for development
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL
       ? process.env.NEXT_PUBLIC_API_URL.replace("/api", "")
-      : "http://backend:3001";
+      : "http://localhost:3001";
 
     return [
       {

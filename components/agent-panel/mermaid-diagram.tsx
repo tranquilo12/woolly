@@ -2,11 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
-import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
 interface MermaidDiagramProps {
-	content: string;
+	content?: string;
 	className?: string;
 }
 
@@ -19,7 +18,7 @@ export function MermaidDiagram({ content, className }: MermaidDiagramProps) {
 	useEffect(() => {
 		const renderDiagram = async () => {
 			if (!content) {
-				console.warn('MermaidDiagram: No content provided');
+				// No console.warn here
 				setError('No diagram content provided');
 				setIsLoading(false);
 				return;
@@ -58,7 +57,7 @@ export function MermaidDiagram({ content, className }: MermaidDiagramProps) {
 					.replace(/[\u200B-\u200D\uFEFF]/g, '')
 					.replace(/^\s+|\s+$/gm, '');
 
-				console.log('Rendering mermaid diagram with content:', cleanContent);
+				// No console.log here
 
 				// Configure mermaid for this render
 				mermaid.initialize({
@@ -80,7 +79,7 @@ export function MermaidDiagram({ content, className }: MermaidDiagramProps) {
 				const { svg } = await mermaid.render(diagramId, cleanContent);
 				setSvg(svg);
 			} catch (err) {
-				console.error('Failed to render mermaid diagram:', err, 'Content:', content);
+				// No console.error here
 				setError(err instanceof Error ? err.message : 'Failed to render diagram');
 			} finally {
 				setIsLoading(false);
@@ -91,13 +90,22 @@ export function MermaidDiagram({ content, className }: MermaidDiagramProps) {
 	}, [content]);
 
 	if (isLoading) {
-		return <Skeleton className="w-full h-48" />;
+		return (
+			<div className={cn("mermaid-diagram-loading flex items-center justify-center p-8", className)}>
+				<div className="animate-pulse text-muted-foreground">Loading diagram...</div>
+			</div>
+		);
 	}
 
 	if (error) {
 		return (
-			<div className="text-destructive text-sm p-4 bg-destructive/10 rounded-lg">
-				Failed to render diagram: {error}
+			<div className={cn("mermaid-diagram-error p-4 border border-destructive/30 bg-destructive/10 rounded-lg", className)}>
+				<p className="text-sm text-destructive">Error rendering diagram: {error}</p>
+				{content && (
+					<pre className="mt-2 p-2 bg-muted rounded text-xs overflow-auto">
+						<code>{content}</code>
+					</pre>
+				)}
 			</div>
 		);
 	}

@@ -12,6 +12,7 @@ export interface StrategyStep {
 	id: number;
 	title: string;
 	prompt: string;
+	model: string;
 }
 
 export interface StrategyDetails {

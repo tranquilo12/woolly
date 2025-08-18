@@ -21,6 +21,108 @@ import { useAgentPanel } from "./agent-panel/agent-provider";
 import dynamic from 'next/dynamic';
 import { Suspense } from 'react';
 import { Skeleton } from './ui/skeleton';
+import { Badge } from './ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+
+// Simple inline components using shadcn/ui
+const ConnectionStatusIndicator = () => {
+  const [status, setStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
+  const [lastChecked, setLastChecked] = useState<Date | null>(null);
+
+  const checkConnection = useCallback(async () => {
+    try {
+      setStatus('checking');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/health`);
+      setStatus(response.ok ? 'connected' : 'disconnected');
+    } catch (error) {
+      setStatus('disconnected');
+    }
+    setLastChecked(new Date());
+  }, []);
+
+  useEffect(() => {
+    checkConnection();
+    const interval = setInterval(checkConnection, 30000);
+    return () => clearInterval(interval);
+  }, [checkConnection]);
+
+  const statusConfig = {
+    connected: { color: 'bg-green-500', text: 'Connected' },
+    disconnected: { color: 'bg-red-500', text: 'Disconnected' },
+    checking: { color: 'bg-yellow-500', text: 'Checking...' }
+  };
+
+  const config = statusConfig[status];
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className={`${config.color} text-white border-0`}>
+              {config.text}
+            </Badge>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>Backend: {lastChecked ? lastChecked.toLocaleTimeString() : 'Never'}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+};
+
+const AvailableToolsIndicator = () => {
+  const [tools, setTools] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchTools = async () => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/v1/agents/types`);
+        if (response.ok) {
+          const data = await response.json();
+          setTools(data.agent_types || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch tools:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTools();
+  }, []);
+
+  if (loading) {
+    return <Skeleton className="h-6 w-24" />;
+  }
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Tools:</span>
+            <Badge variant="secondary">{tools.length}</Badge>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>
+          <div className="max-w-xs">
+            <p className="font-medium mb-1">Available Agent Types:</p>
+            <div className="flex flex-wrap gap-1">
+              {tools.map((tool) => (
+                <Badge key={tool} variant="outline" className="text-xs">
+                  {tool}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+};
 
 interface ChatProps {
   chatId?: string;
@@ -47,6 +149,7 @@ export interface MessageWithModel extends Message {
   tool_invocations?: ExtendedToolCall[];
   messageType?: string;
   agentId?: string;
+  pipeline_id?: string;
 }
 
 export function toMessage(messageWithModel: MessageWithModel): Message {
@@ -262,11 +365,18 @@ export function Chat({ chatId }: ChatProps) {
 
   // Memoize repository status hooks
   const {
-    searchRepository,
-    getRepositoryStats,
-    getRepositoryMap,
-    getRepositorySummary
+    repositories,
+    loading: repositoriesLoading,
+    error: repositoriesError,
+    refreshRepositories,
+    startIndexing,
   } = useRepositoryStatus();
+
+  // Simple search function for now
+  const searchRepository = useCallback(async (query: string) => {
+    // This would be implemented later if needed
+    return [];
+  }, []);
 
   // Fetch messages only when chatId changes
   useEffect(() => {
@@ -309,13 +419,9 @@ export function Chat({ chatId }: ChatProps) {
     setMessages,
     isLoading: isChatLoading,
   } = useChat({
-    experimental_throttle: 50,
-    api: chatId ? `/api/chat/${chatId}` : "/api/chat",
+    api: "/api/chat", // Simplified - single endpoint
     id: chatId,
     initialMessages: initialMessages.map(toMessage),
-    body: {
-      id: chatId
-    },
     onToolCall: async (tool) => {
       // console.log('onToolCall', tool);
 
@@ -573,12 +679,12 @@ export function Chat({ chatId }: ChatProps) {
   }, [chatId, handleEditComplete, handleModelChange, messages, onDelete]);
 
   // Add this before the groupedMessages reduction
-  console.log('Processing messages:', messages.map(m => ({
-    id: m.id,
-    role: m.role,
-    messageType: (m as MessageWithModel).messageType,
-    hasToolInvocations: !!(m as MessageWithModel).toolInvocations?.length
-  })));
+  // console.log('Processing messages:', messages.map(m => ({
+  //   id: m.id,
+  //   role: m.role,
+  //   messageType: (m as MessageWithModel).messageType,
+  //   hasToolInvocations: !!(m as MessageWithModel).toolInvocations?.length
+  // })));
 
   // Filter out any agent messages from the grouped messages
   const groupedMessages = messages.reduce((groups: MessageWithModel[][], message) => {
@@ -644,6 +750,14 @@ export function Chat({ chatId }: ChatProps) {
             )}
             <div ref={endRef} className="h-px w-full" />
           </div>
+        </div>
+      </div>
+
+      {/* Status bar - connection and tools */}
+      <div className="flex-shrink-0 w-full bg-muted/30 border-t border-b px-4 py-2">
+        <div className="flex items-center justify-between text-sm">
+          <ConnectionStatusIndicator />
+          <AvailableToolsIndicator />
         </div>
       </div>
 

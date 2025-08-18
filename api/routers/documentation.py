@@ -1,5 +1,10 @@
 from fastapi import APIRouter, HTTPException, status
-from ..documentation.strategies import strategy_registry
+# Legacy strategy registry import - keeping for backward compatibility
+try:
+    from ..documentation.strategies import strategy_registry
+except ImportError:
+    # Strategy registry removed in Phase 2 - using fallback
+    strategy_registry = {}
 from typing import Dict, List
 
 router = APIRouter()
@@ -9,7 +14,7 @@ router = APIRouter()
 async def list_strategies():
     """List all available documentation strategies"""
     try:
-        strategies = strategy_registry.values()
+        strategies = strategy_registry.values() if strategy_registry else []
         if not strategies:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -33,7 +38,7 @@ async def list_strategies():
 @router.get("/strategies/{strategy_name}")
 async def get_strategy_details(strategy_name: str):
     """Get detailed information about a specific strategy"""
-    strategy = strategy_registry.get(strategy_name)
+    strategy = strategy_registry.get(strategy_name) if strategy_registry else None
     if not strategy:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -47,6 +52,7 @@ async def get_strategy_details(strategy_name: str):
                 "id": step.id,
                 "title": step.title,
                 "prompt": step.prompt,
+                "model": step.model,
             }
             for step in strategy.steps
         ],

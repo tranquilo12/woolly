@@ -1,9 +1,9 @@
 import { Chat } from "@/components/chat";
 
 interface ChatPageProps {
-	params: {
+	params: Promise<{
 		id: string;
-	};
+	}>;
 }
 
 export default async function ChatPage({ params }: ChatPageProps) {

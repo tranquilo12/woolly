@@ -10,25 +10,37 @@ interface SaveMessageParams {
 	role: string;
 	content: string;
 	toolInvocations?: any[];
+	pipeline_id?: string;
 }
 
-export function useAgentMessages(chatId: string, agentId: string, repository: string, messageType: 'documentation' | 'mermaid') {
+export function useAgentMessages(
+	chatId: string,
+	agentId: string,
+	repository: string,
+	messageType: 'documentation' | 'mermaid',
+	pipeline_id?: string
+) {
 	const queryClient = useQueryClient();
-	console.log("[DEBUG] useAgentMessages fetch called", {
-		api: `/api/chat/${chatId}/agent/messages`,
-		agentId,
-		messageType,
-		repository,
-	});
+	// console.log("[DEBUG] useAgentMessages fetch called", {
+	// 	api: `/api/chat/${chatId}/agent/messages`,
+	// 	agentId,
+	// 	messageType,
+	// 	repository,
+	// 	pipeline_id,
+	// });
 
 	const { data, isError, isLoading, refetch } = useQuery({
-		queryKey: ['messages', chatId, agentId, repository, messageType] as const,
+		queryKey: ['messages', chatId, agentId, repository, messageType, pipeline_id] as const,
 		queryFn: async () => {
 			const params = new URLSearchParams({
 				agent_id: agentId,
 				repository: repository,
 				message_type: messageType
 			});
+
+			if (pipeline_id) {
+				params.append('pipeline_id', pipeline_id);
+			}
 
 			const response = await fetch(
 				`/api/chat/${chatId}/agent/messages?${params.toString()}`
@@ -40,27 +52,26 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 			}
 
 			const data = await response.json();
-			return data || []; // Ensure we always return an array
+			return data || [];
 		},
 		retry: 3,
 		retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
 	});
 
-	// Add debug logging for state changes
 	useEffect(() => {
 		console.log('Messages state changed:', {
 			chatId,
 			agentId,
 			repository,
 			messageType,
+			pipeline_id,
 			hasData: !!data,
 			isError,
 			isLoading
 		});
-	}, [data, isError, isLoading, chatId, agentId, repository, messageType]);
+	}, [data, isError, isLoading, chatId, agentId, repository, messageType, pipeline_id]);
 
 	const groupMessages = (messages: AgentMessage[]): MessageGroup[] => {
-		// Sort messages by step_index and created_at instead of iteration_index
 		const sortedMessages = [...messages].sort((a, b) => {
 			if (!a.step_index && !b.step_index) {
 				return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
@@ -68,10 +79,9 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 			return (a.step_index ?? 0) - (b.step_index ?? 0);
 		});
 
-		console.log("[DEBUG] Sorted messages:", sortedMessages);
+		// console.log("[DEBUG] Sorted messages:", sortedMessages);
 
 		return sortedMessages.reduce((groups: MessageGroup[], message, index) => {
-			// Use index as group identifier if no step_index
 			const stepIndex = message.step_index ?? index;
 
 			let group = groups.find(g => g.step_index === stepIndex);
@@ -86,7 +96,6 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 				groups.push(group);
 			}
 
-			// Check if this message completes the group
 			if (message.tool_invocations?.some(tool =>
 				tool.toolName === 'final_result' && tool.state === 'result'
 			)) {
@@ -112,13 +121,13 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 				role: params.role,
 				content: params.content,
 				tool_invocations: params.toolInvocations,
-				model: 'gpt-4o-mini', // Add default model since it's required by the backend
+				model: 'gpt-4o-mini',
 				iteration_index: params.iteration_index,
 				step_index: params.step_index,
 				step_title: params.step_title,
+				pipeline_id: params.pipeline_id,
 			};
 
-			// Update to use the correct endpoint
 			const response = await fetch(`/api/chat/${params.chatId}/agent/messages`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -132,7 +141,7 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 			return response.json();
 		},
 		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['messages', chatId, agentId, repository, messageType] as const });
+			queryClient.invalidateQueries({ queryKey: ['messages', chatId, agentId, repository, messageType, pipeline_id] as const });
 		},
 	});
 
@@ -140,7 +149,7 @@ export function useAgentMessages(chatId: string, agentId: string, repository: st
 		if (chatId && agentId && repository) {
 			refetch();
 		}
-	}, [chatId, agentId, repository, refetch]);
+	}, [chatId, agentId, repository, refetch, pipeline_id]);
 
 	return {
 		data,

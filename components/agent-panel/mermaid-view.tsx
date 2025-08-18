@@ -1,34 +1,23 @@
 'use client';
 
-import { useChat } from 'ai/react';
-import { Message } from "ai";
-import { useAgentMessages } from '@/hooks/use-agent-messages';
-import { cn } from '@/lib/utils';
 import { Button } from '../ui/button';
-import { Markdown } from '../markdown';
+import { Textarea } from '../ui/textarea';
+import { MermaidDiagram } from './mermaid-diagram';
 import { ScrollArea } from '../ui/scroll-area';
 import { useSystemPrompt } from '@/hooks/use-system-prompt';
 import { useState, useEffect } from 'react';
 import { AvailableRepository } from '@/lib/constants';
 import { Loader2, Bot } from 'lucide-react';
-import { motion } from 'framer-motion';
-import { Skeleton } from '../ui/skeleton';
+import { useChat } from 'ai/react';
+import { Message } from 'ai';
 import { toast } from 'sonner';
 
-interface AgentResponse {
-	id: string;
-	name: string;
-	repository: string;
-}
-
 interface MermaidViewProps {
-	className?: string;
-	currentChatId: string;
 	selectedRepo: AvailableRepository;
-	agentId: string;
 }
 
-export function MermaidView({ className, currentChatId, selectedRepo, agentId }: MermaidViewProps) {
+export function MermaidView({ selectedRepo }: MermaidViewProps) {
+	const [diagramPrompt, setDiagramPrompt] = useState("Please analyze the codebase and generate a Mermaid diagram showing the component relationships.");
 	const { data: systemPrompt } = useSystemPrompt();
 	const [isAgentReady, setIsAgentReady] = useState(false);
 
@@ -72,11 +61,11 @@ export function MermaidView({ className, currentChatId, selectedRepo, agentId }:
 					localStorage.setItem(`mermaid_agent_${selectedRepo}`, newAgentIdString);
 					setIsAgentReady(true);
 				} else {
-					console.error('Failed to setup mermaid agent:', await createResponse.text());
+					// Error handling without console.error
 					toast.error('Failed to setup diagram agent');
 				}
 			} catch (error) {
-				console.error('Failed to setup mermaid agent:', error);
+				// Error handling without console.error
 				toast.error('Failed to setup diagram agent');
 			}
 		};
@@ -84,121 +73,110 @@ export function MermaidView({ className, currentChatId, selectedRepo, agentId }:
 		setupMermaidAgent();
 	}, [selectedRepo, isAgentReady]);
 
-	// Ensure agentId is always a string when passed to useAgentMessages
-	const safeAgentId = agentId ? String(agentId) : '';
+	// Get agent ID from localStorage
+	const agentId = typeof window !== 'undefined' ? localStorage.getItem(`mermaid_agent_${selectedRepo}`) : null;
+	const safeAgentId = agentId || '';
 
-	const { data: initialMessages = [], isError, isLoading: isLoadingInitial, saveMessage } = useAgentMessages(
-		currentChatId,
-		safeAgentId,
-		selectedRepo,
-		'mermaid'
-	);
-
+	// Setup chat for streaming
 	const {
 		messages: streamingMessages = [],
 		append,
 		isLoading,
 		stop
 	} = useChat({
-		api: `/api/agents/${safeAgentId}/mermaid`,
-		experimental_throttle: 50,
-		id: currentChatId,
-		initialMessages,
-		onFinish: (message) => {
-			saveMessage({
-				agentId: safeAgentId,
-				chatId: currentChatId,
-				repository: selectedRepo,
-				messageType: 'mermaid',
-				role: message.role,
-				content: message.content,
-			});
-		},
+		api: `/api/agents/${safeAgentId}/chat`,
+		id: `mermaid-${selectedRepo}`,
 		body: {
-			id: currentChatId,
 			repository: selectedRepo,
-			content: "Please analyze the codebase and generate a Mermaid diagram showing the component relationships."
+			system_prompt: systemPrompt,
 		},
+		onError: () => {
+			toast.error('Failed to generate diagram');
+		}
 	});
 
-	const allMessages = [...(initialMessages || []), ...(streamingMessages || [])].reduce((acc: Message[], message: Message) => {
-		const exists = acc.find((m: Message) => m.id === message.id);
-		if (!exists) {
-			acc.push(message);
+	// Extract mermaid diagram from messages
+	const extractMermaidDiagram = (messages: Message[]): string => {
+		for (const message of messages) {
+			if (message.role === 'assistant') {
+				const content = message.content || '';
+				const mermaidMatch = content.match(/```mermaid([\s\S]*?)```/);
+				if (mermaidMatch && mermaidMatch[1]) {
+					return mermaidMatch[1].trim();
+				}
+			}
 		}
-		return acc;
-	}, [] as Message[]);
+		return '';
+	};
+
+	const mermaidDiagram = extractMermaidDiagram(streamingMessages);
 
 	const handleGenerateDiagram = async () => {
 		try {
 			await append({
 				role: 'user',
-				content: "Please analyze the codebase and generate a Mermaid diagram showing the component relationships.",
+				content: diagramPrompt,
 				id: `${Date.now()}`,
 			});
 		} catch (error) {
-			console.error("Failed to generate diagram:", error);
+			// Error handling without console.error
+			toast.error('Failed to generate diagram');
 		}
 	};
 
 	if (!isAgentReady && !agentId) {
-		return <Skeleton className="w-full h-full" />;
+		return (
+			<div className="flex items-center justify-center h-full">
+				<div className="text-center">
+					<Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+					<p className="text-muted-foreground">Setting up diagram agent...</p>
+				</div>
+			</div>
+		);
 	}
 
 	return (
-		<div className={cn("flex flex-col h-full overflow-hidden", className)}>
-			<div className="flex-none p-4 space-y-4 border-b">
-				<h2 className="text-lg font-semibold">Diagrams</h2>
-				<p className="text-sm text-muted-foreground">
-					Generate visual representations of your codebase structure and relationships.
-				</p>
-				<div className="flex items-center gap-2">
+		<div className="flex flex-col h-full">
+			<div className="flex-none p-4 border-b">
+				<div className="flex items-start gap-4">
+					<Textarea
+						value={diagramPrompt}
+						onChange={(e) => setDiagramPrompt(e.target.value)}
+						placeholder="Enter your diagram prompt..."
+						className="min-h-[100px] flex-1"
+					/>
 					<Button
-						variant="outline"
 						onClick={handleGenerateDiagram}
-						disabled={isLoading}
+						disabled={isLoading || !diagramPrompt.trim()}
+						className="mt-2"
 					>
 						{isLoading ? (
 							<>
-								<Loader2 className="h-4 w-4 animate-spin mr-2" />
+								<Loader2 className="mr-2 h-4 w-4 animate-spin" />
 								Generating...
 							</>
 						) : (
-							'Generate Diagram'
+							<>
+								<Bot className="mr-2 h-4 w-4" />
+								Generate
+							</>
 						)}
 					</Button>
-					{isLoading && (
-						<Button
-							variant="ghost"
-							size="sm"
-							onClick={() => stop()}
-							className="gap-2"
-						>
-							<Loader2 className="h-4 w-4 animate-spin" />
-							Stop
-						</Button>
-					)}
 				</div>
 			</div>
 
-			<ScrollArea className="flex-1 w-full h-[calc(100%-120px)]">
-				<div className="p-4 space-y-4">
-					{allMessages.map((message: Message) => (
-						<div key={message.id} className="mb-4">
-							<Markdown>{message.content}</Markdown>
-						</div>
-					))}
-					{isLoading && (
-						<motion.div
-							initial={{ opacity: 0 }}
-							animate={{ opacity: 1 }}
-							className="flex items-center gap-2 text-muted-foreground"
-						>
-							<Bot className="h-4 w-4" />
-							<span className="text-sm">Generating diagram...</span>
-						</motion.div>
-					)}
-				</div>
+			<ScrollArea className="flex-1 p-4">
+				{mermaidDiagram ? (
+					<MermaidDiagram content={mermaidDiagram} />
+				) : (
+					<div className="text-center py-12 text-muted-foreground">
+						{isLoading ? (
+							<div className="animate-pulse">Generating diagram...</div>
+						) : (
+							<p>Generate a diagram to visualize your codebase</p>
+						)}
+					</div>
+				)}
 			</ScrollArea>
 		</div>
 	);

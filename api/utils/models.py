@@ -19,12 +19,13 @@ import uuid
 from .database import Base
 
 
-# region OpenAI Streaming Response Models
+# region AI SDK V5 Streaming Response Models
 
 
 class Usage(BaseModel):
     promptTokens: int
     completionTokens: int
+    totalTokens: int
 
 
 class EndOfStreamMessage(BaseModel):
@@ -51,7 +52,8 @@ class ToolCallResult(BaseModel):
 
 def build_tool_call_partial(tool_call_id: str, tool_name: str, args: dict) -> str:
     """
-    Return a serialized JSON string for partial tool calls in the '9:...' format.
+    Return a serialized JSON string for partial tool calls in AI SDK V5 format.
+    V5 uses the same '9:...' format but with updated structure.
     """
     obj = {
         "toolCallId": tool_call_id,
@@ -60,14 +62,15 @@ def build_tool_call_partial(tool_call_id: str, tool_name: str, args: dict) -> st
         "state": "partial-call",
     }
     res = json.dumps(obj)
-    return f"9:{res}\n\n"
+    return f"9:{res}\n"
 
 
 def build_tool_call_result(
     tool_call_id: str, tool_name: str, args: dict, result: dict | None
 ) -> str:
     """
-    Return a serialized JSON string for tool call results in the 'a:...' format.
+    Return a serialized JSON string for tool call results in AI SDK V5 format.
+    V5 uses the same 'a:...' format but with updated structure.
     """
     obj = {
         "toolCallId": tool_call_id,
@@ -77,7 +80,7 @@ def build_tool_call_result(
         "result": result,
     }
     res = json.dumps(obj)
-    return f"a:{res}\n\n"
+    return f"a:{res}\n"
 
 
 def build_end_of_stream_message(
@@ -87,15 +90,29 @@ def build_end_of_stream_message(
     is_continued: bool = False,
 ) -> str:
     """
-    Return a serialized JSON string for end-of-stream messages in the 'e:...' format.
+    Return a serialized JSON string for end-of-stream messages in AI SDK V5 format.
+    V5 requires totalTokens in usage and updated formatting.
     """
+    total_tokens = prompt_tokens + completion_tokens
     obj = EndOfStreamMessage(
         finishReason=finish_reason,
-        usage=Usage(promptTokens=prompt_tokens, completionTokens=completion_tokens),
+        usage=Usage(
+            promptTokens=prompt_tokens,
+            completionTokens=completion_tokens,
+            totalTokens=total_tokens,
+        ),
         isContinued=is_continued,
     )
     res = obj.model_dump_json()
-    return f"e:{res}\n\n"
+    return f"e:{res}\n"
+
+
+def build_text_stream(content: str) -> str:
+    """
+    Return a serialized JSON string for text content in AI SDK V5 format.
+    V5 uses the same '0:...' format for text streaming.
+    """
+    return f"0:{json.dumps(content)}\n"
 
 
 def is_complete_json(json_str: str) -> bool:
@@ -174,6 +191,9 @@ class Message(Base):
     agent_id = Column(UUID(as_uuid=True), nullable=True)
     repository = Column(String, nullable=True)
     message_type = Column(String, nullable=True)
+    pipeline_id = Column(
+        String, nullable=True
+    )  # New field for pipeline/strategy identification
 
     # New fields for agent message grouping
     iteration_index: Optional[int] = Column(Integer)
