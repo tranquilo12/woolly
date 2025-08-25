@@ -19,6 +19,8 @@ from .utils.models import (
     build_tool_call_partial,
     build_tool_call_result,
     build_text_stream,
+    build_message_start,
+    build_message_end,
     build_end_of_stream_message,
     is_complete_json,
 )
@@ -238,148 +240,164 @@ def stream_text(
     db: Session = None,
     message_id: uuid.UUID = None,
 ):
-    stream = do_stream(messages, model=model)
+    assistant_message_id = str(uuid.uuid4())
     content_buffer = ""
     final_usage = None
-    draft_tool_calls = []
     tool_invocations = []
-    draft_tool_calls_index = -1
+    error_occurred = None
 
-    for chunk in stream:
-        for choice in chunk.choices:
-            if choice.delta.tool_calls:
-                for tool_call in choice.delta.tool_calls:
-                    id = tool_call.id
-                    name = tool_call.function.name if tool_call.function else None
-                    arguments = (
-                        tool_call.function.arguments if tool_call.function else None
-                    )
+    # Start the message with proper AI SDK V5 format
+    yield build_message_start(assistant_message_id, "assistant")
 
-                    if id is not None:
-                        # New tool call
-                        draft_tool_calls_index += 1
-                        draft_tool_calls.append(
-                            {"id": id, "name": name, "arguments": "{}"}
+    try:
+        stream = do_stream(messages, model=model)
+        draft_tool_calls = []
+        draft_tool_calls_index = -1
+
+        for chunk in stream:
+            for choice in chunk.choices:
+                if choice.delta.tool_calls:
+                    for tool_call in choice.delta.tool_calls:
+                        id = tool_call.id
+                        name = tool_call.function.name if tool_call.function else None
+                        arguments = (
+                            tool_call.function.arguments if tool_call.function else None
                         )
-                        # Stream partial tool call
-                        yield build_tool_call_partial(
-                            tool_call_id=id,
-                            tool_name=name,
-                            args={},  # Empty dict for initial call
-                        )
-                    elif arguments:
-                        try:
-                            # Accumulate arguments
-                            current_args = draft_tool_calls[draft_tool_calls_index][
-                                "arguments"
-                            ]
-                            # Concatenate argument strings
-                            draft_tool_calls[draft_tool_calls_index]["arguments"] = (
-                                current_args.rstrip("}") + arguments.lstrip("{")
+
+                        if id is not None:
+                            draft_tool_calls_index += 1
+                            draft_tool_calls.append(
+                                {"id": id, "name": name, "arguments": "{}"}
                             )
-
-                            # Only try to parse and stream if we have complete JSON
-                            if is_complete_json(
-                                draft_tool_calls[draft_tool_calls_index]["arguments"]
-                            ):
-                                parsed_args = json.loads(
+                            yield build_tool_call_partial(
+                                tool_call_id=id,
+                                tool_name=name,
+                                args={},
+                            )
+                        elif arguments:
+                            try:
+                                current_args = draft_tool_calls[draft_tool_calls_index][
+                                    "arguments"
+                                ]
+                                draft_tool_calls[draft_tool_calls_index][
+                                    "arguments"
+                                ] = current_args.rstrip("}") + arguments.lstrip("{")
+                                if is_complete_json(
                                     draft_tool_calls[draft_tool_calls_index][
                                         "arguments"
                                     ]
-                                )
-                                yield build_tool_call_partial(
-                                    tool_call_id=draft_tool_calls[
-                                        draft_tool_calls_index
-                                    ]["id"],
-                                    tool_name=draft_tool_calls[draft_tool_calls_index][
-                                        "name"
-                                    ],
-                                    args=parsed_args,
-                                )
-                        except json.JSONDecodeError:
-                            # Skip streaming for incomplete JSON
-                            continue
+                                ):
+                                    parsed_args = json.loads(
+                                        draft_tool_calls[draft_tool_calls_index][
+                                            "arguments"
+                                        ]
+                                    )
+                                    yield build_tool_call_partial(
+                                        tool_call_id=draft_tool_calls[
+                                            draft_tool_calls_index
+                                        ]["id"],
+                                        tool_name=draft_tool_calls[
+                                            draft_tool_calls_index
+                                        ]["name"],
+                                        args=parsed_args,
+                                    )
+                            except json.JSONDecodeError:
+                                continue
 
-            elif choice.finish_reason == "tool_calls":
-                for tool_call in draft_tool_calls:
-                    try:
-                        parsed_args = json.loads(tool_call["arguments"])
-                        tool_result = available_tools[tool_call["name"]](**parsed_args)
+                elif choice.finish_reason == "tool_calls":
+                    for tool_call in draft_tool_calls:
+                        try:
+                            parsed_args = json.loads(tool_call["arguments"])
+                            tool_result = available_tools[tool_call["name"]](
+                                **parsed_args
+                            )
+                            tool_invocations.append(
+                                {
+                                    "toolCallId": tool_call["id"],
+                                    "toolName": tool_call["name"],
+                                    "args": parsed_args,
+                                    "result": tool_result,
+                                    "state": "result",
+                                }
+                            )
+                            yield build_tool_call_result(
+                                tool_call_id=tool_call["id"],
+                                tool_name=tool_call["name"],
+                                args=parsed_args,
+                                result=tool_result,
+                            )
+                        except Exception as e:
+                            print(f"Tool execution error: {e}")
+                            error_result = {"error": str(e)}
+                            tool_invocations.append(
+                                {
+                                    "id": tool_call["id"],
+                                    "toolName": tool_call["name"],
+                                    "args": {},
+                                    "result": error_result,
+                                    "state": "error",
+                                }
+                            )
+                            yield build_tool_call_result(
+                                tool_call_id=tool_call["id"],
+                                tool_name=tool_call["name"],
+                                args={},
+                                result=error_result,
+                            )
+                else:
+                    content = choice.delta.content or ""
+                    content_buffer += content
+                    # Only stream non-empty content to prevent AI SDK v5 buffering issues
+                    if content:
+                        yield build_text_stream(content)
 
-                        # First, append to tool_invocations for database
-                        tool_invocations.append(
-                            {
-                                "toolCallId": tool_call["id"],
-                                "toolName": tool_call["name"],
-                                "args": parsed_args,
-                                "result": tool_result,
-                                "state": "result",
-                            }
-                        )
+            if chunk.choices == [] and hasattr(chunk, "usage") and chunk.usage:
+                final_usage = chunk.usage
 
-                        # Then yield the properly formatted result for streaming
-                        yield build_tool_call_result(
-                            tool_call_id=tool_call["id"],
-                            tool_name=tool_call["name"],
-                            args=parsed_args,
-                            result=tool_result,
-                        )
-                    except Exception as e:
-                        print(f"Tool execution error: {e}")
-                        error_result = {"error": str(e)}
+    except Exception as e:
+        error_occurred = e
+        logging.error(f"Error during OpenAI stream: {e}", exc_info=True)
+        error_message = f"\n\nAn error occurred: {str(e)}"
+        content_buffer += error_message
+        yield build_text_stream(error_message)
 
-                        # Add error state to tool_invocations
-                        tool_invocations.append(
-                            {
-                                "id": tool_call["id"],
-                                "toolName": tool_call["name"],
-                                "args": {},
-                                "result": error_result,
-                                "state": "error",
-                            }
-                        )
+    finally:
+        # Always end the message and stream, even if errors occurred
+        yield build_message_end(assistant_message_id, "assistant", content_buffer)
 
-                        # Stream error result
-                        yield build_tool_call_result(
-                            tool_call_id=tool_call["id"],
-                            tool_name=tool_call["name"],
-                            args={},
-                            result=error_result,
-                        )
+        finish_reason = "error" if error_occurred else "stop"
 
-            else:
-                content = choice.delta.content or ""
-                content_buffer += content
-                yield build_text_stream(content)
-
-        if chunk.choices == []:
-            usage = chunk.usage
-            prompt_tokens = usage.prompt_tokens
-            completion_tokens = usage.completion_tokens
-            final_usage = usage
-
+        if final_usage:
             yield build_end_of_stream_message(
-                finish_reason="stop",
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
+                finish_reason=finish_reason,
+                prompt_tokens=final_usage.prompt_tokens,
+                completion_tokens=final_usage.completion_tokens,
+                is_continued=False,
+            )
+        else:
+            yield build_end_of_stream_message(
+                finish_reason=finish_reason,
+                prompt_tokens=0,
+                completion_tokens=len(content_buffer.split()),
                 is_continued=False,
             )
 
-    # After the stream is complete
-    if final_usage and db and message_id:
-        try:
-            message = db.query(Message).filter(Message.id == message_id).first()
-            if message:
-                message.content = content_buffer
-                message.prompt_tokens = final_usage.prompt_tokens
-                message.completion_tokens = final_usage.completion_tokens
-                message.total_tokens = (
-                    final_usage.prompt_tokens + final_usage.completion_tokens
-                )
-                message.tool_invocations = tool_invocations
-                db.commit()
-        except Exception as e:
-            print(f"Failed to update message: {e}")
+        # Update database after stream completion
+        if db and message_id:
+            try:
+                message = db.query(Message).filter(Message.id == message_id).first()
+                if message:
+                    message.content = content_buffer
+                    if final_usage:
+                        message.prompt_tokens = final_usage.prompt_tokens
+                        message.completion_tokens = final_usage.completion_tokens
+                        message.total_tokens = (
+                            final_usage.prompt_tokens + final_usage.completion_tokens
+                        )
+                    message.tool_invocations = tool_invocations
+                    db.commit()
+            except Exception as e:
+                logging.error(f"Failed to update message in DB: {e}", exc_info=True)
 
 
 # Chat CRUD Operations
@@ -521,6 +539,13 @@ async def create_message(
     chat_id: uuid.UUID, message: MessageCreate, db: Session = Depends(get_db)
 ):
     try:
+        # First, verify that the chat exists
+        chat = db.query(Chat).filter(Chat.id == chat_id).first()
+        if not chat:
+            raise HTTPException(
+                status_code=404, detail=f"Chat with ID {chat_id} not found"
+            )
+
         print("[DEBUG] create_message called with:", message.model_dump())
 
         # Ensure no agent fields are present for regular chat messages
@@ -556,6 +581,23 @@ async def chat(
     protocol: str = Query("data"),
 ):
     try:
+        # Check if the chat exists, create it if it doesn't
+        chat = db.query(Chat).filter(Chat.id == chat_id).first()
+        if not chat:
+            # Auto-create the missing chat
+            logging.info(f"Chat {chat_id} not found, auto-creating new chat")
+            chat = Chat(
+                id=chat_id,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+                title="New Chat",
+            )
+            db.add(chat)
+            db.flush()  # Flush to get the chat in the session without committing yet
+            logging.info(f"Successfully created new chat {chat_id}")
+        else:
+            logging.info(f"Using existing chat {chat_id}")
+
         messages = request.messages
         if not messages:
             raise HTTPException(status_code=422, detail="No messages provided")
@@ -631,16 +673,32 @@ async def chat(
                 db=db,
                 message_id=assistant_message.id,
             ),
-            media_type="text/plain",
+            media_type="text/plain; charset=utf-8",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
+                "Transfer-Encoding": "chunked",
+                "Content-Encoding": "none",
             },
         )
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 404 for missing chat)
+        db.rollback()
+        raise
     except Exception as e:
         print("Unexpected error:", str(e))
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+
+        # Provide more specific error messages for common database issues
+        error_message = str(e)
+        if "foreign key constraint" in error_message.lower():
+            if "chat_id" in error_message:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Chat not found. Please create a new chat or use an existing chat ID.",
+                )
+
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 # Legacy Endpoint (Consider deprecating)
@@ -678,10 +736,12 @@ async def handle_chat_legacy(
     try:
         response = StreamingResponse(
             stream_text(openai_messages, protocol, model=request.model),
-            media_type="text/plain",
+            media_type="text/plain; charset=utf-8",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
+                "Transfer-Encoding": "chunked",
+                "Content-Encoding": "none",
             },
         )
         return response
@@ -840,6 +900,13 @@ async def create_agent_message(
 ):
     """Create a new agent message"""
     try:
+        # First, verify that the chat exists
+        chat = db.query(Chat).filter(Chat.id == chat_id).first()
+        if not chat:
+            raise HTTPException(
+                status_code=404, detail=f"Chat with ID {chat_id} not found"
+            )
+
         # Extract pipeline_id from the message if it exists
         pipeline_id = message.get("pipeline_id")
 

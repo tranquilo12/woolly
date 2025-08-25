@@ -136,15 +136,55 @@ def build_end_of_stream_message(
 def build_text_stream(content: str) -> str:
     """
     Return a serialized JSON string for text content in AI SDK V5 format.
-    V5 uses the '0:...' format for text content streaming.
+    V5 uses the '0:...' format for text content streaming with proper message structure.
 
     Args:
         content: Text content to stream to the client
 
     Returns:
-        V5 formatted string: '0:"content"\n'
+        V5 formatted string: '0:{"type":"text","text":"content"}\n'
     """
-    return f"0:{json.dumps(content, ensure_ascii=False)}\n"
+    text_chunk = {"type": "text", "text": content}
+    return f"0:{json.dumps(text_chunk, ensure_ascii=False)}\n"
+
+
+def build_message_start(message_id: str, role: str = "assistant") -> str:
+    """
+    Return a serialized JSON string for starting a new message in AI SDK V5 format.
+    V5 uses the '1:...' format to begin a message stream.
+
+    Args:
+        message_id: Unique identifier for the message
+        role: Role of the message sender ("user", "assistant", "system")
+
+    Returns:
+        V5 formatted string: '1:{"id":"msg-123","role":"assistant","parts":[]}\n'
+    """
+    message_start = {"id": message_id, "role": role, "parts": []}
+    return f"1:{json.dumps(message_start, ensure_ascii=False)}\n"
+
+
+def build_message_end(
+    message_id: str, role: str = "assistant", content: str = ""
+) -> str:
+    """
+    Return a serialized JSON string for ending a message in AI SDK V5 format.
+    V5 uses the '2:...' format to complete a message with full content.
+
+    Args:
+        message_id: Unique identifier for the message
+        role: Role of the message sender ("user", "assistant", "system")
+        content: Complete accumulated content of the message
+
+    Returns:
+        V5 formatted string: '2:{"id":"msg-123","role":"assistant","parts":[{"type":"text","text":"content"}]}\n'
+    """
+    parts = []
+    if content.strip():
+        parts.append({"type": "text", "text": content})
+
+    message_end = {"id": message_id, "role": role, "parts": parts}
+    return f"2:{json.dumps(message_end, ensure_ascii=False)}\n"
 
 
 def is_complete_json(json_str: str) -> bool:
