@@ -23,6 +23,11 @@ from .utils.models import (
     build_message_end,
     build_end_of_stream_message,
     is_complete_json,
+    TitleGenerateRequest,
+    TitleGenerateResponse,
+    SummaryGenerateRequest,
+    SummaryGenerateResponse,
+    RollingSummaryRequest,
 )
 import uuid
 from sqlalchemy.orm import Session
@@ -31,6 +36,11 @@ from datetime import datetime, timezone, timedelta
 from .routers import agents, universal_agents, triage, streaming_poc
 from .utils.openai_client import get_openai_client
 import logging
+from .utils.ai_services import (
+    generate_title_from_first_user_message,
+    generate_full_summary,
+    generate_rolling_summary,
+)
 
 
 load_dotenv(".env.local")
@@ -748,6 +758,70 @@ async def handle_chat_legacy(
     except Exception as e:
         logging.error(f"Error in legacy chat endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat/{chat_id}/generate-title", response_model=TitleGenerateResponse)
+async def generate_chat_title_endpoint(
+    chat_id: uuid.UUID,
+    req: TitleGenerateRequest,
+    db: Session = Depends(get_db),
+):
+    """Generate a concise 2-3 word title from the first user message."""
+    # Validate chat exists
+    chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    model = (req.model or "gpt-4o-mini").strip()
+    result = await generate_title_from_first_user_message(
+        db=db, chat_id=chat_id, model=model
+    )
+    # Optionally persist title to chat table
+    if result.get("title"):
+        chat.title = result["title"]
+        chat.updated_at = datetime.now(timezone.utc)
+        db.commit()
+    return TitleGenerateResponse(**result)
+
+
+@app.post(
+    "/api/chat/{chat_id}/generate-summary", response_model=SummaryGenerateResponse
+)
+async def generate_full_summary_endpoint(
+    chat_id: uuid.UUID,
+    req: SummaryGenerateRequest,
+    db: Session = Depends(get_db),
+):
+    """Generate a full summary of the conversation."""
+    chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    model = (req.model or "gpt-4o-mini").strip()
+    result = await generate_full_summary(db=db, chat_id=chat_id, model=model)
+    return SummaryGenerateResponse(**result)
+
+
+@app.post(
+    "/api/chat/{chat_id}/generate-rolling-summary",
+    response_model=SummaryGenerateResponse,
+)
+async def generate_rolling_summary_endpoint(
+    chat_id: uuid.UUID,
+    req: RollingSummaryRequest,
+    db: Session = Depends(get_db),
+):
+    """Generate a rolling summary skipping the first N interactions."""
+    chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    model = (req.model or "gpt-4o-mini").strip()
+    skip_n = max(0, int(req.skip_interactions))
+    result = await generate_rolling_summary(
+        db=db, chat_id=chat_id, skip_interactions=skip_n, model=model
+    )
+    return SummaryGenerateResponse(**result)
 
 
 @app.patch("/api/chat/{chat_id}/messages/{message_id}")

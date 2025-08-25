@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import json
 from typing import Literal, Dict, Any, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import (
     Column,
     String,
@@ -16,6 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
+from uuid import UUID as UUID_t
 from .database import Base
 
 
@@ -323,6 +324,79 @@ class AgentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# endregion
+
+# region Pydantic Models for Chat Utilities
+
+
+class TokenUsage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class TitleGenerateRequest(BaseModel):
+    chat_id: UUID_t
+    model: str | None = "gpt-4o-mini"
+
+
+class TitleGenerateResponse(BaseModel):
+    chat_id: UUID_t
+    title: str
+    model: str
+    usage: TokenUsage
+
+
+class SummaryGenerateRequest(BaseModel):
+    chat_id: UUID_t
+    model: str | None = "gpt-4o-mini"
+
+
+class SummaryGenerateResponse(BaseModel):
+    chat_id: UUID_t
+    summary: str
+    model: str
+    usage: TokenUsage
+
+
+class RollingSummaryRequest(BaseModel):
+    chat_id: UUID_t
+    skip_interactions: int = Field(0, ge=0)
+    model: str | None = "gpt-4o-mini"
+
+
+# endregion
+
+# region Database Model for AI-Generated Content
+
+
+class ChatInsight(Base):
+    """Store AI-generated insights about chats (titles, summaries, etc.)"""
+
+    __tablename__ = "chat_insights"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id"), nullable=False)
+    insight_type = Column(
+        String, nullable=False
+    )  # 'title', 'summary', 'rolling_summary'
+    content = Column(Text, nullable=False)
+    model_used = Column(String, nullable=False)
+    prompt_tokens = Column(Integer, nullable=True)
+    completion_tokens = Column(Integer, nullable=True)
+    total_tokens = Column(Integer, nullable=True)
+
+    # For rolling summaries
+    skip_interactions = Column(Integer, nullable=True)
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), onupdate=datetime.now(timezone.utc))
+
+    # Relationships
+    chat = relationship("Chat", backref="insights")
 
 
 # endregion

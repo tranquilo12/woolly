@@ -200,6 +200,163 @@ Update the AI model used for a message.
 
 ---
 
+## Chat Utilities (AI-Powered)
+
+### Generate Chat Title
+
+#### `POST /api/chat/{chat_id}/generate-title`
+
+Generate a concise 2-3 word title from the first user message using AI.
+
+**Request Body:**
+
+```json
+{
+  "chat_id": "uuid-string",
+  "model": "gpt-4o-mini"
+}
+```
+
+**Response:**
+
+```json
+{
+  "chat_id": "uuid-string",
+  "title": "Authentication System",
+  "model": "gpt-4o-mini",
+  "usage": {
+    "prompt_tokens": 25,
+    "completion_tokens": 3,
+    "total_tokens": 28
+  }
+}
+```
+
+**Features:**
+
+- Automatically updates chat title in database
+- Uses efficient `gpt-4o-mini` model by default
+- Returns detailed token usage information
+- Handles edge cases (empty messages, etc.)
+- Stores generated titles in `chat_insights` table for audit trail
+
+### Generate Full Summary
+
+#### `POST /api/chat/{chat_id}/generate-summary`
+
+Generate a comprehensive summary of the entire conversation using AI.
+
+**Request Body:**
+
+```json
+{
+  "chat_id": "uuid-string",
+  "model": "gpt-4o-mini"
+}
+```
+
+**Response:**
+
+```json
+{
+  "chat_id": "uuid-string",
+  "summary": "The conversation covered authentication implementation, discussing JWT tokens, session management, and security best practices. Key decisions included using bcrypt for password hashing and implementing refresh token rotation.",
+  "model": "gpt-4o-mini",
+  "usage": {
+    "prompt_tokens": 150,
+    "completion_tokens": 45,
+    "total_tokens": 195
+  }
+}
+```
+
+**Features:**
+
+- Summarizes all user and assistant messages
+- Captures key decisions, requests, and action items
+- Optimized for cost-efficiency with `gpt-4o-mini`
+- Returns empty summary for chats with no messages
+- Stores generated summaries in `chat_insights` table for future reference
+
+### Generate Rolling Summary
+
+#### `POST /api/chat/{chat_id}/generate-rolling-summary`
+
+Generate a summary of the conversation while skipping the first N interactions (user+assistant pairs).
+
+**Request Body:**
+
+```json
+{
+  "chat_id": "uuid-string",
+  "skip_interactions": 2,
+  "model": "gpt-4o-mini"
+}
+```
+
+**Response:**
+
+```json
+{
+  "chat_id": "uuid-string",
+  "summary": "In the recent discussion, the focus shifted to implementing security measures including rate limiting and input validation. The assistant provided code examples for middleware implementation and discussed deployment considerations.",
+  "model": "gpt-4o-mini",
+  "usage": {
+    "prompt_tokens": 120,
+    "completion_tokens": 38,
+    "total_tokens": 158
+  }
+}
+```
+
+**Features:**
+
+- Skips first N interactions to focus on recent context
+- Groups messages into logical user+assistant interactions
+- Handles edge cases (insufficient messages defaults to full summary)
+- Optimized for rolling context windows in long conversations
+- Stores rolling summaries with metadata in `chat_insights` table
+
+**All Chat Utility Endpoints:**
+
+- ✅ **Async/Concurrent**: All endpoints handle parallel requests efficiently
+- ✅ **Error Handling**: Proper 404 responses for missing chats
+- ✅ **Cost Optimized**: Uses `gpt-4o-mini` for efficiency
+- ✅ **Usage Tracking**: Detailed token consumption reporting
+- ✅ **Stateless**: No chat state maintenance required
+- ✅ **Data Persistence**: All generated insights stored in `chat_insights` table
+- ✅ **Response Validation**: Returns `chat_id` to confirm correct data processing
+
+### Data Storage
+
+All AI-generated insights (titles, summaries) are automatically stored in the `chat_insights` database table with:
+
+- **Full audit trail**: Model used, token counts, timestamps
+- **Insight categorization**: `title`, `summary`, `rolling_summary` types
+- **Rolling summary metadata**: Tracks `skip_interactions` parameter
+- **Relationship mapping**: Linked to parent chat for easy retrieval
+- **Usage analytics**: Token consumption tracking for cost analysis
+
+**Database Schema:**
+
+```sql
+CREATE TABLE chat_insights (
+    id UUID PRIMARY KEY,
+    chat_id UUID REFERENCES chats(id),
+    insight_type VARCHAR NOT NULL,  -- 'title', 'summary', 'rolling_summary'
+    content TEXT NOT NULL,
+    model_used VARCHAR NOT NULL,
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    total_tokens INTEGER,
+    skip_interactions INTEGER,      -- For rolling summaries
+    created_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE
+);
+```
+
+---
+
 ## Chat Interaction (Streaming)
 
 ### Main Chat Endpoint
@@ -770,6 +927,22 @@ curl http://localhost/api/v1/agents/types
 
 # Test MCP connection status
 curl http://localhost/api/v1/agents/mcp/test
+
+# Test chat utility endpoints (new)
+# Generate title for a chat
+curl -X POST http://localhost/api/chat/{chat_id}/generate-title \
+  -H "Content-Type: application/json" \
+  -d '{"chat_id": "your-chat-uuid", "model": "gpt-4o-mini"}'
+
+# Generate full summary
+curl -X POST http://localhost/api/chat/{chat_id}/generate-summary \
+  -H "Content-Type: application/json" \
+  -d '{"chat_id": "your-chat-uuid", "model": "gpt-4o-mini"}'
+
+# Generate rolling summary (skip first 2 interactions)
+curl -X POST http://localhost/api/chat/{chat_id}/generate-rolling-summary \
+  -H "Content-Type: application/json" \
+  -d '{"chat_id": "your-chat-uuid", "skip_interactions": 2, "model": "gpt-4o-mini"}'
 ```
 
 ### Current API Status
@@ -778,6 +951,7 @@ curl http://localhost/api/v1/agents/mcp/test
 
 - **Health Checks**: All system health endpoints operational
 - **Chat Management**: Create, read, update, delete chats
+- **Chat Utilities**: AI-powered title generation, full summaries, rolling summaries
 - **Message Management**: Full CRUD operations for messages
 - **Agent Management**: Complete agent CRUD functionality
 - **System Information**: Agent types, health status, MCP testing
@@ -794,7 +968,8 @@ curl http://localhost/api/v1/agents/mcp/test
 
 - **MCP Server**: Required for full agent functionality
 - **PostgreSQL**: Database must be running and migrated
-- **OpenAI API**: Required for AI model interactions
+- **OpenAI API**: Required for AI model interactions and chat utilities
+- **Pydantic AI**: Powers the new chat utility endpoints (v0.4.6+)
 
 ---
 
@@ -859,6 +1034,7 @@ curl -v http://localhost/api/v1/agents/health
 
 - ✅ **Health checks**: Should all return 200 OK
 - ✅ **CRUD operations**: Chat, message, and agent operations should work
+- ✅ **Chat utilities**: Title generation, summaries should work with valid OpenAI API key
 - ✅ **Streaming demo**: Mock streaming should show V5 format
 - ⚠️ **Agent execution**: May fail if MCP server unavailable
 - ⚠️ **Triage system**: Depends on agent execution functionality
@@ -905,12 +1081,15 @@ All error responses include a `detail` field with a descriptive error message.
 ### Architecture
 
 - **Agent messages**: Separate from regular chat messages and can be filtered independently
+- **AI-powered utilities**: Chat title generation and summarization using Pydantic AI
 - **Background processing**: Session tracking available for long-running operations
 - **Intelligent routing**: Triage system routes queries to appropriate specialist agents
 - **Modular design**: Core API functionality independent of agent execution layer
+- **Concurrent processing**: All chat utility endpoints support parallel execution
 
 ### Development
 
 - **MCP dependency**: Full agent functionality requires MCP server on port 8009
 - **Database migrations**: Use Alembic for schema management
 - **Environment setup**: Requires PostgreSQL, OpenAI API key, and optional MCP server
+- **AI utilities**: Chat utilities require valid OpenAI API key and Pydantic AI (v0.4.6+)
