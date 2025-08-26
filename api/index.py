@@ -5,6 +5,7 @@ from openai.types.chat.chat_completion_message_param import ChatCompletionMessag
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from .utils.prompt import (
     Attachment,
@@ -16,6 +17,7 @@ from .utils.models import (
     Chat,
     Message,
     Agent,
+    ChatInsight,
     build_tool_call_partial,
     build_tool_call_result,
     build_text_stream,
@@ -46,6 +48,15 @@ from .utils.ai_services import (
 load_dotenv(".env.local")
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:80", "http://localhost"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(agents.router, prefix="/api")
 app.include_router(universal_agents.router, prefix="/api/v1", tags=["universal-agents"])
 app.include_router(triage.router, prefix="/api/v1", tags=["triage-agents"])
@@ -478,7 +489,14 @@ async def get_chats(db: Session = Depends(get_db)):
 async def delete_chat(chat_id: uuid.UUID, db: Session = Depends(get_db)):
     """Delete a chat and its messages"""
     try:
+        # Delete related records in the correct order to avoid foreign key violations
+        # 1. Delete chat insights first
+        db.query(ChatInsight).filter(ChatInsight.chat_id == chat_id).delete()
+
+        # 2. Delete messages
         db.query(Message).filter(Message.chat_id == chat_id).delete()
+
+        # 3. Finally delete the chat itself
         result = db.query(Chat).filter(Chat.id == chat_id).delete()
         if not result:
             raise HTTPException(status_code=404, detail="Chat not found")
