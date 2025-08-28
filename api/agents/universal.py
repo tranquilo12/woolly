@@ -513,21 +513,46 @@ class UniversalAgentFactory:
             self.conversation_contexts[repository_name] = ConversationContext()
         return self.conversation_contexts[repository_name]
 
-    def create_agent_with_context(self, agent_type: AgentType) -> Agent:
+    def create_agent_with_context(
+        self, agent_type: AgentType, for_streaming: bool = False
+    ) -> Agent:
         """Create agent with MCP integration and conversation context support"""
 
-        # ✅ ENHANCED: Create agent with MCP servers only if available
-        mcp_servers = [self.mcp_server] if self.mcp_server is not None else []
+        # ✅ ENHANCED: Create different agents for streaming vs structured output
+        if for_streaming:
+            # For streaming, don't use structured output - use plain text
+            if self.mcp_server is not None:
+                agent = Agent(
+                    model="openai:gpt-4o-mini",
+                    deps_type=UniversalDependencies,
+                    system_prompt=self.specializations[agent_type],
+                    mcp_servers=[self.mcp_server],
+                )
+            else:
+                agent = Agent(
+                    model="openai:gpt-4o-mini",
+                    deps_type=UniversalDependencies,
+                    system_prompt=self.specializations[agent_type],
+                )
+        else:
+            # For non-streaming, use structured output
+            if self.mcp_server is not None:
+                agent = Agent(
+                    model="openai:gpt-4o-mini",
+                    deps_type=UniversalDependencies,
+                    output_type=UniversalResult,
+                    system_prompt=self.specializations[agent_type],
+                    mcp_servers=[self.mcp_server],
+                )
+            else:
+                agent = Agent(
+                    model="openai:gpt-4o-mini",
+                    deps_type=UniversalDependencies,
+                    output_type=UniversalResult,
+                    system_prompt=self.specializations[agent_type],
+                )
 
-        agent = Agent(
-            model="openai:gpt-4o-mini",
-            deps_type=UniversalDependencies,
-            output_type=UniversalResult,
-            system_prompt=self.specializations[agent_type],
-            mcp_servers=mcp_servers,
-        )
-
-        if mcp_servers:
+        if self.mcp_server is not None:
             logger.info(f"✅ Created {agent_type} agent with MCP integration")
         else:
             logger.info(
@@ -1025,8 +1050,8 @@ Use these valid entity IDs for relationship queries instead of making new discov
             budget_tracker=budget_tracker,
         )
 
-        # Create agent with context
-        agent = self.create_agent_with_context(agent_type)
+        # Create agent with context - use streaming-compatible agent
+        agent = self.create_agent_with_context(agent_type, for_streaming=True)
 
         try:
             # Ensure MCP connection is tested before use
@@ -1075,16 +1100,136 @@ Use these valid entity IDs for relationship queries instead of making new discov
 
             # ✅ ENHANCED: Execute agent with streaming and MCP fallback handling
             try:
-                async with agent.run_mcp_servers():
+                # Conditionally use MCP servers only if available
+                if self.mcp_server is not None:
+                    async with agent.run_mcp_servers():
+                        async with agent.run_stream(
+                            user_query,
+                            deps=dependencies,
+                            message_history=message_history,
+                        ) as stream_result:
+
+                            accumulated_text = ""
+
+                            # Process streaming text as it arrives
+                            async for text_chunk in stream_result.stream_text():
+                                # Check budget limits before processing each chunk
+                                should_stop, stop_reason = budget_tracker.should_stop(
+                                    tool_budget
+                                )
+                                if should_stop:
+                                    yield self._format_stream_event(
+                                        "budget_exceeded",
+                                        {
+                                            "reason": stop_reason,
+                                            "tool_calls_made": budget_tracker.tool_calls_made,
+                                            "elapsed_time": budget_tracker.get_elapsed_time(),
+                                        },
+                                    )
+                                    break
+
+                                # Check convergence before processing
+                                if (
+                                    len(budget_tracker.recent_responses)
+                                    >= tool_budget.convergence_window
+                                ):
+                                    has_converged = (
+                                        await convergence_detector.has_converged()
+                                    )
+                                    if has_converged:
+                                        yield self._format_stream_event(
+                                            "converged",
+                                            {
+                                                "reason": "Response convergence detected",
+                                                "similarity_threshold": tool_budget.convergence_threshold,
+                                                "responses_analyzed": len(
+                                                    budget_tracker.recent_responses
+                                                ),
+                                            },
+                                        )
+                                        break
+
+                                # Stream text delta
+                                accumulated_text += text_chunk
+                                yield self._format_stream_event(
+                                    "text", {"delta": text_chunk}
+                                )
+
+                                # Track response for convergence detection
+                                budget_tracker.add_response(text_chunk)
+
+                        # Add final response to convergence tracking
+                        if accumulated_text:
+                            budget_tracker.add_response(accumulated_text)
+                            convergence_detector.add_response(accumulated_text)
+
+                        # Get final result for conversation context update
+                        try:
+                            final_result = await stream_result.get_output()
+
+                            # Update conversation context with new messages
+                            conversation_context.message_history.extend(
+                                stream_result.all_messages()
+                            )
+                            conversation_context.last_updated = datetime.now()
+
+                            # Stream completion event
+                            yield self._format_stream_event(
+                                "done",
+                                {
+                                    "content": (
+                                        final_result.content
+                                        if hasattr(final_result, "content")
+                                        else str(final_result)
+                                    ),
+                                    "metadata": (
+                                        final_result.metadata
+                                        if hasattr(final_result, "metadata")
+                                        else {}
+                                    ),
+                                    "budget_summary": {
+                                        "tool_calls_made": budget_tracker.tool_calls_made,
+                                        "elapsed_time": budget_tracker.get_elapsed_time(),
+                                        "convergence_detected": len(
+                                            budget_tracker.recent_responses
+                                        )
+                                        >= tool_budget.convergence_window,
+                                    },
+                                },
+                            )
+
+                        except Exception as result_error:
+                            logger.warning(
+                                f"Could not get final result: {result_error}"
+                            )
+                            yield self._format_stream_event(
+                                "done",
+                                {
+                                    "content": accumulated_text,
+                                    "metadata": {"partial_result": True},
+                                    "budget_summary": {
+                                        "tool_calls_made": budget_tracker.tool_calls_made,
+                                        "elapsed_time": budget_tracker.get_elapsed_time(),
+                                    },
+                                },
+                            )
+
+                else:
+                    # No MCP server available - run streaming without MCP
+                    logger.info(
+                        f"Running {agent_type} agent streaming without MCP tools"
+                    )
                     async with agent.run_stream(
-                        user_query, deps=dependencies, message_history=message_history
+                        user_query,
+                        deps=dependencies,
+                        message_history=message_history,
                     ) as stream_result:
 
                         accumulated_text = ""
 
-                        # Process all stream events with intelligent stopping
-                        async for message in stream_result.new_messages():
-                            # Check budget limits before processing each message
+                        # Process streaming text as it arrives
+                        async for text_chunk in stream_result.stream_text():
+                            # Check budget limits before processing each chunk
                             should_stop, stop_reason = budget_tracker.should_stop(
                                 tool_budget
                             )
@@ -1120,60 +1265,18 @@ Use these valid entity IDs for relationship queries instead of making new discov
                                     )
                                     break
 
-                            # Process message parts
-                            for part in message.parts:
-                                if isinstance(part, ToolCallPart):
-                                    # Track tool call in budget
-                                    budget_tracker.increment_tool_call(part.tool_name)
+                            # Stream text delta
+                            accumulated_text += text_chunk
+                            yield self._format_stream_event(
+                                "text", {"delta": text_chunk}
+                            )
 
-                                    # Stream tool call event
-                                    yield self._format_stream_event(
-                                        "toolCall",
-                                        {
-                                            "id": f"tool_call_{budget_tracker.tool_calls_made}",
-                                            "name": part.tool_name,
-                                            "args": part.args,
-                                            "budget_status": {
-                                                "calls_made": budget_tracker.tool_calls_made,
-                                                "calls_remaining": tool_budget.max_tool_calls
-                                                - budget_tracker.tool_calls_made,
-                                            },
-                                        },
-                                    )
+                            # Track response for convergence detection
+                            budget_tracker.add_response(text_chunk)
 
-                                elif isinstance(part, ToolReturnPart):
-                                    # Stream tool result event
-                                    tool_result = str(part.content)
-                                    yield self._format_stream_event(
-                                        "toolResult",
-                                        {
-                                            "id": f"tool_call_{budget_tracker.tool_calls_made}",
-                                            "result": (
-                                                tool_result[:500] + "..."
-                                                if len(tool_result) > 500
-                                                else tool_result
-                                            ),
-                                        },
-                                    )
-
-                                    # Add to convergence detector for analysis
-                                    convergence_detector.add_response(tool_result)
-
-                                elif isinstance(part, TextPart):
-                                    # Stream text delta
-                                    accumulated_text += part.content
-                                    yield self._format_stream_event(
-                                        "text", {"delta": part.content}
-                                    )
-
-                        # Add final response to convergence tracking
-                        if accumulated_text:
-                            budget_tracker.add_response(accumulated_text)
-                            convergence_detector.add_response(accumulated_text)
-
-                        # Get final result for conversation context update
+                        # Get final result and update conversation context
                         try:
-                            final_result = stream_result.get_output()
+                            final_result = await stream_result.get_output()
 
                             # Update conversation context with new messages
                             conversation_context.message_history.extend(
