@@ -8,12 +8,19 @@ format as the existing OpenAI chat system.
 
 import asyncio
 import logging
+import json
+import uuid
 from typing import List, AsyncGenerator, Optional, Dict, Any
 from uuid import UUID
 from sqlalchemy.orm import Session
 
 from ..agents.universal import get_universal_factory, AgentType, UniversalDependencies
-from ..utils.models import build_end_of_stream_message, build_text_stream
+from ..utils.models import (
+    build_end_of_stream_message,
+    build_text_stream,
+    build_message_start,
+    build_message_end,
+)
 from .mcp_status import get_mcp_status_service
 
 logger = logging.getLogger(__name__)
@@ -42,6 +49,13 @@ async def stream_pydantic_chat(
     Yields:
         AI SDK V5 formatted streaming chunks
     """
+    # Generate unique assistant message ID for this response
+    assistant_message_id = str(uuid.uuid4())
+    content_accumulator = ""
+
+    # Always start with proper AI SDK V5 message start frame
+    yield build_message_start(assistant_message_id, "assistant")
+
     try:
         # Check MCP status before proceeding
         mcp_service = get_mcp_status_service()
@@ -53,77 +67,105 @@ async def stream_pydantic_chat(
         # Extract user query from messages
         user_messages = [msg for msg in messages if msg.get("role") == "user"]
         if not user_messages:
-            yield build_text_stream("No user message found.")
-            return
+            error_text = "No user message found."
+            yield build_text_stream(error_text)
+            content_accumulator += error_text
+        else:
+            latest_query = user_messages[-1].get("content", "")
 
-        latest_query = user_messages[-1].get("content", "")
+            # Inform user about MCP status if relevant
+            if not mcp_status.available and should_use_mcp_tools(messages):
+                status_text = (
+                    f"🔧 **MCP Status**: {mcp_status.status.value.title()} - "
+                    f"Code analysis tools are currently unavailable. "
+                    f"Providing general assistance without repository context.\n\n"
+                )
+                yield build_text_stream(status_text)
+                content_accumulator += status_text
 
-        # Inform user about MCP status if relevant
-        if not mcp_status.available and should_use_mcp_tools(messages):
-            yield build_text_stream(
-                f"🔧 **MCP Status**: {mcp_status.status.value.title()} - "
-                f"Code analysis tools are currently unavailable. "
-                f"Providing general assistance without repository context.\n\n"
+            # Build conversation history for context
+            conversation_history = []
+            for msg in messages[:-1]:  # All except latest
+                conversation_history.append(
+                    {
+                        "role": msg.get("role", ""),
+                        "content": msg.get("content", ""),
+                        "id": msg.get("id", None),
+                        "timestamp": msg.get("created_at", None),
+                    }
+                )
+
+            # Create dependencies with chat context
+            deps = UniversalDependencies(
+                repository_name=repository_name,
+                agent_type=AgentType.CHAT_ASSISTANT,
+                user_query=latest_query,
+                context={
+                    "chat_id": str(chat_id) if chat_id else None,
+                    "conversation_history": conversation_history,
+                    "model": model,
+                    "chat_mode": True,  # Flag for chat-specific behavior
+                    "message_count": len(messages),
+                    "has_code_context": any(
+                        keyword in latest_query.lower()
+                        for keyword in [
+                            "code",
+                            "function",
+                            "class",
+                            "file",
+                            "api",
+                            "implementation",
+                        ]
+                    ),
+                },
             )
 
-        # Build conversation history for context
-        conversation_history = []
-        for msg in messages[:-1]:  # All except latest
-            conversation_history.append(
-                {
-                    "role": msg.get("role", ""),
-                    "content": msg.get("content", ""),
-                    "id": msg.get("id", None),
-                    "timestamp": msg.get("created_at", None),
-                }
+            # Stream using existing Universal Agent Factory
+            # This automatically handles MCP tools and V5 formatting
+            logger.info(
+                f"Starting Pydantic AI chat stream for query: {latest_query[:50]}..."
             )
 
-        # Create dependencies with chat context
-        deps = UniversalDependencies(
-            repository_name=repository_name,
-            agent_type=AgentType.CHAT_ASSISTANT,
-            user_query=latest_query,
-            context={
-                "chat_id": str(chat_id) if chat_id else None,
-                "conversation_history": conversation_history,
-                "model": model,
-                "chat_mode": True,  # Flag for chat-specific behavior
-                "message_count": len(messages),
-                "has_code_context": any(
-                    keyword in latest_query.lower()
-                    for keyword in [
-                        "code",
-                        "function",
-                        "class",
-                        "file",
-                        "api",
-                        "implementation",
-                    ]
-                ),
-            },
-        )
+            # Process factory streaming chunks and accumulate text content
+            async for chunk in factory.execute_agent_streaming(
+                agent_type=AgentType.CHAT_ASSISTANT,
+                repository_name=repository_name,
+                user_query=latest_query,
+                context=deps.context,
+            ):
+                # Forward the chunk as-is (maintains tool calls, etc.)
+                yield chunk
 
-        # Stream using existing Universal Agent Factory
-        # This automatically handles MCP tools and V5 formatting
-        logger.info(
-            f"Starting Pydantic AI chat stream for query: {latest_query[:50]}..."
-        )
-
-        async for chunk in factory.execute_agent_streaming(
-            agent_type=AgentType.CHAT_ASSISTANT,
-            repository_name=repository_name,
-            user_query=latest_query,
-            context=deps.context,
-        ):
-            yield chunk
+                # Extract text content for accumulation (for message end frame)
+                if chunk.startswith("0:"):
+                    try:
+                        text_data = json.loads(chunk[2:])
+                        if text_data.get("type") == "text":
+                            content_accumulator += text_data.get("text", "")
+                    except (json.JSONDecodeError, KeyError):
+                        # If we can't parse, skip accumulation for this chunk
+                        pass
 
     except Exception as e:
         logger.error(f"Pydantic AI chat error: {e}", exc_info=True)
-        yield build_text_stream(f"\n❌ Chat error: {str(e)}\n")
+        error_text = f"\n❌ Chat error: {str(e)}\n"
+        yield build_text_stream(error_text)
+        content_accumulator += error_text
+
+    finally:
+        # Always end with proper AI SDK V5 message end and stream end frames
+        yield build_message_end(assistant_message_id, "assistant", content_accumulator)
+
+        # Calculate rough token estimates
+        prompt_tokens = sum(len(msg.get("content", "").split()) for msg in messages)
+        completion_tokens = (
+            len(content_accumulator.split()) if content_accumulator else 0
+        )
+
         yield build_end_of_stream_message(
-            finish_reason="error",
-            prompt_tokens=0,
-            completion_tokens=0,
+            finish_reason="stop",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
             is_continued=False,
         )
 

@@ -14,6 +14,7 @@ Features:
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 from enum import Enum
@@ -29,6 +30,7 @@ class MCPStatus(str, Enum):
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     FAILED = "failed"
+    DISABLED = "disabled"  # New: MCP functionality is disabled
     UNKNOWN = "unknown"
     CONNECTING = "connecting"
     RETRYING = "retrying"
@@ -82,7 +84,17 @@ class MCPStatusService:
     """
 
     def __init__(self):
-        self.server_info = MCPServerInfo(url="http://localhost:8009/sse/")
+        # Check if MCP is enabled via environment variable
+        mcp_url = os.getenv("MCP_SERVER_URL")
+
+        if mcp_url:
+            self.server_info = MCPServerInfo(url=mcp_url)
+            self.mcp_enabled = True
+        else:
+            # MCP is disabled - no URL provided
+            self.server_info = MCPServerInfo(url="", status=MCPStatus.DISABLED)
+            self.mcp_enabled = False
+
         self.check_interval = 30  # seconds
         self.max_consecutive_failures = 3
         self.retry_backoff_base = 2  # exponential backoff base
@@ -139,6 +151,15 @@ class MCPStatusService:
         Returns:
             Current MCP status
         """
+        # If MCP is disabled, return disabled status immediately
+        if not self.mcp_enabled:
+            self.server_info.status = MCPStatus.DISABLED
+            self.server_info.last_check = datetime.now()
+            self.server_info.error_message = (
+                "MCP disabled: No MCP_SERVER_URL environment variable set"
+            )
+            return MCPStatus.DISABLED
+
         start_time = datetime.now()
         self.server_info.last_check = start_time
 
@@ -167,6 +188,14 @@ class MCPStatusService:
                 self._update_server_capabilities(test_result)
 
                 logger.debug(f"✅ MCP server healthy (response: {response_time:.1f}ms)")
+
+            elif test_result.get("connection_test") == "disabled":
+                # MCP is disabled at the factory level
+                self.server_info.status = MCPStatus.DISABLED
+                self.server_info.error_message = test_result.get(
+                    "error", "MCP disabled"
+                )
+                logger.info("ℹ️ MCP server disabled")
 
             else:
                 # Partial failure - degraded state
@@ -223,7 +252,7 @@ class MCPStatusService:
         """
         # Determine if MCP is available for use
         available = self.server_info.status in [MCPStatus.HEALTHY, MCPStatus.DEGRADED]
-        fallback_mode = self.server_info.status != MCPStatus.HEALTHY
+        fallback_mode = self.server_info.status not in [MCPStatus.HEALTHY]
 
         # Calculate next retry time for failed connections
         next_retry = None
@@ -280,7 +309,7 @@ class MCPStatusService:
 
     def should_use_fallback(self) -> bool:
         """Check if fallback mode should be used"""
-        return self.server_info.status != MCPStatus.HEALTHY
+        return self.server_info.status not in [MCPStatus.HEALTHY]
 
     def get_capabilities(self) -> List[str]:
         """Get list of available MCP capabilities"""

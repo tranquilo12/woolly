@@ -35,7 +35,7 @@ import uuid
 from sqlalchemy.orm import Session
 from .utils.database import get_db
 from datetime import datetime, timezone, timedelta
-from .routers import agents, universal_agents, triage, streaming_poc
+from .routers import agents, universal_agents, triage, streaming_poc, mcp_control
 from .utils.openai_client import get_openai_client
 import logging
 from .utils.ai_services import (
@@ -53,7 +53,9 @@ from .utils.mcp_status import (
     MCPStatusResponse,
     initialize_mcp_monitoring,
 )
+from .utils.mcp_registry import get_mcp_registry
 from contextlib import asynccontextmanager
+import os
 
 
 load_dotenv(".env.local")
@@ -64,7 +66,30 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown"""
     # Startup
     try:
+        # Initialize MCP monitoring
         await initialize_mcp_monitoring()
+
+        # Register MCP server from environment if available
+        mcp_server_url = os.getenv("MCP_SERVER_URL")
+        if mcp_server_url:
+            try:
+                from pydantic_ai.mcp import MCPServerStreamableHTTP
+
+                # Create and register MCP server in registry
+                mcp_server = MCPServerStreamableHTTP(mcp_server_url)
+                registry = get_mcp_registry()
+                await registry.register(mcp_server, mcp_server_url)
+
+                logging.info(
+                    f"✅ MCP server registered from environment: {mcp_server_url}"
+                )
+            except Exception as mcp_error:
+                logging.warning(
+                    f"⚠️ Failed to register MCP server from environment: {mcp_error}"
+                )
+        else:
+            logging.info("ℹ️ No MCP_SERVER_URL provided - MCP functionality disabled")
+
         logging.info("🚀 Application startup complete")
     except Exception as e:
         logging.error(f"Startup error: {e}")
@@ -74,6 +99,14 @@ async def lifespan(app: FastAPI):
     # Shutdown
     try:
         from .utils.mcp_status import shutdown_mcp_monitoring
+
+        # Deregister MCP server
+        try:
+            registry = get_mcp_registry()
+            await registry.deregister()
+            logging.info("🔌 MCP server deregistered")
+        except Exception as mcp_error:
+            logging.warning(f"⚠️ Failed to deregister MCP server: {mcp_error}")
 
         await shutdown_mcp_monitoring()
         logging.info("🛑 Application shutdown complete")
@@ -96,6 +129,7 @@ app.include_router(agents.router, prefix="/api")
 app.include_router(universal_agents.router, prefix="/api/v1", tags=["universal-agents"])
 app.include_router(triage.router, prefix="/api/v1", tags=["triage-agents"])
 app.include_router(streaming_poc.router, tags=["streaming-poc"])
+app.include_router(mcp_control.router, tags=["mcp-control"])
 
 client = get_openai_client(async_client=False)
 
