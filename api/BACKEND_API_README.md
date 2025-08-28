@@ -395,6 +395,73 @@ Main chat endpoint with streaming response support.
 
 **Response:** Streaming response compatible with AI SDK V5
 
+### Pydantic AI Chat Endpoint (NEW)
+
+#### `POST /api/chat/{chat_id}/ai`
+
+**🚀 NEW**: Advanced chat endpoint with full MCP integration and code-aware responses.
+
+**Parameters:**
+
+- `repository_name`: Query parameter (default: "woolly") - Repository context for MCP tools
+
+**Request Body:** Same as main chat endpoint
+
+**Response:** AI SDK V5 streaming with enhanced headers
+
+**Enhanced Response Headers:**
+
+```http
+X-Chat-Type: pydantic-ai
+X-MCP-Enabled: true|false
+X-MCP-Status: healthy|degraded|failed
+X-MCP-Fallback: true|false
+X-MCP-Capabilities: search_code,find_entities,qa_codebase,generate_diagram
+X-Repository: woolly
+```
+
+**Features:**
+
+- ✅ **Full MCP Tool Access**: Automatic code analysis capabilities
+- ✅ **Intelligent Tool Detection**: Automatically uses MCP tools for code-related queries
+- ✅ **Graceful Fallback**: Works even when MCP server unavailable
+- ✅ **Status Transparency**: Headers inform frontend of MCP availability
+- ✅ **Same Interface**: Drop-in replacement for regular chat endpoint
+- ✅ **AI SDK V5 Compatible**: Maintains streaming format compatibility
+
+**Available MCP Tools:**
+
+- `search_code`: Semantic code search across repository
+- `find_entities`: Discover classes, functions, files, and modules
+- `get_entity_relationships`: Map dependencies and relationships
+- `qa_codebase`: Comprehensive codebase insights and analysis
+- `generate_diagram`: Create visual representations (Mermaid diagrams)
+
+**Example Usage:**
+
+```bash
+# Code-aware chat with MCP tools
+curl -X POST "http://localhost/api/chat/{chat_id}/ai" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {
+        "role": "user",
+        "content": "How does the Universal Agent Factory work?",
+        "id": "msg-1"
+      }
+    ]
+  }'
+```
+
+**When to Use:**
+
+- Code analysis and exploration
+- Architecture questions
+- Implementation guidance
+- Repository-specific queries
+- Technical documentation needs
+
 ### Legacy Chat Endpoint
 
 #### `POST /api/chat`
@@ -402,6 +469,88 @@ Main chat endpoint with streaming response support.
 Legacy endpoint for backward compatibility.
 
 **Request Body:** Same as main chat endpoint
+
+---
+
+## MCP Server Status (NEW)
+
+### Get MCP Status
+
+#### `GET /api/mcp/status`
+
+**🚀 NEW**: Real-time MCP server status and capabilities for frontend integration.
+
+**Response:**
+
+```json
+{
+  "status": "healthy|degraded|failed|unknown|connecting|retrying",
+  "available": true,
+  "capabilities": [
+    "search_code",
+    "find_entities",
+    "get_entity_relationships",
+    "qa_codebase",
+    "generate_diagram"
+  ],
+  "server_info": {
+    "url": "http://localhost:8009/sse/",
+    "version": "2.9",
+    "response_time_ms": 150.5,
+    "last_check": "2024-01-01T00:00:00Z"
+  },
+  "fallback_mode": false,
+  "last_check": "2024-01-01T00:00:00Z",
+  "next_retry": null,
+  "error_details": {
+    "message": "Connection timeout",
+    "error_count": 3,
+    "consecutive_failures": 2,
+    "last_success": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+**Status Values:**
+
+- `healthy`: MCP server fully operational
+- `degraded`: MCP server partially working (some tools may fail)
+- `failed`: MCP server completely unavailable
+- `unknown`: Status not yet determined
+- `connecting`: Currently establishing connection
+- `retrying`: Attempting to reconnect after failure
+
+**Features:**
+
+- ✅ **Real-time Monitoring**: Background monitoring with automatic status updates
+- ✅ **Capability Detection**: Lists available MCP tools
+- ✅ **Error Details**: Comprehensive failure information for debugging
+- ✅ **Response Metrics**: Performance monitoring with response times
+- ✅ **Retry Logic**: Exponential backoff with intelligent retry scheduling
+- ✅ **Frontend Ready**: Structured data perfect for UI status indicators
+
+**Frontend Integration:**
+
+```javascript
+// Check MCP status for UI indicators
+const mcpStatus = await fetch("/api/mcp/status").then((r) => r.json());
+
+if (mcpStatus.available) {
+  // Show code analysis features
+  showCodeAnalysisTools(mcpStatus.capabilities);
+} else {
+  // Show fallback message
+  showFallbackMessage(mcpStatus.error_details?.message);
+}
+```
+
+**Use Cases:**
+
+- Frontend status indicators
+- Feature availability detection
+- Error reporting and diagnostics
+- Performance monitoring
+- Automatic fallback handling
 
 ---
 
@@ -925,10 +1074,18 @@ curl -X POST http://localhost/api/streaming/mock \
 # Test agent types (working)
 curl http://localhost/api/v1/agents/types
 
-# Test MCP connection status
+# Test MCP connection status (legacy)
 curl http://localhost/api/v1/agents/mcp/test
 
-# Test chat utility endpoints (new)
+# Test MCP status (NEW - recommended)
+curl http://localhost/api/mcp/status
+
+# Test Pydantic AI chat (NEW)
+curl -X POST "http://localhost/api/chat/{chat_id}/ai" \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"How does authentication work?","id":"1"}]}'
+
+# Test chat utility endpoints
 # Generate title for a chat
 curl -X POST http://localhost/api/chat/{chat_id}/generate-title \
   -H "Content-Type: application/json" \
@@ -952,6 +1109,8 @@ curl -X POST http://localhost/api/chat/{chat_id}/generate-rolling-summary \
 - **Health Checks**: All system health endpoints operational
 - **Chat Management**: Create, read, update, delete chats
 - **Chat Utilities**: AI-powered title generation, full summaries, rolling summaries
+- **Pydantic AI Chat**: NEW code-aware chat with MCP integration (`/api/chat/{id}/ai`)
+- **MCP Status API**: NEW real-time MCP server monitoring (`/api/mcp/status`)
 - **Message Management**: Full CRUD operations for messages
 - **Agent Management**: Complete agent CRUD functionality
 - **System Information**: Agent types, health status, MCP testing
@@ -966,10 +1125,17 @@ curl -X POST http://localhost/api/chat/{chat_id}/generate-rolling-summary \
 
 #### 🔧 **Dependencies**
 
-- **MCP Server**: Required for full agent functionality
+- **MCP Server**: Optional for enhanced functionality (graceful fallback when unavailable)
 - **PostgreSQL**: Database must be running and migrated
 - **OpenAI API**: Required for AI model interactions and chat utilities
-- **Pydantic AI**: Powers the new chat utility endpoints (v0.4.6+)
+- **Pydantic AI**: Powers the new chat utility endpoints and MCP integration (v0.4.6+)
+
+#### 🚀 **NEW: Enhanced MCP Integration**
+
+- **Graceful Degradation**: System works with or without MCP server
+- **Real-time Monitoring**: Automatic MCP status tracking with `/api/mcp/status`
+- **Frontend Awareness**: Headers inform frontend of MCP availability
+- **Intelligent Fallbacks**: Seamless transition between MCP and regular chat modes
 
 ---
 
