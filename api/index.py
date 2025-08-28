@@ -43,11 +43,45 @@ from .utils.ai_services import (
     generate_full_summary,
     generate_rolling_summary,
 )
+from .utils.pydantic_chat import (
+    stream_pydantic_chat,
+    should_use_mcp_tools,
+    get_chat_context_summary,
+)
+from .utils.mcp_status import (
+    get_mcp_status_service,
+    MCPStatusResponse,
+    initialize_mcp_monitoring,
+)
+from contextlib import asynccontextmanager
 
 
 load_dotenv(".env.local")
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager for startup and shutdown"""
+    # Startup
+    try:
+        await initialize_mcp_monitoring()
+        logging.info("🚀 Application startup complete")
+    except Exception as e:
+        logging.error(f"Startup error: {e}")
+
+    yield
+
+    # Shutdown
+    try:
+        from .utils.mcp_status import shutdown_mcp_monitoring
+
+        await shutdown_mcp_monitoring()
+        logging.info("🛑 Application shutdown complete")
+    except Exception as e:
+        logging.error(f"Shutdown error: {e}")
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,6 +90,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 app.include_router(agents.router, prefix="/api")
 app.include_router(universal_agents.router, prefix="/api/v1", tags=["universal-agents"])
@@ -727,6 +762,217 @@ async def chat(
                 )
 
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+# NEW: Pydantic AI Chat Endpoint with MCP Integration
+@app.post("/api/chat/{chat_id}/ai")
+async def chat_with_pydantic_ai(
+    chat_id: uuid.UUID,
+    request: RequestFromFrontend,
+    db: Session = Depends(get_db),
+    repository_name: str = Query(
+        "woolly", description="Repository name for MCP context"
+    ),
+):
+    """
+    NEW: Pydantic AI-powered chat with MCP tool integration
+
+    This endpoint provides the same AI SDK V5 streaming format as the regular
+    chat endpoint but with full MCP tool access for code-aware conversations.
+
+    Features:
+    - Full MCP tool access (search_code, find_entities, qa_codebase, etc.)
+    - Same AI SDK V5 streaming format as existing chat
+    - Automatic code context detection
+    - Repository-aware responses
+    - Conversation history preservation
+
+    Usage:
+    - Use this endpoint when you want code-aware chat responses
+    - Automatically detects when MCP tools would be helpful
+    - Maintains same interface as regular chat endpoint
+    """
+    try:
+        # Same chat setup as regular endpoint
+        chat = db.query(Chat).filter(Chat.id == chat_id).first()
+        if not chat:
+            # Auto-create the missing chat
+            logging.info(f"Chat {chat_id} not found, auto-creating new chat")
+            chat = Chat(
+                id=chat_id,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+                title="New AI Chat",
+            )
+            db.add(chat)
+            db.flush()
+            logging.info(f"Successfully created new AI chat {chat_id}")
+        else:
+            logging.info(f"Using existing AI chat {chat_id}")
+
+        messages = request.messages
+        if not messages:
+            raise HTTPException(status_code=422, detail="No messages provided")
+
+        model = request.model or messages[-1].model or "gpt-4o"
+
+        # Create user message if it's new
+        last_message = messages[-1]
+        if last_message.role == "user":
+            existing_message = (
+                db.query(Message)
+                .filter(
+                    Message.chat_id == chat_id,
+                    Message.role == "user",
+                    Message.content == last_message.content,
+                )
+                .first()
+            )
+
+            if not existing_message:
+                user_message = Message(
+                    chat_id=chat_id,
+                    role=last_message.role,
+                    content=last_message.content,
+                    model=model,
+                    created_at=datetime.now(timezone.utc),
+                    agent_id=None,
+                    message_type=None,
+                )
+                db.add(user_message)
+                db.flush()
+
+        # Create assistant message placeholder
+        existing_assistant = (
+            db.query(Message)
+            .filter(
+                Message.chat_id == chat_id,
+                Message.role == "assistant",
+                Message.content == "",
+                Message.created_at >= datetime.now(timezone.utc) - timedelta(minutes=5),
+            )
+            .order_by(Message.created_at.desc())
+            .first()
+        )
+
+        if existing_assistant:
+            assistant_message = existing_assistant
+            assistant_message.model = model
+        else:
+            assistant_message = Message(
+                chat_id=chat_id,
+                role="assistant",
+                content="",
+                model=model,
+                created_at=datetime.now(timezone.utc),
+                agent_id=None,
+                message_type=None,
+            )
+            db.add(assistant_message)
+
+        db.commit()
+
+        # Log the switch to Pydantic AI
+        logging.info(
+            f"Using Pydantic AI chat for {chat_id} with repository: {repository_name}"
+        )
+
+        # Convert Pydantic models to dictionaries for the utility function
+        messages_dict = [
+            msg.model_dump() if hasattr(msg, "model_dump") else msg.__dict__
+            for msg in messages
+        ]
+
+        # Check MCP server status
+        mcp_service = get_mcp_status_service()
+        mcp_status = mcp_service.get_status()
+
+        # Check if MCP tools would be beneficial
+        use_mcp = should_use_mcp_tools(messages_dict)
+        logging.info(
+            f"MCP tools recommended: {use_mcp}, MCP available: {mcp_status.available}"
+        )
+
+        # Use Pydantic AI streaming with MCP access
+        return StreamingResponse(
+            stream_pydantic_chat(
+                messages=messages_dict,
+                model=model,
+                repository_name=repository_name,
+                chat_id=chat_id,
+                db=db,
+            ),
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Transfer-Encoding": "chunked",
+                "Content-Encoding": "none",
+                "X-Chat-Type": "pydantic-ai",  # Header to identify the chat type
+                "X-MCP-Enabled": str(mcp_status.available).lower(),
+                "X-MCP-Status": mcp_status.status.value,
+                "X-MCP-Fallback": str(mcp_status.fallback_mode).lower(),
+                "X-MCP-Capabilities": ",".join(mcp_status.capabilities),
+                "X-Repository": repository_name,
+            },
+        )
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        logging.error(f"Pydantic AI chat error: {str(e)}", exc_info=True)
+        db.rollback()
+
+        # Provide specific error messages
+        error_message = str(e)
+        if "mcp" in error_message.lower():
+            raise HTTPException(
+                status_code=503,
+                detail="MCP server unavailable. Please try again later or use the regular chat endpoint.",
+            )
+        elif "agent" in error_message.lower():
+            raise HTTPException(
+                status_code=500,
+                detail="AI agent system unavailable. Please try the regular chat endpoint.",
+            )
+
+        raise HTTPException(status_code=500, detail=f"AI chat error: {str(e)}")
+
+
+# MCP Status Endpoint
+@app.get("/api/mcp/status", response_model=MCPStatusResponse)
+async def get_mcp_status():
+    """
+    Get current MCP server status and capabilities
+
+    This endpoint provides real-time information about MCP server availability,
+    capabilities, and connection health for frontend consumption.
+
+    Returns:
+        MCPStatusResponse: Current MCP server status and details
+    """
+    try:
+        mcp_service = get_mcp_status_service()
+
+        # Force a fresh status check
+        await mcp_service.force_check()
+
+        return mcp_service.get_status()
+
+    except Exception as e:
+        logging.error(f"MCP status check error: {e}")
+        # Return a failed status response
+        from .utils.mcp_status import MCPStatus
+
+        return MCPStatusResponse(
+            status=MCPStatus.FAILED,
+            available=False,
+            capabilities=[],
+            fallback_mode=True,
+            server_info={"error": str(e)},
+            error_details={"message": str(e)},
+        )
 
 
 # Legacy Endpoint (Consider deprecating)
