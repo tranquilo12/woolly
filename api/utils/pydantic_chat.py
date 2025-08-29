@@ -6,7 +6,6 @@ with full MCP tool access while maintaining the same AI SDK V5 streaming
 format as the existing OpenAI chat system.
 """
 
-import asyncio
 import logging
 import json
 import uuid

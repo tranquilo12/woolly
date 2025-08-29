@@ -1,62 +1,57 @@
-import os
 import json
+import logging
+import os
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
-from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
-from pydantic import BaseModel
+
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query, Depends, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from .utils.prompt import (
-    Attachment,
-    ClientMessage,
-    convert_to_openai_messages,
-)
-from .utils.tools import execute_python_code
-from .utils.models import (
-    Chat,
-    Message,
-    Agent,
-    ChatInsight,
-    build_tool_call_partial,
-    build_tool_call_result,
-    build_text_stream,
-    build_message_start,
-    build_message_end,
-    build_end_of_stream_message,
-    is_complete_json,
-    TitleGenerateRequest,
-    TitleGenerateResponse,
-    SummaryGenerateRequest,
-    SummaryGenerateResponse,
-    RollingSummaryRequest,
-)
-import uuid
+from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from .utils.database import get_db
-from datetime import datetime, timezone, timedelta
-from .routers import agents, universal_agents, triage, streaming_poc, mcp_control
-from .utils.openai_client import get_openai_client
-import logging
+
+from .routers import agents, mcp_control, streaming_poc, triage, universal_agents
 from .utils.ai_services import (
-    generate_title_from_first_user_message,
     generate_full_summary,
     generate_rolling_summary,
+    generate_title_from_first_user_message,
 )
-from .utils.pydantic_chat import (
-    stream_pydantic_chat,
-    should_use_mcp_tools,
-    get_chat_context_summary,
-)
+from .utils.database import get_db
+from .utils.mcp_registry import get_mcp_registry
 from .utils.mcp_status import (
-    get_mcp_status_service,
     MCPStatusResponse,
+    get_mcp_status_service,
     initialize_mcp_monitoring,
 )
-from .utils.mcp_registry import get_mcp_registry
-from contextlib import asynccontextmanager
-import os
-
+from .utils.models import (
+    Agent,
+    Chat,
+    ChatInsight,
+    Message,
+    RollingSummaryRequest,
+    SummaryGenerateRequest,
+    SummaryGenerateResponse,
+    TitleGenerateRequest,
+    TitleGenerateResponse,
+    build_end_of_stream_message,
+    build_message_end,
+    build_message_start,
+    build_text_stream,
+    build_tool_call_partial,
+    build_tool_call_result,
+    is_complete_json,
+)
+from .utils.openai_client import get_openai_client
+from .utils.prompt import Attachment, convert_to_openai_messages
+from .utils.pydantic_chat import (
+    should_use_mcp_tools,
+    stream_pydantic_chat,
+)
+from .utils.tools import execute_python_code
 
 load_dotenv(".env.local")
 
