@@ -1084,19 +1084,8 @@ Use these valid entity IDs for relationship queries instead of making new discov
                 )
                 message_history.append(system_message)
 
-            # Send initial streaming event
-            yield self._format_stream_event(
-                "start",
-                {
-                    "agent_type": agent_type.value,
-                    "repository": repository_name,
-                    "tool_budget": {
-                        "max_tool_calls": tool_budget.max_tool_calls,
-                        "max_depth": tool_budget.max_depth,
-                        "time_budget_s": tool_budget.time_budget_s,
-                    },
-                },
-            )
+            # Don't send start event as text - it creates noise in the conversation
+            # The frontend will handle the streaming start indication
 
             # ✅ ENHANCED: Execute agent with streaming and MCP fallback handling
             try:
@@ -1110,22 +1099,24 @@ Use these valid entity IDs for relationship queries instead of making new discov
                         ) as stream_result:
 
                             accumulated_text = ""
+                            previous_length = 0
 
                             # Process streaming text as it arrives
-                            async for text_chunk in stream_result.stream_text():
+                            async for cumulative_text in stream_result.stream_text():
+                                # Extract only the new delta from cumulative text
+                                new_delta = cumulative_text[previous_length:]
+                                if not new_delta:
+                                    continue  # Skip if no new content
+
+                                previous_length = len(cumulative_text)
+                                accumulated_text = cumulative_text
+
                                 # Check budget limits before processing each chunk
                                 should_stop, stop_reason = budget_tracker.should_stop(
                                     tool_budget
                                 )
                                 if should_stop:
-                                    yield self._format_stream_event(
-                                        "budget_exceeded",
-                                        {
-                                            "reason": stop_reason,
-                                            "tool_calls_made": budget_tracker.tool_calls_made,
-                                            "elapsed_time": budget_tracker.get_elapsed_time(),
-                                        },
-                                    )
+                                    # Don't send budget exceeded as text - just break
                                     break
 
                                 # Check convergence before processing
@@ -1137,26 +1128,16 @@ Use these valid entity IDs for relationship queries instead of making new discov
                                         await convergence_detector.has_converged()
                                     )
                                     if has_converged:
-                                        yield self._format_stream_event(
-                                            "converged",
-                                            {
-                                                "reason": "Response convergence detected",
-                                                "similarity_threshold": tool_budget.convergence_threshold,
-                                                "responses_analyzed": len(
-                                                    budget_tracker.recent_responses
-                                                ),
-                                            },
-                                        )
+                                        # Don't send converged as text - just break
                                         break
 
-                                # Stream text delta
-                                accumulated_text += text_chunk
+                                # Stream only the new text delta
                                 yield self._format_stream_event(
-                                    "text", {"delta": text_chunk}
+                                    "text", {"delta": new_delta}
                                 )
 
                                 # Track response for convergence detection
-                                budget_tracker.add_response(text_chunk)
+                                budget_tracker.add_response(new_delta)
 
                         # Add final response to convergence tracking
                         if accumulated_text:
@@ -1177,11 +1158,6 @@ Use these valid entity IDs for relationship queries instead of making new discov
                             yield self._format_stream_event(
                                 "done",
                                 {
-                                    "content": (
-                                        final_result.content
-                                        if hasattr(final_result, "content")
-                                        else str(final_result)
-                                    ),
                                     "metadata": (
                                         final_result.metadata
                                         if hasattr(final_result, "metadata")
@@ -1226,22 +1202,24 @@ Use these valid entity IDs for relationship queries instead of making new discov
                     ) as stream_result:
 
                         accumulated_text = ""
+                        previous_length = 0
 
                         # Process streaming text as it arrives
-                        async for text_chunk in stream_result.stream_text():
+                        async for cumulative_text in stream_result.stream_text():
+                            # Extract only the new delta from cumulative text
+                            new_delta = cumulative_text[previous_length:]
+                            if not new_delta:
+                                continue  # Skip if no new content
+
+                            previous_length = len(cumulative_text)
+                            accumulated_text = cumulative_text
+
                             # Check budget limits before processing each chunk
                             should_stop, stop_reason = budget_tracker.should_stop(
                                 tool_budget
                             )
                             if should_stop:
-                                yield self._format_stream_event(
-                                    "budget_exceeded",
-                                    {
-                                        "reason": stop_reason,
-                                        "tool_calls_made": budget_tracker.tool_calls_made,
-                                        "elapsed_time": budget_tracker.get_elapsed_time(),
-                                    },
-                                )
+                                # Don't send budget exceeded as text - just break
                                 break
 
                             # Check convergence before processing
@@ -1253,26 +1231,16 @@ Use these valid entity IDs for relationship queries instead of making new discov
                                     await convergence_detector.has_converged()
                                 )
                                 if has_converged:
-                                    yield self._format_stream_event(
-                                        "converged",
-                                        {
-                                            "reason": "Response convergence detected",
-                                            "similarity_threshold": tool_budget.convergence_threshold,
-                                            "responses_analyzed": len(
-                                                budget_tracker.recent_responses
-                                            ),
-                                        },
-                                    )
+                                    # Don't send converged as text - just break
                                     break
 
-                            # Stream text delta
-                            accumulated_text += text_chunk
+                            # Stream only the new text delta
                             yield self._format_stream_event(
-                                "text", {"delta": text_chunk}
+                                "text", {"delta": new_delta}
                             )
 
                             # Track response for convergence detection
-                            budget_tracker.add_response(text_chunk)
+                            budget_tracker.add_response(new_delta)
 
                         # Get final result and update conversation context
                         try:
@@ -1288,11 +1256,6 @@ Use these valid entity IDs for relationship queries instead of making new discov
                             yield self._format_stream_event(
                                 "done",
                                 {
-                                    "content": (
-                                        final_result.content
-                                        if hasattr(final_result, "content")
-                                        else str(final_result)
-                                    ),
                                     "metadata": (
                                         final_result.metadata
                                         if hasattr(final_result, "metadata")
@@ -1329,23 +1292,11 @@ Use these valid entity IDs for relationship queries instead of making new discov
                 logger.warning(
                     f"MCP server unavailable for streaming, running without MCP tools: {mcp_error}"
                 )
-                # Fallback: Stream a simple response without MCP
-                yield self._format_stream_event(
-                    "text",
-                    {
-                        "delta": f"⚠️ MCP server unavailable. Providing basic response for {agent_type.value} agent.\n\n"
-                    },
-                )
-                yield self._format_stream_event(
-                    "text",
-                    {
-                        "delta": f"I'm a {agent_type.value} agent, but I need MCP server connection to access codebase tools. Please check the MCP server status.\n\n"
-                    },
-                )
+                # Don't send MCP unavailable messages as text - they create noise
+                # The system should handle MCP unavailability gracefully without user-facing errors
                 yield self._format_stream_event(
                     "done",
                     {
-                        "content": f"MCP server unavailable for {agent_type.value} agent",
                         "metadata": {"mcp_fallback": True},
                         "budget_summary": {"tool_calls_made": 0, "elapsed_time": 0},
                     },
@@ -1431,13 +1382,12 @@ Use these valid entity IDs for relationship queries instead of making new discov
             )
 
         elif event_type == "done":
-            # Use V5 end-of-stream format
+            # Use V5 end-of-stream format without content duplication
             return build_end_of_stream_message(
                 finish_reason="stop",
                 prompt_tokens=data.get("budget_summary", {}).get("tool_calls_made", 0)
                 * 10,  # Estimate
-                completion_tokens=len(data.get("content", ""))
-                // 4,  # Rough token estimate
+                completion_tokens=10,  # Default estimate since we don't include content
                 is_continued=False,
             )
 

@@ -141,7 +141,10 @@ async def stream_pydantic_chat(
                     try:
                         text_data = json.loads(chunk[2:])
                         if text_data.get("type") == "text":
-                            content_accumulator += text_data.get("text", "")
+                            # Extract delta content (our new format)
+                            content_accumulator += text_data.get(
+                                "delta", text_data.get("text", "")
+                            )
                     except (json.JSONDecodeError, KeyError):
                         # If we can't parse, skip accumulation for this chunk
                         pass
@@ -168,6 +171,44 @@ async def stream_pydantic_chat(
             completion_tokens=completion_tokens,
             is_continued=False,
         )
+
+        # Save the accumulated content to database after streaming completes
+        if db and chat_id and content_accumulator:
+            try:
+                from ..utils.models import Message
+
+                # Find the assistant message placeholder created in the main endpoint
+                assistant_message = (
+                    db.query(Message)
+                    .filter(
+                        Message.chat_id == chat_id,
+                        Message.role == "assistant",
+                        Message.content == "",  # Empty placeholder
+                    )
+                    .order_by(Message.created_at.desc())
+                    .first()
+                )
+
+                if assistant_message:
+                    # Update the placeholder with the actual content
+                    assistant_message.content = content_accumulator
+                    assistant_message.prompt_tokens = prompt_tokens
+                    assistant_message.completion_tokens = completion_tokens
+                    assistant_message.total_tokens = prompt_tokens + completion_tokens
+                    db.commit()
+                    logger.info(
+                        f"Saved assistant message content to database: {len(content_accumulator)} chars"
+                    )
+                else:
+                    logger.warning(
+                        "Could not find assistant message placeholder to update"
+                    )
+
+            except Exception as save_error:
+                logger.error(
+                    f"Failed to save message content to database: {save_error}"
+                )
+                db.rollback()
 
 
 def convert_messages_to_pydantic_context(
