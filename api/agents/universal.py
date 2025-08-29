@@ -944,7 +944,7 @@ Use these valid entity IDs for relationship queries instead of making new discov
                 )
 
             # ✅ CORRECT: Extract result and update conversation context using RunResult
-            agent_result = result.data
+            agent_result = result.output
 
             # ✅ CORRECT: Use RunResult.new_messages to capture the complete conversation
             # This includes user message, tool calls, tool results, and agent response
@@ -1507,9 +1507,9 @@ Use these valid entity IDs for relationship queries instead of making new discov
                 "server_version": "2.9",
                 "integration_status": "Native Pydantic AI MCP support",
                 "agent_response": (
-                    str(result.data)[:200] + "..."
-                    if len(str(result.data)) > 200
-                    else str(result.data)
+                    str(result.output)[:200] + "..."
+                    if len(str(result.output)) > 200
+                    else str(result.output)
                 ),
             }
 

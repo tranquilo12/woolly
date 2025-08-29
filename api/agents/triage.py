@@ -262,7 +262,7 @@ Use MCP tools to understand the codebase context when making routing decisions.
             logger.info("Running triage analysis with MCP tools")
             async with self.agent.run_mcp_servers():
                 triage_result = await self.agent.run(user_query, deps=deps)
-                triage_data = triage_result.data
+                triage_data = triage_result.output
 
             # Execute based on triage decision
             if triage_data.decision == TriageDecision.DIRECT_RESPONSE:

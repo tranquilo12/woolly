@@ -5,9 +5,9 @@ description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.116.1",
-    "fastmcp==2.9.2",
+    "fastmcp>=2.9.2",
     "psycopg2-binary>=2.9.10",
-    "pydantic-ai>=0.4.2",
+    "pydantic-ai>=0.8.0",
     "pytest-asyncio>=1.0.0",
     "sqlalchemy>=2.0.41",
 ]

@@ -1,4 +1,4 @@
-# Docker Setup for Woolly
+# Docker Deployment Guide for Woolly
 
 This directory contains Docker configuration files for running the Woolly application in containers.
 
