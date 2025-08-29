@@ -10,14 +10,14 @@ This module provides unified endpoints for all agent types:
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 from uuid import UUID
 import logging
 from datetime import datetime
 from sqlalchemy.orm import Session
 
-from ..agents.universal import AgentType, get_universal_factory, UniversalDependencies
+from ..agents.universal import AgentType, get_universal_factory
 from ..agents.parallel import parallel_manager
 from ..utils.database import get_db
 from ..routers.agents import save_agent_message

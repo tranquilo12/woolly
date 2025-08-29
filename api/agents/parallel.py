@@ -21,7 +21,6 @@ from .universal import (
     get_universal_factory,
     AgentType,
     UniversalResult,
-    UniversalDependencies,
 )
 
 logger = logging.getLogger(__name__)

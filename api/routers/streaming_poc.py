@@ -7,10 +7,9 @@ This endpoint showcases the real V5 format with tool calls, text streaming,
 and proper end-of-stream messages that match our production implementation.
 """
 
-import json
 import asyncio
 from typing import AsyncGenerator
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 

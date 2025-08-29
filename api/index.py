@@ -9,7 +9,7 @@ from typing import List, Optional
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, RedirectResponse
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -120,16 +120,16 @@ app.add_middleware(
 )
 
 
-app.include_router(agents.router, prefix="/api")
-app.include_router(universal_agents.router, prefix="/api/v1", tags=["universal-agents"])
-app.include_router(triage.router, prefix="/api/v1", tags=["triage-agents"])
-app.include_router(streaming_poc.router, tags=["streaming-poc"])
-app.include_router(mcp_control.router, tags=["mcp-control"])
+app.include_router(agents.router, prefix="/api/v2", tags=["agents"])
+app.include_router(universal_agents.router, prefix="/api/v2", tags=["agents"])
+app.include_router(triage.router, prefix="/api/v2", tags=["triage"])
+app.include_router(mcp_control.router, prefix="/api/v2", tags=["mcp"])
+app.include_router(streaming_poc.router, prefix="/api/v2/dev", tags=["development"])
 
 client = get_openai_client(async_client=False)
 
 
-@app.get("/api/health")
+@app.get("/api/v2/health")
 async def health_check():
     """Health check endpoint for Docker healthcheck"""
     return {"status": "healthy"}
@@ -486,7 +486,7 @@ def stream_text(
 
 
 # Chat CRUD Operations
-@app.post("/api/chat/create")
+@app.post("/api/v2/chat/create")
 async def create_chat(agent_id: Optional[str] = None, db: Session = Depends(get_db)):
     """Create a new chat and return its ID"""
     try:
@@ -521,7 +521,7 @@ async def create_chat(agent_id: Optional[str] = None, db: Session = Depends(get_
         raise HTTPException(status_code=500, detail=f"Failed to create chat: {str(e)}")
 
 
-@app.get("/api/chats")
+@app.get("/api/v2/chats")
 async def get_chats(db: Session = Depends(get_db)):
     """Fetch all chats ordered by last updated"""
     chats = db.query(Chat).order_by(Chat.updated_at.desc()).all()
@@ -549,7 +549,7 @@ async def get_chats(db: Session = Depends(get_db)):
     ]
 
 
-@app.delete("/api/chat/{chat_id}")
+@app.delete("/api/v2/chat/{chat_id}")
 async def delete_chat(chat_id: uuid.UUID, db: Session = Depends(get_db)):
     """Delete a chat and its messages"""
     try:
@@ -574,7 +574,7 @@ async def delete_chat(chat_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 # Chat Title Operations
-@app.patch("/api/chat/{chat_id}/title")
+@app.patch("/api/v2/chat/{chat_id}/title")
 async def update_chat_title(
     chat_id: uuid.UUID, title_update: ChatTitleUpdate, db: Session = Depends(get_db)
 ):
@@ -599,7 +599,7 @@ async def update_chat_title(
 
 
 # Message Operations
-@app.get("/api/chat/{chat_id}/messages")
+@app.get("/api/v2/chat/{chat_id}/messages")
 async def get_chat_messages(chat_id: uuid.UUID, db: Session = Depends(get_db)):
     """Get all messages for a chat, excluding agent messages"""
     try:
@@ -626,7 +626,7 @@ async def get_chat_messages(chat_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/chat/{chat_id}/messages")
+@app.post("/api/v2/chat/{chat_id}/messages")
 async def create_message(
     chat_id: uuid.UUID, message: MessageCreate, db: Session = Depends(get_db)
 ):
@@ -665,7 +665,7 @@ async def create_message(
 
 
 # Chat Interaction Endpoints
-@app.post("/api/chat/{chat_id}")
+@app.post("/api/v2/chat/{chat_id}")
 async def chat(
     chat_id: uuid.UUID,
     request: RequestFromFrontend,
@@ -794,7 +794,7 @@ async def chat(
 
 
 # NEW: Pydantic AI Chat Endpoint with MCP Integration
-@app.post("/api/chat/{chat_id}/ai")
+@app.post("/api/v2/chat/{chat_id}/ai")
 async def chat_with_pydantic_ai(
     chat_id: uuid.UUID,
     request: RequestFromFrontend,
@@ -970,7 +970,7 @@ async def chat_with_pydantic_ai(
 
 
 # MCP Status Endpoint
-@app.get("/api/mcp/status", response_model=MCPStatusResponse)
+@app.get("/api/v2/mcp/status", response_model=MCPStatusResponse)
 async def get_mcp_status():
     """
     Get current MCP server status and capabilities
@@ -1005,7 +1005,7 @@ async def get_mcp_status():
 
 
 # Legacy Endpoint (Consider deprecating)
-@app.post("/api/chat")
+@app.post("/api/v2/chat")
 async def handle_chat_legacy(
     request: RequestFromFrontend, protocol: str = Query("data")
 ):
@@ -1053,7 +1053,7 @@ async def handle_chat_legacy(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/chat/{chat_id}/generate-title", response_model=TitleGenerateResponse)
+@app.post("/api/v2/chat/{chat_id}/generate-title", response_model=TitleGenerateResponse)
 async def generate_chat_title_endpoint(
     chat_id: uuid.UUID,
     req: TitleGenerateRequest,
@@ -1078,7 +1078,7 @@ async def generate_chat_title_endpoint(
 
 
 @app.post(
-    "/api/chat/{chat_id}/generate-summary", response_model=SummaryGenerateResponse
+    "/api/v2/chat/{chat_id}/generate-summary", response_model=SummaryGenerateResponse
 )
 async def generate_full_summary_endpoint(
     chat_id: uuid.UUID,
@@ -1096,7 +1096,7 @@ async def generate_full_summary_endpoint(
 
 
 @app.post(
-    "/api/chat/{chat_id}/generate-rolling-summary",
+    "/api/v2/chat/{chat_id}/generate-rolling-summary",
     response_model=SummaryGenerateResponse,
 )
 async def generate_rolling_summary_endpoint(
@@ -1117,7 +1117,7 @@ async def generate_rolling_summary_endpoint(
     return SummaryGenerateResponse(**result)
 
 
-@app.patch("/api/chat/{chat_id}/messages/{message_id}")
+@app.patch("/api/v2/chat/{chat_id}/messages/{message_id}")
 async def edit_message(
     chat_id: uuid.UUID,
     message_id: uuid.UUID,
@@ -1155,7 +1155,7 @@ async def edit_message(
         raise HTTPException(status_code=500, detail=f"Failed to edit message: {str(e)}")
 
 
-@app.patch("/api/chat/{chat_id}/messages/{message_id}/model")
+@app.patch("/api/v2/chat/{chat_id}/messages/{message_id}/model")
 async def update_message_model(
     chat_id: uuid.UUID,
     message_id: uuid.UUID,
@@ -1187,7 +1187,7 @@ async def update_message_model(
         )
 
 
-@app.get("/api/chat/{chat_id}/agent/messages")
+@app.get("/api/v2/chat/{chat_id}/agent/messages")
 async def get_agent_messages(
     chat_id: uuid.UUID,
     agent_id: str = Query(None),
@@ -1227,13 +1227,13 @@ async def get_agent_messages(
         )
 
 
-@app.get("/api/docs_system_prompt.txt")
+@app.get("/api/v2/system/prompts/docs")
 async def get_docs_system_prompt():
     with open("./api/docs_system_prompt.txt", "r") as file:
         return file.read()
 
 
-@app.delete("/api/chat/{chat_id}/messages/{message_id}")
+@app.delete("/api/v2/chat/{chat_id}/messages/{message_id}")
 async def delete_message(
     chat_id: uuid.UUID,
     message_id: uuid.UUID,
@@ -1261,7 +1261,7 @@ async def delete_message(
         )
 
 
-@app.post("/api/chat/{chat_id}/agent/messages")
+@app.post("/api/v2/chat/{chat_id}/agent/messages")
 async def create_agent_message(
     chat_id: uuid.UUID, message: dict, db: Session = Depends(get_db)
 ):
@@ -1302,3 +1302,105 @@ async def create_agent_message(
         db.rollback()
         logging.error(f"Failed to create agent message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# LEGACY ROUTE REDIRECTS - Backward Compatibility
+# =============================================================================
+
+
+@app.get("/api/health")
+async def legacy_health():
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse("/api/v2/health", status_code=301)
+
+
+@app.post("/api/chat/create")
+async def legacy_chat_create():
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse("/api/v2/chat/create", status_code=301)
+
+
+@app.get("/api/chats")
+async def legacy_chats():
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse("/api/v2/chats", status_code=301)
+
+
+@app.delete("/api/chat/{chat_id}")
+async def legacy_delete_chat(chat_id: str):
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse(f"/api/v2/chat/{chat_id}", status_code=301)
+
+
+@app.patch("/api/chat/{chat_id}/title")
+async def legacy_update_chat_title(chat_id: str):
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse(f"/api/v2/chat/{chat_id}/title", status_code=301)
+
+
+@app.get("/api/chat/{chat_id}/messages")
+async def legacy_get_messages(chat_id: str):
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse(f"/api/v2/chat/{chat_id}/messages", status_code=301)
+
+
+@app.post("/api/chat/{chat_id}/messages")
+async def legacy_create_message(chat_id: str):
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse(f"/api/v2/chat/{chat_id}/messages", status_code=301)
+
+
+@app.post("/api/chat/{chat_id}")
+async def legacy_chat(chat_id: str):
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse(f"/api/v2/chat/{chat_id}", status_code=301)
+
+
+@app.post("/api/chat/{chat_id}/ai")
+async def legacy_chat_ai(chat_id: str):
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse(f"/api/v2/chat/{chat_id}/ai", status_code=301)
+
+
+@app.get("/api/mcp/status")
+async def legacy_mcp_status():
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse("/api/v2/mcp/status", status_code=301)
+
+
+@app.post("/api/chat")
+async def legacy_chat_root():
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse("/api/v2/chat", status_code=301)
+
+
+# V1 API redirects
+@app.post("/api/v1/agents/execute")
+async def legacy_v1_agents_execute():
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse("/api/v2/agents/execute", status_code=301)
+
+
+@app.post("/api/v1/agents/execute/streaming")
+async def legacy_v1_agents_streaming():
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse("/api/v2/agents/execute/streaming", status_code=301)
+
+
+@app.post("/api/v1/triage/analyze")
+async def legacy_v1_triage_analyze():
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse("/api/v2/triage/analyze", status_code=301)
+
+
+@app.post("/api/v1/triage/execute")
+async def legacy_v1_triage_execute():
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse("/api/v2/triage/execute", status_code=301)
+
+
+@app.get("/api/docs_system_prompt.txt")
+async def legacy_docs_prompt():
+    """Legacy redirect to maintain backward compatibility"""
+    return RedirectResponse("/api/v2/system/prompts/docs", status_code=301)

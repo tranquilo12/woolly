@@ -13,9 +13,11 @@
 /out/
 
 # python
+.venv/
 venv/
 .env
 __pycache__
+.pytest_cache/
 
 # production
 /build
@@ -23,6 +25,7 @@ __pycache__
 # misc
 .DS_Store
 *.pem
+.vscode/
 
 # debug
 npm-debug.log*
@@ -39,4 +42,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-/docs/
+# /docs/

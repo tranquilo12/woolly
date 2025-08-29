@@ -10,21 +10,16 @@ This module represents the culmination of backend simplification, achieving:
 - Proper conversation history using Pydantic AI message_history patterns
 """
 
-import asyncio
 import logging
 import os
-from typing import Dict, Any, Optional, AsyncGenerator, List, Union
+from typing import Dict, Any, Optional, AsyncGenerator, List
 from enum import Enum
-from dataclasses import dataclass
 from datetime import datetime
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
-from pydantic_ai.result import StreamedRunResult
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse
 from pydantic_ai.messages import (
-    UserPromptPart,
-    TextPart,
     ToolCallPart,
     ToolReturnPart,
     SystemPromptPart,
