@@ -331,40 +331,12 @@ async def execute_triage_streaming(request: TriageRequest):
 
 @router.get("/triage/health")
 async def triage_health_check() -> Dict[str, Any]:
-    """
-    Health check for triage system
-
-    Returns status of triage agent and its dependencies.
-    """
-    try:
-        # Check if triage agent is properly initialized
-        agent_status = "healthy" if triage_agent.agent is not None else "unhealthy"
-
-        # Check MCP availability
-        mcp_status = (
-            "available" if triage_agent.factory.mcp_available else "unavailable"
-        )
-
-        # Check available agent types
-        available_agents = [
-            agent.value for agent in triage_agent.factory.get_available_agent_types()
-        ]
-
-        return {
-            "status": "healthy",
-            "triage_agent": agent_status,
-            "mcp_server": mcp_status,
-            "available_agents": available_agents,
-            "timestamp": datetime.now().isoformat(),
-        }
-
-    except Exception as e:
-        logger.error(f"Triage health check failed: {e}")
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat(),
-        }
+    """Redirect to unified health endpoint."""
+    return {
+        "status": "moved",
+        "message": "Use unified health endpoint at /api/v2/health",
+        "endpoint": "/api/v2/health",
+    }
 
 
 @router.get("/triage/stats")

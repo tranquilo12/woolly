@@ -451,32 +451,12 @@ async def get_available_agent_types() -> Dict[str, Any]:
 
 @router.get("/agents/health")
 async def health_check() -> Dict[str, Any]:
-    """
-    Health check endpoint for universal agent system
-    """
-    try:
-        # Get factory health status
-        factory_health = await get_universal_factory().health_check()
-
-        # Get parallel manager health
-        parallel_health = await parallel_manager.health_check()
-
-        return {
-            "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
-            "factory": factory_health,
-            "parallel_manager": parallel_health,
-            "available_agents": len(
-                get_universal_factory().get_available_agent_types()
-            ),
-        }
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat(),
-        }
+    """Redirect to unified health endpoint."""
+    return {
+        "status": "moved",
+        "message": "Use unified health endpoint at /api/v2/health",
+        "endpoint": "/api/v2/health",
+    }
 
 
 @router.get("/agents/mcp/test")

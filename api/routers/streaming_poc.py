@@ -13,7 +13,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/streaming", tags=["streaming-poc"])
+router = APIRouter(prefix="/streaming", tags=["development"])
 
 
 class StreamRequest(BaseModel):
@@ -142,8 +142,8 @@ async def stream_mock_agent(request: StreamRequest):
     - Text streaming in V5 format (0:"text")
     - End-of-stream in V5 format (e:{...})
     
-    Test with:
-    curl -X POST http://localhost:8000/api/streaming/mock \
+    Test with (when included under /api/v2/dev):
+    curl -X POST http://localhost:8000/api/v2/dev/streaming/mock \
          -H "Content-Type: application/json" \
          -d '{"prompt": "authentication system"}' \
          --no-buffer

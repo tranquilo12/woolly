@@ -131,8 +131,11 @@ client = get_openai_client(async_client=False)
 
 @app.get("/api/v2/health")
 async def health_check():
-    """Health check endpoint for Docker healthcheck"""
-    return {"status": "healthy"}
+    """Unified health endpoint providing comprehensive component status"""
+    from .utils.health_service import HealthService
+
+    service = HealthService()
+    return await service.get_comprehensive_status()
 
 
 class ToolInvocation(BaseModel):

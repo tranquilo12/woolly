@@ -47,16 +47,11 @@ def handle_db_operation(func):
 # Health check endpoint - MUST be before parameterized routes
 @router.get("/agents/health")
 async def health_check():
-    """Health check for agent system"""
+    """Redirect to unified health endpoint."""
     return {
-        "status": "healthy",
-        "system": "simplified_agent_system",
-        "version": "2.0",
-        "endpoints": {
-            "agent_crud": "✅ Active",
-            "universal_system": "✅ Available at /api/v1/agents/execute",
-            "deprecated_generate": "⚠️ Deprecated - Use universal system",
-        },
+        "status": "moved",
+        "message": "Use unified health endpoint at /api/v2/health",
+        "endpoint": "/api/v2/health",
     }
 
 
@@ -236,27 +231,19 @@ async def save_agent_message(
         raise
 
 
-# Backward compatibility endpoint - maps to universal system
+# Backward compatibility endpoint - decommissioned
 @router.post("/generate/{specialization}")
 async def generate_documentation_compatibility(
     specialization: str,
     request: dict,
     db: Session = Depends(get_db),
 ):
-    """
-    Backward compatibility endpoint that redirects to universal agent system.
-
-    This endpoint is deprecated and will be removed in future versions.
-    Use /api/v1/agents/execute instead.
-    """
-    logger.warning(
-        f"Deprecated endpoint /generate/{specialization} called. Use /api/v1/agents/execute instead."
+    """410 Gone - legacy endpoint removed. Use unified agent system instead."""
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "error": "Endpoint deprecated",
+            "message": "Use /api/v2/agents/execute instead",
+            "migration_guide": "/docs/api/endpoints-analysis.md",
+        },
     )
-
-    # Return a simple response directing users to the new system
-    return {
-        "status": "deprecated",
-        "message": f"The /generate/{specialization} endpoint is deprecated. Please use /api/v1/agents/execute with agent_type='{specialization}' instead.",
-        "new_endpoint": "/api/v1/agents/execute",
-        "documentation": "See universal agent system documentation for migration guide.",
-    }
