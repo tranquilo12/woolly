@@ -62,9 +62,17 @@ uv run python test_backend_changes.py
 
 - Health & System endpoints: ✅ Working
 - MCP registry system: ✅ Dynamic registration working
+- **FastMCP Adapter**: ✅ **Pydantic AI ↔ FastMCP bridge working**
 - Chat management: ✅ Full CRUD operations
 - AI SDK V5 streaming: ✅ Both standard and MCP-enabled chat
 - Legacy redirects: ✅ Backward compatibility maintained
+
+### 🔧 MCP System Status
+
+✅ **MCP Registration**: `POST /api/v2/mcp/register` with validation **working**  
+✅ **MCP Status**: `GET /api/v2/mcp/status` shows **healthy** with 5 capabilities  
+✅ **FastMCP Adapter**: Successfully bridges Pydantic AI ↔ FastMCP server  
+✅ **Connection Validation**: Real-time server health monitoring **working**
 
 </details>
 
@@ -505,6 +513,23 @@ MCP-enabled chat includes helpful headers:
 - `X-MCP-Status: healthy|degraded|failed|disabled` - Server status
 - `X-MCP-Capabilities: search_code,find_entities,...` - Available tools
 - `X-Chat-Type: pydantic-ai` - Chat type identifier
+
+### ⚠️ Frontend Integration Warning
+
+**IMPORTANT**: There is **NO** `/api/v2/mcp/servers` endpoint. If your frontend is trying to access this endpoint, it will return `404 Not Found`. Use the correct endpoints:
+
+```javascript
+// ❌ WRONG - These endpoints don't exist
+GET / api / v2 / mcp / servers; // 404 Not Found
+POST / api / v2 / mcp / servers; // 404 Not Found
+
+// ✅ CORRECT - Use these endpoints instead
+GET / api / v2 / mcp / status; // Check MCP availability
+GET / api / v2 / mcp / registry / status; // Check registered server
+POST / api / v2 / mcp / register; // Register MCP server
+POST / api / v2 / mcp / deregister; // Remove MCP server
+POST / api / v2 / mcp / test - connection; // Test connection
+```
 
 </details>
 

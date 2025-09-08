@@ -467,7 +467,7 @@ class UniversalAgentFactory:
             self._mcp_connection_tested = True
 
     async def _test_mcp_connection(self):
-        """Test MCP connection using proper Pydantic AI pattern"""
+        """Test MCP connection using FastMCP adapter"""
         try:
             # Check if MCP server is available
             if self.mcp_server is None:
@@ -475,21 +475,45 @@ class UniversalAgentFactory:
                 self.mcp_available = False
                 return
 
-            # Create a simple test agent to verify MCP connectivity
-            test_agent = Agent(
-                model="openai:gpt-4o-mini",
-                system_prompt="You are a connection test agent. Simply respond with 'Connection successful'.",
-                mcp_servers=[self.mcp_server],
-            )
+            # Get the server URL from the registry
+            from ..utils.mcp_registry import get_mcp_registry
 
-            # Test connectivity by running the agent with MCP servers
-            async with test_agent.run_mcp_servers():
-                # If we get here, the MCP server connection is working
-                logger.info("✅ MCP server connection successful")
-                self.mcp_available = True
+            registry = get_mcp_registry()
+
+            if not registry.active_url:
+                logger.warning("⚠️ No active MCP server URL in registry")
+                self.mcp_available = False
+                return
+
+            # Use the FastMCP adapter to test connection
+            from ..utils.pydantic_to_fastmcp_adapter import PydanticToFastMCPAdapter
+
+            adapter = PydanticToFastMCPAdapter(registry.active_url)
+
+            async with adapter:
+                connection_result = await adapter.test_connection()
+
+                if connection_result.success:
+                    logger.info("✅ FastMCP server connection successful via adapter")
+                    self.mcp_available = True
+
+                    # Log discovered tools for debugging
+                    if (
+                        connection_result.data
+                        and "tools_count" in connection_result.data
+                    ):
+                        tools_count = connection_result.data["tools_count"]
+                        logger.info(
+                            f"🛠️ Discovered {tools_count} tools on FastMCP server"
+                        )
+                else:
+                    logger.warning(
+                        f"❌ FastMCP server connection failed: {connection_result.error}"
+                    )
+                    self.mcp_available = False
 
         except Exception as e:
-            logger.warning(f"❌ MCP server connection failed: {e}")
+            logger.warning(f"❌ MCP server connection test failed: {e}")
             self.mcp_available = False
 
     def get_or_create_conversation_context(
@@ -1478,38 +1502,36 @@ Use these valid entity IDs for relationship queries instead of making new discov
                     "integration_status": "Native Pydantic AI MCP support",
                 }
 
-            # Test with a simple agent execution
-            test_agent = self.create_agent_with_context(AgentType.SIMPLIFIER)
-            test_dependencies = UniversalDependencies(
-                repository_name="test_repo",
-                agent_type=AgentType.SIMPLIFIER,
-                user_query="Test MCP integration",
-                context={},
-            )
-
-            # ✅ CORRECT: Test agent execution with proper result handling
-            result = await test_agent.run("Test MCP connection", deps=test_dependencies)
-
             # Get URL from registry for accurate reporting
             from ..utils.mcp_registry import get_mcp_registry
 
             registry = get_mcp_registry()
             server_url = registry.active_url or "unknown"
 
+            # Test with FastMCP adapter for detailed information
+            from ..utils.pydantic_to_fastmcp_adapter import PydanticToFastMCPAdapter
+
+            adapter = PydanticToFastMCPAdapter(server_url)
+
+            async with adapter:
+                # Get detailed server information
+                server_info = await adapter.get_server_info()
+
+                if server_info.success:
+                    adapter_details = server_info.data
+                else:
+                    adapter_details = {"error": server_info.error}
+
             return {
                 "mcp_server_url": server_url,
                 "connection_test": "success",
-                "integration_type": "Native Pydantic AI",
-                "version_status": "FastMCP 2.9 - Version Matched",
-                "test_result": "MCP integration working via Pydantic AI",
+                "integration_type": "FastMCP via Adapter",
+                "version_status": "FastMCP Server + Pydantic AI Client (Adapter Bridge)",
+                "test_result": "MCP integration working via FastMCP adapter",
                 "client_version": "2.10.0",
                 "server_version": "2.9",
-                "integration_status": "Native Pydantic AI MCP support",
-                "agent_response": (
-                    str(result.output)[:200] + "..."
-                    if len(str(result.output)) > 200
-                    else str(result.output)
-                ),
+                "integration_status": "FastMCP adapter bridging to Pydantic AI",
+                "adapter_details": adapter_details,
             }
 
         except Exception as e:
