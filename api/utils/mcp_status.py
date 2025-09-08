@@ -84,16 +84,9 @@ class MCPStatusService:
     """
 
     def __init__(self):
-        # Check if MCP is enabled via environment variable
-        mcp_url = os.getenv("MCP_SERVER_URL")
-
-        if mcp_url:
-            self.server_info = MCPServerInfo(url=mcp_url)
-            self.mcp_enabled = True
-        else:
-            # MCP is disabled - no URL provided
-            self.server_info = MCPServerInfo(url="", status=MCPStatus.DISABLED)
-            self.mcp_enabled = False
+        # MCP system is always enabled - servers are managed via registry
+        self.server_info = MCPServerInfo(url="", status=MCPStatus.UNKNOWN)
+        self.mcp_enabled = True  # Always enabled, registry manages servers
 
         self.check_interval = 30  # seconds
         self.max_consecutive_failures = 3
@@ -151,14 +144,23 @@ class MCPStatusService:
         Returns:
             Current MCP status
         """
-        # If MCP is disabled, return disabled status immediately
-        if not self.mcp_enabled:
+        # Check if there's a server registered in the registry
+        from ..utils.mcp_registry import get_mcp_registry
+
+        registry = get_mcp_registry()
+
+        if not registry.is_active():
+            # No server registered - system is ready but no server available
             self.server_info.status = MCPStatus.DISABLED
             self.server_info.last_check = datetime.now()
+            self.server_info.url = ""
             self.server_info.error_message = (
-                "MCP disabled: No MCP_SERVER_URL environment variable set"
+                "No MCP server registered - use /api/v2/mcp/register to add one"
             )
             return MCPStatus.DISABLED
+
+        # Update server URL from registry
+        self.server_info.url = registry.active_url or ""
 
         start_time = datetime.now()
         self.server_info.last_check = start_time

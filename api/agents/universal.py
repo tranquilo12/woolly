@@ -30,8 +30,7 @@ from pydantic_ai.mcp import MCPServerStreamableHTTP
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ✅ ENHANCED: Read MCP_SERVER_URL from environment with graceful fallback
-MCP_SERVER_URL = os.getenv("MCP_SERVER_URL")  # Can be None if not set
+# MCP servers are managed via registry - no environment variable needed
 
 
 class AgentType(str, Enum):
@@ -327,15 +326,10 @@ class UniversalAgentFactory:
         # Following Pydantic AI MCP documentation best practices
         # Server: FastMCP 2.9, Client: Pydantic AI native integration
 
-        # ✅ ENHANCED: Initialize MCP server only if URL is provided
-        if MCP_SERVER_URL:
-            self.mcp_server = MCPServerStreamableHTTP(MCP_SERVER_URL)
-            self.mcp_available = True
-            logger.info(f"✅ MCP server initialized: {MCP_SERVER_URL}")
-        else:
-            self.mcp_server = None
-            self.mcp_available = False
-            logger.info("⚠️ MCP server disabled: No MCP_SERVER_URL provided")
+        # Initialize MCP from registry - no environment variable needed
+        self.mcp_server = None
+        self.mcp_available = False
+        self.refresh_mcp()  # Check registry for active servers
 
         self.mcp_client = None  # Legacy field, kept for compatibility
 
@@ -453,15 +447,13 @@ class UniversalAgentFactory:
                 logger.debug(
                     f"🔄 MCP server refreshed from registry: {registry.active_url}"
                 )
-            elif MCP_SERVER_URL and self.mcp_server is None:
-                # Fallback to environment URL if registry is empty
-                self.mcp_server = MCPServerStreamableHTTP(MCP_SERVER_URL)
-                self.mcp_available = True
-                logger.debug(f"🔄 MCP server refreshed from env: {MCP_SERVER_URL}")
-            elif not MCP_SERVER_URL and registry_server is None:
-                # No MCP available anywhere
+            else:
+                # No MCP server available in registry
                 self.mcp_server = None
                 self.mcp_available = False
+                logger.debug(
+                    "ℹ️ No MCP server available - register one via /api/v2/mcp/register"
+                )
                 logger.debug("🔄 MCP server refresh: No server available")
 
         except Exception as e:
@@ -1441,22 +1433,22 @@ Use these valid entity IDs for relationship queries instead of making new discov
         ✅ CORRECT: Test MCP connection with proper Pydantic AI patterns
         """
         try:
-            # Check if MCP is disabled entirely (no env var AND no server set)
-            if MCP_SERVER_URL is None and self.mcp_server is None:
+            # Check if MCP server is available
+            if self.mcp_server is None:
                 return {
                     "mcp_server_url": None,
                     "connection_test": "disabled",
                     "integration_type": "Native Pydantic AI",
-                    "error": "MCP disabled: No MCP_SERVER_URL environment variable set",
+                    "error": "No MCP server registered - use /api/v2/mcp/register to add one",
                     "client_version": "2.10.0",
                     "server_version": "N/A",
-                    "integration_status": "MCP disabled - set MCP_SERVER_URL to enable",
+                    "integration_status": "MCP disabled - register server via API",
                 }
 
-            # If we have a server instance (even without env var), test it
+            # Double-check server availability (redundant but safe)
             if self.mcp_server is None:
                 return {
-                    "mcp_server_url": MCP_SERVER_URL,
+                    "mcp_server_url": None,
                     "connection_test": "failed",
                     "integration_type": "Native Pydantic AI",
                     "error": "No MCP server instance available",
@@ -1470,8 +1462,14 @@ Use these valid entity IDs for relationship queries instead of making new discov
                 await self._test_mcp_connection()
 
             if not self.mcp_available:
+                # Get URL from registry for accurate reporting
+                from ..utils.mcp_registry import get_mcp_registry
+
+                registry = get_mcp_registry()
+                server_url = registry.active_url or "unknown"
+
                 return {
-                    "mcp_server_url": MCP_SERVER_URL or "unknown",
+                    "mcp_server_url": server_url,
                     "connection_test": "failed",
                     "integration_type": "Native Pydantic AI",
                     "error": "MCP server not available",
@@ -1492,8 +1490,14 @@ Use these valid entity IDs for relationship queries instead of making new discov
             # ✅ CORRECT: Test agent execution with proper result handling
             result = await test_agent.run("Test MCP connection", deps=test_dependencies)
 
+            # Get URL from registry for accurate reporting
+            from ..utils.mcp_registry import get_mcp_registry
+
+            registry = get_mcp_registry()
+            server_url = registry.active_url or "unknown"
+
             return {
-                "mcp_server_url": MCP_SERVER_URL,
+                "mcp_server_url": server_url,
                 "connection_test": "success",
                 "integration_type": "Native Pydantic AI",
                 "version_status": "FastMCP 2.9 - Version Matched",
@@ -1531,8 +1535,14 @@ Use these valid entity IDs for relationship queries instead of making new discov
 
             logger.error(f"MCP connection test failed: {error_message}")
 
+            # Get URL from registry for accurate reporting
+            from ..utils.mcp_registry import get_mcp_registry
+
+            registry = get_mcp_registry()
+            server_url = registry.active_url or "unknown"
+
             return {
-                "mcp_server_url": MCP_SERVER_URL,
+                "mcp_server_url": server_url,
                 "connection_test": "failed",
                 "integration_type": "Native Pydantic AI",
                 "version_status": "FastMCP 2.9 - Connection Failed",

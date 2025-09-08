@@ -45,7 +45,7 @@ class MCPServerResponse(BaseModel):
     details: Optional[Dict[str, Any]] = None
 
 
-@router.post("/api/mcp/register", response_model=MCPServerResponse)
+@router.post("/mcp/register", response_model=MCPServerResponse)
 async def register_mcp_server(request: MCPServerRegisterRequest):
     """
     Register an external MCP server for hot-swap functionality.
@@ -67,7 +67,7 @@ async def register_mcp_server(request: MCPServerRegisterRequest):
         logger.info(f"🔌 Attempting to register MCP server: {request.url}")
 
         # Create MCP server instance
-        mcp_server = MCPServerStreamableHTTP(request.url)
+        mcp_server = MCPServerStreamableHTTP(url=request.url)
 
         # Validate connection if requested (default is True)
         if request.validate_connection:
@@ -146,7 +146,7 @@ async def register_mcp_server(request: MCPServerRegisterRequest):
         )
 
 
-@router.post("/api/mcp/deregister", response_model=MCPServerResponse)
+@router.post("/mcp/deregister", response_model=MCPServerResponse)
 async def deregister_mcp_server():
     """
     Deregister the currently active MCP server.
@@ -190,7 +190,7 @@ async def deregister_mcp_server():
         )
 
 
-@router.get("/api/mcp/registry/status", response_model=MCPServerResponse)
+@router.get("/mcp/registry/status", response_model=MCPServerResponse)
 async def get_registry_status():
     """
     Get the current status of the MCP registry.
@@ -229,7 +229,7 @@ async def get_registry_status():
         )
 
 
-@router.post("/api/mcp/test-connection")
+@router.post("/mcp/test-connection")
 async def test_mcp_connection():
     """
     Test the connection to the currently registered MCP server.

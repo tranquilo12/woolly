@@ -64,26 +64,11 @@ async def lifespan(app: FastAPI):
         # Initialize MCP monitoring
         await initialize_mcp_monitoring()
 
-        # Register MCP server from environment if available
-        mcp_server_url = os.getenv("MCP_SERVER_URL")
-        if mcp_server_url:
-            try:
-                from pydantic_ai.mcp import MCPServerStreamableHTTP
-
-                # Create and register MCP server in registry
-                mcp_server = MCPServerStreamableHTTP(mcp_server_url)
-                registry = get_mcp_registry()
-                await registry.register(mcp_server, mcp_server_url)
-
-                logging.info(
-                    f"✅ MCP server registered from environment: {mcp_server_url}"
-                )
-            except Exception as mcp_error:
-                logging.warning(
-                    f"⚠️ Failed to register MCP server from environment: {mcp_error}"
-                )
-        else:
-            logging.info("ℹ️ No MCP_SERVER_URL provided - MCP functionality disabled")
+        # MCP servers will be registered dynamically via the registry API
+        # No automatic environment-based registration needed
+        logging.info(
+            "ℹ️ MCP system ready - servers can be registered via /api/v2/mcp/register"
+        )
 
         logging.info("🚀 Application startup complete")
     except Exception as e:
@@ -95,11 +80,14 @@ async def lifespan(app: FastAPI):
     try:
         from .utils.mcp_status import shutdown_mcp_monitoring
 
-        # Deregister MCP server
+        # Deregister any active MCP servers from registry
         try:
             registry = get_mcp_registry()
-            await registry.deregister()
-            logging.info("🔌 MCP server deregistered")
+            if registry.is_active():
+                await registry.deregister()
+                logging.info("🔌 Active MCP server deregistered")
+            else:
+                logging.info("ℹ️ No active MCP server to deregister")
         except Exception as mcp_error:
             logging.warning(f"⚠️ Failed to deregister MCP server: {mcp_error}")
 
